@@ -18,6 +18,7 @@ import {
 } from '@/lib/payroll/engine'
 import { offCyclePeriod, periodOf, type PayPeriodType } from '@/lib/payroll/period'
 import { toIso } from '@/lib/payroll/week'
+import { invalidateIfStale } from '@/lib/payroll/workflow/service'
 
 /**
  * Abre un período de pago.
@@ -187,6 +188,26 @@ export async function saveWorkEntries(formData: FormData) {
     })
   })
 
+
+  /*
+   * Si alguna nómina de esta semana ya estaba aprobada y lo que se acaba de
+   * guardar la cambió, la aprobación se cae aquí mismo. No se espera a que
+   * alguien lo note: un cambio silencioso después de aprobar es exactamente lo
+   * que este sistema existe para impedir.
+   */
+  const approved = await prisma.workerPayroll.findMany({
+    where: {
+      companyId: company.id,
+      payrollWeekId: week.id,
+      status: { in: ['APPROVED', 'READY_TO_PAY'] },
+    },
+    select: { id: true },
+  })
+  for (const payroll of approved) {
+    await invalidateIfStale(payroll.id)
+  }
+
+  revalidatePath('/approvals')
   revalidatePath(`/payroll/${weekId}`)
 }
 

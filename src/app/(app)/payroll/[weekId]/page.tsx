@@ -1,10 +1,11 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { Badge, Button, Card, EmptyState, LinkButton, PageHeader, Stat, money } from '@/components/ui'
+import { Badge, Button, EmptyState, LinkButton, PageHeader, Stat, money } from '@/components/ui'
 import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
 import { shortDay, toIso } from '@/lib/payroll/week'
 import { addWorkerToPeriod, calculateWeek, removeWorkerFromPeriod, saveWorkEntries } from '../actions'
+import { SubmitWeek } from './SubmitWeek'
 import { DayCell } from './DayCell'
 
 export const dynamic = 'force-dynamic'
@@ -476,12 +477,17 @@ export default async function WeekPage({
             )}
           </section>
 
-          <Card className="mt-6 border-amber-300 bg-amber-50">
-            <p className="text-sm text-amber-900">
-              <strong>Falta el siguiente paso:</strong> enviar a aprobación, el Approval Center de
-              Rafael y el Payment Center. Están en los módulos M9 y M10 del plan.
-            </p>
-          </Card>
+          <SubmitWeek
+            payrolls={payrolls
+              .filter((payroll) => ['PREPARED', 'REJECTED'].includes(payroll.status))
+              .map((payroll) => ({
+                id: payroll.id,
+                name: payroll.worker.displayName,
+                net: payroll.netPay.toFixed(2),
+              }))}
+            blockedByErrors={critical.length}
+            alreadySent={payrolls.filter((payroll) => payroll.status === 'PENDING_APPROVAL').length}
+          />
         </>
       )}
     </>

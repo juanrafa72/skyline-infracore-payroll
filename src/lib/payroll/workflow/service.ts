@@ -1,0 +1,263 @@
+import { prisma } from '@/lib/db/client'
+import type { CurrentUser } from '@/lib/auth/rbac'
+import { toIso } from '@/lib/payroll/week'
+import {
+  LABELS,
+  approvalIsStale,
+  assertTransition,
+  calculationHash,
+  type MaterialFields,
+  type PayrollStatus,
+  type WorkflowAction,
+} from './index'
+
+/**
+ * Ejecuta transiciones de nómina contra la base de datos.
+ *
+ * Todo lo que decide está en `./index.ts`, que es puro y se prueba solo. Aquí
+ * únicamente se leen los datos, se aplica la decisión y se deja registro.
+ */
+
+/** Reúne los campos que, si cambian, obligan a aprobar otra vez. */
+export async function buildMaterialFields(workerPayrollId: string): Promise<MaterialFields> {
+  const payroll = await prisma.workerPayroll.findUniqueOrThrow({
+    where: { id: workerPayrollId },
+    include: {
+      lines: { orderBy: { workDate: 'asc' } },
+      additions: true,
+      deductions: true,
+      payrollWeek: true,
+    },
+  })
+
+  const entries = await prisma.workEntry.findMany({
+    where: {
+      companyId: payroll.companyId,
+      workerId: payroll.workerId,
+      payrollWeekId: payroll.payrollWeekId,
+    },
+    orderBy: { workDate: 'asc' },
+  })
+
+  return {
+    workerId: payroll.workerId,
+    days: entries.map((entry) => ({
+      date: toIso(entry.workDate),
+      dayType: entry.dayType,
+      hours: entry.hoursWorked?.toString() ?? null,
+      shift: entry.shift,
+      projectId: entry.projectId,
+      crewId: entry.crewId,
+      additionalAmount: entry.additionalAmount?.toFixed(2) ?? null,
+      additionalNote: entry.additionalNote,
+    })),
+    rates: payroll.lines.map((line) => ({
+      date: line.workDate ? toIso(line.workDate) : '',
+      amount: line.appliedRate.toFixed(2),
+      rateId: line.rateSourceId,
+    })),
+    additions: payroll.additions.map((row) => ({
+      category: row.category,
+      amount: row.amount.toFixed(2),
+      description: row.description,
+    })),
+    deductions: payroll.deductions.map((row) => ({
+      category: row.category,
+      amount: row.amount.toFixed(2),
+      description: row.description,
+    })),
+    advanceRecoveries: payroll.deductions
+      .filter((row) => row.advanceRecoveryId)
+      .map((row) => ({ advanceId: row.advanceRecoveryId!, amount: row.amount.toFixed(2) })),
+    debtRecoveries: payroll.deductions
+      .filter((row) => row.debtTransactionId)
+      .map((row) => ({ debtId: row.debtTransactionId!, amount: row.amount.toFixed(2) })),
+    grossPay: payroll.grossPay.toFixed(2),
+    netPay: payroll.netPay.toFixed(2),
+  }
+}
+
+export async function currentHash(workerPayrollId: string): Promise<string> {
+  return calculationHash(await buildMaterialFields(workerPayrollId))
+}
+
+/**
+ * Revisa si una nómina aprobada dejó de coincidir con lo que se aprobó.
+ *
+ * De ser así la devuelve a "esperando aprobación", deja la excepción y lo
+ * registra. Nunca se corrige el estado en silencio.
+ */
+export async function invalidateIfStale(workerPayrollId: string): Promise<boolean> {
+  const payroll = await prisma.workerPayroll.findUniqueOrThrow({
+    where: { id: workerPayrollId },
+  })
+
+  if (!['APPROVED', 'READY_TO_PAY'].includes(payroll.status)) return false
+
+  const hash = await currentHash(workerPayrollId)
+  if (!approvalIsStale(payroll.calculationHash, hash)) return false
+
+  await prisma.$transaction(async (tx) => {
+    await tx.workerPayroll.update({
+      where: { id: workerPayrollId },
+      data: {
+        status: 'PENDING_APPROVAL',
+        approvedById: null,
+        approvedAt: null,
+        approvalInvalidatedAt: new Date(),
+        approvalInvalidatedReason: 'Cambió algo después de aprobar',
+        calculationHash: hash,
+      },
+    })
+
+    await tx.exception.create({
+      data: {
+        companyId: payroll.companyId,
+        code: 'CHANGED_AFTER_APPROVAL',
+        level: 'CRITICAL',
+        entityType: 'WorkerPayroll',
+        entityId: workerPayrollId,
+        payrollWeekId: payroll.payrollWeekId,
+        workerId: payroll.workerId,
+        title: 'Cambió después de aprobar',
+        detail:
+          'Se modificó algo que afecta el pago después de la aprobación. La nómina volvió a ' +
+          'esperar aprobación y debe revisarse de nuevo.',
+      },
+    })
+
+    await tx.auditLog.create({
+      data: {
+        companyId: payroll.companyId,
+        action: 'APPROVAL_INVALIDATED',
+        entityType: 'WorkerPayroll',
+        entityId: workerPayrollId,
+        payrollWeekId: payroll.payrollWeekId,
+        oldValueJson: { status: payroll.status, hash: payroll.calculationHash },
+        newValueJson: { status: 'PENDING_APPROVAL', hash },
+        changedFields: ['status', 'calculationHash'],
+        reason: 'Cambió algo material después de aprobar',
+      },
+    })
+  })
+
+  return true
+}
+
+export interface TransitionResult {
+  moved: number
+  skipped: Array<{ workerName: string; reason: string }>
+}
+
+/** Aplica una acción del flujo a un conjunto de nóminas. */
+export async function applyTransition(
+  user: CurrentUser,
+  workerPayrollIds: readonly string[],
+  action: WorkflowAction,
+  reason?: string | null,
+): Promise<TransitionResult> {
+  const result: TransitionResult = { moved: 0, skipped: [] }
+
+  for (const id of workerPayrollIds) {
+    const payroll = await prisma.workerPayroll.findFirst({
+      where: { id, companyId: user.companyId },
+      include: { worker: true },
+    })
+    if (!payroll) continue
+
+    let next: PayrollStatus
+    try {
+      next = assertTransition({
+        action,
+        current: payroll.status as PayrollStatus,
+        actorId: user.id,
+        permissions: user.permissions,
+        preparedById: payroll.preparedById,
+        approvedById: payroll.approvedById,
+        reason: reason ?? null,
+      })
+    } catch (error) {
+      result.skipped.push({
+        workerName: payroll.worker.displayName,
+        reason: (error as Error).message,
+      })
+      continue
+    }
+
+    // Antes de aprobar se exige que no queden errores críticos abiertos.
+    if (action === 'APPROVE') {
+      const critical = await prisma.exception.count({
+        where: {
+          companyId: user.companyId,
+          entityId: payroll.id,
+          level: 'CRITICAL',
+          status: 'OPEN',
+        },
+      })
+      if (critical > 0) {
+        result.skipped.push({
+          workerName: payroll.worker.displayName,
+          reason: `Tiene ${critical} error(es) crítico(s) sin resolver.`,
+        })
+        continue
+      }
+    }
+
+    const hash = await currentHash(payroll.id)
+
+    await prisma.$transaction(async (tx) => {
+      await tx.workerPayroll.update({
+        where: { id: payroll.id },
+        data: {
+          status: next,
+          ...(action === 'SUBMIT'
+            ? { preparedById: user.id, preparedAt: new Date(), calculationHash: hash }
+            : {}),
+          ...(action === 'APPROVE'
+            ? {
+                approvedById: user.id,
+                approvedAt: new Date(),
+                calculationHash: hash,
+                approvalInvalidatedAt: null,
+                approvalInvalidatedReason: null,
+                rejectionReason: null,
+              }
+            : {}),
+          ...(action === 'REJECT'
+            ? { rejectedById: user.id, rejectedAt: new Date(), rejectionReason: reason ?? null }
+            : {}),
+          ...(action === 'RETURN'
+            ? {
+                approvedById: null,
+                approvedAt: null,
+                approvalInvalidatedAt: new Date(),
+                approvalInvalidatedReason: reason ?? null,
+              }
+            : {}),
+        },
+      })
+
+      await tx.auditLog.create({
+        data: {
+          companyId: user.companyId,
+          userId: user.id,
+          userEmailSnapshot: user.email,
+          action: `PAYROLL_${action}`,
+          entityType: 'WorkerPayroll',
+          entityId: payroll.id,
+          payrollWeekId: payroll.payrollWeekId,
+          oldValueJson: { status: payroll.status, net: payroll.netPay.toFixed(2) },
+          newValueJson: { status: next, net: payroll.netPay.toFixed(2) },
+          changedFields: ['status'],
+          reason: reason ?? null,
+        },
+      })
+    })
+
+    result.moved += 1
+  }
+
+  return result
+}
+
+export { LABELS }

@@ -131,11 +131,18 @@ módulos de Turbopack.
       (1–15 y 16–fin de mes) y mensual, por compañía y con excepción por trabajador.
       Cortes fuera de calendario para liquidar a quien se retira.
 - [x] **Publicado** en Netlify con base en Neon, detrás de contraseña compartida
-- [ ] **M3** — autenticación real por persona y rol. Hoy solo hay **una contraseña
-      compartida**: todos ven todo, cualquiera puede cambiar montos y no queda
-      registro de quién fue. Es lo siguiente y es bloqueante para operar de verdad.
-- [ ] M6–M14 — anticipos, deudas, Approval Center, Payment Center, comprobantes,
-      auditoría visible. Ver `docs/IMPLEMENTATION_PLAN.md`
+- [x] **M3** — login por persona con roles y permisos reales
+- [x] **M9 — Approval Center** — revisar, comparar contra la semana anterior, aprobar,
+      rechazar o devolver. Segregación por persona: quien preparó no aprueba, ni siendo
+      administrador. Al aprobar se congela la huella; cualquier cambio material posterior
+      la invalida sola y la devuelve a aprobación.
+- [x] **M10 — Payment Center** — pagar solo lo aprobado, con fecha, método, monto y
+      referencia. Los campos financieros no se pueden tocar desde ahí. Pagar de más está
+      bloqueado; pagar de menos deja una diferencia abierta. Referencia repetida se
+      rechaza. Quien aprobó no puede pagar.
+- [ ] **Comprobante de pago en PDF** y subida del soporte bancario a SharePoint
+- [ ] Anticipos y deudas de trabajadores (pantallas; el modelo ya existe)
+- [ ] Margen por cuadrilla y proyecto · SharePoint · importación de FORMATO COMIS
 
 **110 tests pasando** · `npm run check` en verde.
 

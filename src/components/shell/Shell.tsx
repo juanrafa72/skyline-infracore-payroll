@@ -13,6 +13,8 @@ const NAV: ReadonlyArray<{
     items: [
       { href: '/dashboard', label: 'Dashboard', permission: 'dashboard:view' },
       { href: '/payroll', label: 'Nómina', permission: 'payroll:view' },
+      { href: '/approvals', label: 'Aprobaciones', permission: 'payroll:approve' },
+      { href: '/payments', label: 'Pagos', permission: 'payment:view' },
       { href: '/production', label: 'Producción', permission: 'payroll:view' },
       { href: '/reports', label: 'Reportes', permission: 'payroll:view' },
     ],
@@ -30,8 +32,6 @@ const NAV: ReadonlyArray<{
   {
     group: 'Pendiente',
     items: [
-      { href: '/approvals', label: 'Aprobaciones', soon: true },
-      { href: '/payments', label: 'Pagos', soon: true },
       { href: '/advances', label: 'Anticipos', soon: true },
       { href: '/debts', label: 'Deudas', soon: true },
       { href: '/audit', label: 'Auditoría', soon: true },
