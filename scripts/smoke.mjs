@@ -19,6 +19,7 @@ const ROUTES = [
   '/workers',
   '/workers/new',
   '/crews',
+  '/contractors',
   '/projects',
   '/customers',
   '/payroll',
@@ -90,6 +91,8 @@ async function main() {
     for (const [list, prefix] of [
       ['/workers', '/workers/'],
       ['/payroll', '/payroll/'],
+      ['/crews', '/crews/'],
+      ['/contractors', '/contractors/'],
     ]) {
       const html = (await get(list, companyId)).body
       const found = html.match(new RegExp(`${prefix}(${UUID})`))

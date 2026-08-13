@@ -4,7 +4,8 @@ import { Badge, Button, Card, EmptyState, LinkButton, PageHeader, Stat, money } 
 import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
 import { shortDay, toIso } from '@/lib/payroll/week'
-import { calculateWeek, saveWorkEntries } from '../actions'
+import { addWorkerToPeriod, calculateWeek, removeWorkerFromPeriod, saveWorkEntries } from '../actions'
+import { DayCell } from './DayCell'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,13 +25,6 @@ function gridTemplate(dayCount: number): string {
 /** Clase estática que consume la variable. Esta sí la compila Tailwind. */
 const GRID_CLASS = 'md:[grid-template-columns:var(--payroll-grid)] md:gap-2'
 
-
-const DAY_OPTIONS = [
-  { value: '', label: '—' },
-  { value: 'FULL_DAY', label: 'Sí' },
-  { value: 'HALF_DAY', label: '½' },
-  { value: 'NO_WORK', label: 'No' },
-] as const
 
 /** Cuántos días atrás se considera que alguien "sigue trabajando". */
 const RECENT_DAYS = 60
@@ -62,6 +56,15 @@ export default async function WeekPage({
   recentCutoff.setUTCDate(recentCutoff.getUTCDate() - RECENT_DAYS)
 
   const showAll = filters.todos === '1'
+
+  // Quién ya fue agregado o sacado de este período a mano.
+  const roster = await prisma.payrollWeekMember.findMany({
+    where: { companyId: company.id, payrollWeekId: week.id },
+    select: { workerId: true, removedAt: true },
+  })
+  const addedIds = roster.filter((row) => !row.removedAt).map((row) => row.workerId)
+  const removedIds = new Set(roster.filter((row) => row.removedAt).map((row) => row.workerId))
+
   const workerFilter = {
     companyId: company.id,
     status: 'ACTIVE' as const,
@@ -70,13 +73,19 @@ export default async function WeekPage({
       ? {}
       : {
           OR: [
+            // agregados a mano a este período
+            { id: { in: addedIds.length > 0 ? addedIds : ['-'] } },
+            // ya tienen días marcados aquí
+            { workEntries: { some: { payrollWeekId: week.id } } },
+            // siguen activos de verdad
             { workEntries: { some: { workDate: { gte: recentCutoff } } } },
-            { workEntries: { none: {} } }, // recién creados a mano
+            // recién creados a mano
+            { workEntries: { none: {} } },
           ],
         }),
   }
 
-  const [workers, entries, payrolls, exceptions, totalActive, operations] = await Promise.all([
+  const [allShown, entries, payrolls, exceptions, totalActive, operations] = await Promise.all([
     prisma.worker.findMany({
       where: workerFilter,
       orderBy: { displayName: 'asc' },
@@ -95,6 +104,16 @@ export default async function WeekPage({
     prisma.operation.findMany({ where: { companyId: company.id }, orderBy: { sortOrder: 'asc' } }),
   ])
 
+  // Quien fue sacado del período a mano no aparece, salvo que se pidan todos.
+  const workers = showAll ? allShown : allShown.filter((worker) => !removedIds.has(worker.id))
+
+  const shownIds = new Set(workers.map((worker) => worker.id))
+  const available = await prisma.worker.findMany({
+    where: { companyId: company.id, status: 'ACTIVE', id: { notIn: [...shownIds] } },
+    orderBy: { displayName: 'asc' },
+    select: { id: true, displayName: true },
+  })
+
   // El período puede durar 1, 7, 14, 15, 16, 28, 30 o 31 días según la
   // frecuencia, o lo que dure un corte. Se recorre de inicio a fin.
   const days: string[] = []
@@ -107,7 +126,14 @@ export default async function WeekPage({
   }
 
   const entryMap = new Map(
-    entries.map((entry) => [`${entry.workerId}:${toIso(entry.workDate)}`, entry.dayType]),
+    entries.map((entry) => [
+      `${entry.workerId}:${toIso(entry.workDate)}`,
+      {
+        dayType: entry.dayType as string,
+        amount: entry.additionalAmount ? entry.additionalAmount.toFixed(2) : '',
+        note: entry.additionalNote ?? '',
+      },
+    ]),
   )
 
   const totals = payrolls.reduce(
@@ -181,7 +207,9 @@ export default async function WeekPage({
           <section className="mb-8">
             <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide">Días trabajados</h2>
             <p className="mb-3 text-xs text-[var(--muted)]">
-              Sí = día completo · ½ = medio día · No = no trabajó · — = sin registrar todavía.
+              Sí = día completo · ½ = medio día · No = no trabajó · — = sin registrar todavía ·{' '}
+              <strong>Sí +</strong> = trabajó y además se le paga algo extra ese día (pide monto y
+              motivo; sin motivo no se guarda).
             </p>
 
             <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
@@ -283,27 +311,48 @@ export default async function WeekPage({
                     {/* `md:contents` disuelve este envoltorio dentro de la rejilla en escritorio */}
                     <div className={`mt-3 grid grid-cols-4 gap-2 md:mt-0 ${inlineDays ? "md:contents" : "md:grid-cols-8 md:gap-1.5"}`}>
                       {days.map((day) => {
-                        const current = entryMap.get(`${worker.id}:${day}`) ?? ''
+                        const current = entryMap.get(`${worker.id}:${day}`)
                         return (
                           // La clave incluye el valor: al recalcular, React vuelve a montar
                           // el campo y muestra lo que quedó guardado. Sin esto, un campo no
                           // controlado conserva en pantalla lo que tenía antes.
-                          <label key={`${day}:${current}`} className="block">
+                          <label
+                            key={`${day}:${current?.dayType ?? ''}:${current?.amount ?? ''}`}
+                            className="block"
+                          >
                             <span className={`mb-0.5 block text-center text-[11px] text-[var(--muted)] ${inlineDays ? 'md:hidden' : ''}`}>
                               {shortDay(day)}
                             </span>
-                            <DaySelect worker={worker.id} day={day} value={current} />
+                            <DayCell
+                              workerId={worker.id}
+                              day={day}
+                              dayType={current?.dayType ?? ''}
+                              amount={current?.amount ?? ''}
+                              note={current?.note ?? ''}
+                            />
                           </label>
                         )
                       })}
                     </div>
 
-                    <div className="hidden text-right text-sm tabular-nums md:block">
-                      {worker.rates[0] ? (
-                        `$${money(worker.rates[0].amount)}`
-                      ) : (
-                        <Badge tone="critical">falta</Badge>
-                      )}
+                    <div className="mt-2 flex items-center justify-between gap-2 md:mt-0 md:justify-end">
+                      <span className="text-sm tabular-nums">
+                        {worker.rates[0] ? (
+                          `$${money(worker.rates[0].amount)}`
+                        ) : (
+                          <Badge tone="critical">falta</Badge>
+                        )}
+                      </span>
+                      <button
+                        type="submit"
+                        formAction={removeWorkerFromPeriod}
+                        name="workerId"
+                        value={worker.id}
+                        title="Quitar del período (no borra su historia)"
+                        className="rounded border border-[var(--border)] px-1.5 py-0.5 text-xs text-[var(--muted)] hover:border-red-300 hover:text-red-700"
+                      >
+                        quitar
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -313,6 +362,31 @@ export default async function WeekPage({
                 <Button>Guardar días</Button>
               </div>
             </form>
+
+            {available.length > 0 ? (
+              <form
+                action={addWorkerToPeriod}
+                className="mt-3 flex flex-wrap items-end gap-2 rounded-lg border border-dashed border-[var(--border)] p-3"
+              >
+                <input type="hidden" name="weekId" value={week.id} />
+                <label className="min-w-[220px] flex-1">
+                  <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                    Agregar a alguien que sí trabajó
+                  </span>
+                  <select
+                    name="workerId"
+                    className="h-9 w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 text-sm"
+                  >
+                    {available.map((person) => (
+                      <option key={person.id} value={person.id}>
+                        {person.displayName}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <Button variant="secondary">Agregar al período</Button>
+              </form>
+            ) : null}
 
             <form action={calculateWeek} className="mt-2">
               <input type="hidden" name="weekId" value={week.id} />
@@ -409,18 +483,3 @@ export default async function WeekPage({
   )
 }
 
-function DaySelect({ worker, day, value }: { worker: string; day: string; value: string }) {
-  return (
-    <select
-      name={`day:${worker}:${day}`}
-      defaultValue={value}
-      className="h-8 w-full min-w-[52px] rounded border border-[var(--border)] bg-[var(--surface)] px-1 text-center text-sm outline-none focus:border-[var(--accent)]"
-    >
-      {DAY_OPTIONS.map((option) => (
-        <option key={option.value} value={option.value}>
-          {option.label}
-        </option>
-      ))}
-    </select>
-  )
-}

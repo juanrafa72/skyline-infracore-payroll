@@ -74,6 +74,15 @@ export async function openWeek(formData: FormData) {
   redirect(`/payroll/${week.id}`)
 }
 
+/** Acepta "75", "75.5", "$75.00" y devuelve "75.00". Rechaza lo que no sea un monto. */
+function normalizeAmount(raw: string): string {
+  const cleaned = raw.replace(/[$\s,]/g, '')
+  if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) {
+    throw new Error(`"${raw}" no es un monto válido. Usa números, con máximo 2 decimales.`)
+  }
+  return Number(cleaned).toFixed(2)
+}
+
 /**
  * Guarda la rejilla de días. Un día vacío significa "sin registro" y se borra;
  * no se guarda como NO_WORK implícito, porque no es lo mismo no haber trabajado
@@ -88,6 +97,17 @@ export async function saveWorkEntries(formData: FormData) {
   })
   if (!week) throw new Error('Semana no encontrada')
   if (week.status === 'CLOSED') throw new Error('La semana está cerrada')
+
+  const extras = new Map<string, { amount: string; note: string }>()
+  for (const [key, raw] of formData.entries()) {
+    if (key.startsWith('extra:')) {
+      const id = key.slice('extra:'.length)
+      extras.set(id, { amount: String(raw).trim(), note: extras.get(id)?.note ?? '' })
+    } else if (key.startsWith('nota:')) {
+      const id = key.slice('nota:'.length)
+      extras.set(id, { amount: extras.get(id)?.amount ?? '', note: String(raw).trim() })
+    }
+  }
 
   const operations = new Map<string, { workerId: string; date: string; value: string }>()
   for (const [key, raw] of formData.entries()) {
@@ -118,11 +138,28 @@ export async function saveWorkEntries(formData: FormData) {
       }
 
       const dayType = value as DayType
+      const extra = extras.get(`${workerId}:${date}`)
+      const amount = extra?.amount ? normalizeAmount(extra.amount) : null
+      const note = extra?.note || null
+
+      // Un monto adicional sin explicación no se guarda. La base también lo
+      // impide; aquí se avisa con un mensaje entendible en vez de un error crudo.
+      if (amount !== null && !note) {
+        throw new Error(
+          `El adicional del ${date} necesita una nota que explique por qué se paga.`,
+        )
+      }
+
       await tx.workEntry.upsert({
         where: {
           companyId_workerId_workDate: { companyId: company.id, workerId, workDate },
         },
-        update: { dayType, payrollWeekId: week.id },
+        update: {
+          dayType,
+          payrollWeekId: week.id,
+          additionalAmount: amount,
+          additionalNote: amount === null ? null : note,
+        },
         create: {
           companyId: company.id,
           payrollWeekId: week.id,
@@ -130,6 +167,8 @@ export async function saveWorkEntries(formData: FormData) {
           workDate,
           dayType,
           status: dayType === 'NO_WORK' ? 'NO_WORK' : 'WORKED',
+          additionalAmount: amount,
+          additionalNote: amount === null ? null : note,
         },
       })
       saved += 1
@@ -216,6 +255,10 @@ export async function calculateWeek(formData: FormData) {
         projectId: entry.projectId,
         crewId: entry.crewId,
         operationId: entry.operationId,
+        additionalAmount: entry.additionalAmount
+          ? toCents(entry.additionalAmount.toString())
+          : null,
+        additionalNote: entry.additionalNote,
       }))
 
     const workerRates: RateInput[] = rates
@@ -361,6 +404,88 @@ export async function calculateWeek(formData: FormData) {
       })
     })
   }
+
+  revalidatePath(`/payroll/${weekId}`)
+}
+
+/** Agrega a alguien a este período aunque todavía no tenga días marcados. */
+export async function addWorkerToPeriod(formData: FormData) {
+  const company = await getActiveCompany()
+  const weekId = String(formData.get('weekId') ?? '')
+  const workerId = String(formData.get('workerId') ?? '')
+  if (!workerId) return
+
+  const week = await prisma.payrollWeek.findFirst({ where: { id: weekId, companyId: company.id } })
+  if (!week) throw new Error('Período no encontrado')
+
+  await prisma.payrollWeekMember.upsert({
+    where: { payrollWeekId_workerId: { payrollWeekId: week.id, workerId } },
+    update: { removedAt: null, removedById: null, removalReason: null },
+    create: { companyId: company.id, payrollWeekId: week.id, workerId },
+  })
+
+  await prisma.auditLog.create({
+    data: {
+      companyId: company.id,
+      action: 'PERIOD_MEMBER_ADDED',
+      entityType: 'PayrollWeek',
+      entityId: week.id,
+      payrollWeekId: week.id,
+      newValueJson: { workerId },
+      changedFields: ['members'],
+    },
+  })
+
+  revalidatePath(`/payroll/${weekId}`)
+}
+
+/**
+ * Saca a alguien del período.
+ *
+ * No borra sus días: si ya tiene marcas, se conservan y se avisa. Quitar a
+ * alguien de la lista nunca puede hacer desaparecer trabajo ya registrado.
+ */
+export async function removeWorkerFromPeriod(formData: FormData) {
+  const company = await getActiveCompany()
+  const weekId = String(formData.get('weekId') ?? '')
+  const workerId = String(formData.get('workerId') ?? '')
+
+  const week = await prisma.payrollWeek.findFirst({ where: { id: weekId, companyId: company.id } })
+  if (!week) throw new Error('Período no encontrado')
+
+  const marked = await prisma.workEntry.count({
+    where: { companyId: company.id, payrollWeekId: week.id, workerId },
+  })
+  if (marked > 0) {
+    throw new Error(
+      `Esta persona ya tiene ${marked} día(s) marcado(s) en el período. ` +
+        'Bórralos primero (déjalos en "—" y guarda) si de verdad no trabajó.',
+    )
+  }
+
+  await prisma.payrollWeekMember.upsert({
+    where: { payrollWeekId_workerId: { payrollWeekId: week.id, workerId } },
+    update: { removedAt: new Date(), removalReason: 'No trabajó este período' },
+    create: {
+      companyId: company.id,
+      payrollWeekId: week.id,
+      workerId,
+      removedAt: new Date(),
+      removalReason: 'No trabajó este período',
+    },
+  })
+
+  await prisma.auditLog.create({
+    data: {
+      companyId: company.id,
+      action: 'PERIOD_MEMBER_REMOVED',
+      entityType: 'PayrollWeek',
+      entityId: week.id,
+      payrollWeekId: week.id,
+      newValueJson: { workerId },
+      changedFields: ['members'],
+    },
+  })
 
   revalidatePath(`/payroll/${weekId}`)
 }

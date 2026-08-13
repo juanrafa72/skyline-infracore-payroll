@@ -24,6 +24,7 @@ import {
 } from './money'
 import { resolveRate } from './rates'
 import type {
+  AdditionInput,
   AdvanceInput,
   CalculatedDeduction,
   CalculatedLine,
@@ -42,7 +43,13 @@ export function calculateWorkerPayroll(input: CalculationInput): CalculationResu
   const exceptions: EngineException[] = []
 
   const base = calculateBasePay(input, exceptions)
-  const additionsTotal = calculateAdditions(input)
+
+  // Los adicionales capturados día por día entran como adicionales normales.
+  // Se capturan en la rejilla porque es cuando se sabe, pero contablemente son
+  // lo mismo que un adicional de la semana.
+  const dailyAdditions = additionsFromEntries(input.entries, exceptions)
+  const allAdditions = [...input.additions, ...dailyAdditions]
+  const additionsTotal = sum(allAdditions.map((addition) => addition.amount))
   const grossPay = calculateGrossPay(base.basePay, additionsTotal)
 
   const deductions = calculateDeductions(input, grossPay, exceptions)
@@ -75,7 +82,7 @@ export function calculateWorkerPayroll(input: CalculationInput): CalculationResu
     daysNoWork: base.daysNoWork,
     hoursTotal: base.hoursTotal,
     lines: base.lines,
-    additions: input.additions,
+    additions: allAdditions,
     deductions,
     basePay: base.basePay,
     additionsTotal,
@@ -236,7 +243,49 @@ function hundredthsToString(value: bigint): string {
 // ─────────────────────────────────────────────────────────────
 
 export function calculateAdditions(input: CalculationInput): Cents {
-  return sum(input.additions.map((addition) => addition.amount))
+  return sum([
+    ...input.additions.map((addition) => addition.amount),
+    ...additionsFromEntries(input.entries, []).map((addition) => addition.amount),
+  ])
+}
+
+/**
+ * Convierte los adicionales marcados en la rejilla en adicionales de nómina.
+ *
+ * Un monto sin nota no se paga: se reporta como excepción. La base también lo
+ * impide, pero el motor no confía en que el dato haya pasado por la base.
+ */
+function additionsFromEntries(
+  entries: readonly WorkEntryInput[],
+  exceptions: EngineException[],
+): AdditionInput[] {
+  const additions: AdditionInput[] = []
+
+  for (const entry of entries) {
+    const amount = entry.additionalAmount
+    if (amount === undefined || amount === null || amount === ZERO) continue
+
+    const note = entry.additionalNote?.trim()
+    if (!note) {
+      exceptions.push({
+        code: 'UNUSUAL_ADDITION',
+        level: 'CRITICAL',
+        title: 'Adicional sin explicación',
+        detail: `El ${entry.workDate} tiene un adicional de ${toDecimalString(amount)} sin nota. No se paga hasta que se explique.`,
+        workDate: entry.workDate,
+      })
+      continue
+    }
+
+    additions.push({
+      id: `entry-${entry.id}`,
+      category: 'MANUAL_ADJUSTMENT',
+      amount,
+      description: `${entry.workDate}: ${note}`,
+    })
+  }
+
+  return additions
 }
 
 export function calculateGrossPay(basePay: Cents, additionsTotal: Cents): Cents {

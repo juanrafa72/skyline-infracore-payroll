@@ -220,6 +220,7 @@ model Project {
   crews       Crew[]
   rates       WorkerRate[]
   payrollLines PayrollLine[]
+  crewPricing CrewPricing[]
 
   @@unique([companyId, code])
   @@map("project")
@@ -264,6 +265,8 @@ model Worker {
   advances    Advance[]
   debts       Debt[]
   payments    Payment[]
+  periodMemberships PayrollWeekMember[]
+  crewShares  CrewMemberShare[]
 
   @@unique([companyId, code])
   @@index([companyId, status])
@@ -393,6 +396,13 @@ model Crew {
   contractorId   String?
   projectId      String?
   leaderWorkerId String?
+  /// El nombre de la cuadrilla suele ser el del encargado. Aquí se guarda
+  /// aparte para no depender del nombre.
+  leaderName     String?
+  /// Activar solo para las cuadrillas a las que les llevamos su contabilidad
+  /// interna. Mientras esté apagado, el reparto entre integrantes ni se pide
+  /// ni se muestra.
+  tracksInternalAccounting Boolean @default(false)
   active         Boolean @default(true)
   createdAt      DateTime @default(now())
 
@@ -403,9 +413,77 @@ model Crew {
   memberships CrewMembership[]
   workEntries WorkEntry[]
   payrollLines PayrollLine[]
+  pricing     CrewPricing[]
+  shares      CrewMemberShare[]
 
   @@unique([companyId, code])
   @@map("crew")
+}
+
+/// Lo que se le paga a la cuadrilla por unidad producida.
+///
+/// Ejemplo real: strand $0.15 el pie, fibra $0.20 el pie. Es la negociación
+/// con esa cuadrilla en ese proyecto, y cambia con el tiempo, así que lleva
+/// vigencia igual que las tarifas de las personas.
+model CrewPricing {
+  id            String    @id @default(uuid(7))
+  companyId     String
+  crewId        String
+  projectId     String?
+  /// Qué se mide: STRAND, FIBER, CONDUIT, BORE… administrable, no fijo.
+  unitCode      String
+  unitLabel     String
+  /// Unidad de medida: pie, metro, unidad, lote.
+  unitOfMeasure String    @default("FOOT")
+  pricePerUnit  Decimal   @db.Decimal(18, 4)
+  effectiveFrom DateTime  @db.Date
+  effectiveTo   DateTime? @db.Date
+  notes         String?
+  active        Boolean   @default(true)
+  createdById   String?
+  createdAt     DateTime  @default(now())
+
+  crew    Crew     @relation(fields: [crewId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id])
+
+  @@index([crewId, effectiveFrom])
+  @@map("crew_pricing")
+}
+
+/// Reparto interno de la cuadrilla.
+///
+/// Algunas cuadrillas son subcontratistas a las que además les llevamos su
+/// contabilidad interna: cómo se reparten entre ellos lo que la cuadrilla
+/// factura. Solo existe si `Crew.tracksInternalAccounting` está activado.
+///
+/// Esto NO es nómina de la compañía: es un cálculo de apoyo para el
+/// subcontratista. No genera pagos por sí solo.
+model CrewMemberShare {
+  id            String        @id @default(uuid(7))
+  companyId     String
+  crewId        String
+  workerId      String
+  shareType     ShareType     @default(PERCENTAGE)
+  /// Porcentaje (0–100), precio por unidad, o monto fijo por día, según shareType.
+  value         Decimal       @db.Decimal(18, 4)
+  role          String?
+  effectiveFrom DateTime      @db.Date
+  effectiveTo   DateTime?     @db.Date
+  notes         String?
+  active        Boolean       @default(true)
+  createdAt     DateTime      @default(now())
+
+  crew   Crew   @relation(fields: [crewId], references: [id], onDelete: Cascade)
+  worker Worker @relation(fields: [workerId], references: [id])
+
+  @@index([crewId, effectiveFrom])
+  @@map("crew_member_share")
+}
+
+enum ShareType {
+  PERCENTAGE   // % de lo que factura la cuadrilla
+  PER_UNIT     // precio propio por unidad producida
+  FIXED_DAILY  // monto fijo por día trabajado
 }
 
 model CrewMembership {
@@ -518,10 +596,36 @@ model PayrollWeek {
   payrolls    WorkerPayroll[]
   settlements ContractorSettlement[]
   payments    Payment[]
+  members     PayrollWeekMember[]
 
   @@unique([companyId, year, weekNumber])
   @@index([companyId, startDate])
   @@map("payroll_week")
+}
+
+/// Quién entra en este período de nómina.
+///
+/// Alguien puede estar en la lista sin ningún día marcado todavía, y alguien
+/// puede sacarse del período sin borrarlo del sistema. Sin esto, la única forma
+/// de "quitar a alguien" sería borrar sus días, que es justo lo que no se debe
+/// hacer con datos de nómina.
+model PayrollWeekMember {
+  id            String   @id @default(uuid(7))
+  companyId     String
+  payrollWeekId String
+  workerId      String
+  addedById     String?
+  addedAt       DateTime @default(now())
+  removedById   String?
+  removedAt     DateTime?
+  removalReason String?
+
+  payrollWeek PayrollWeek @relation(fields: [payrollWeekId], references: [id], onDelete: Cascade)
+  worker      Worker      @relation(fields: [workerId], references: [id])
+
+  @@unique([payrollWeekId, workerId])
+  @@index([companyId, payrollWeekId])
+  @@map("payroll_week_member")
 }
 
 enum PayrollWeekStatus {
@@ -561,6 +665,11 @@ model WorkEntry {
   crewId        String?
   operationId   String?
   status        WorkEntryStatus @default(WORKED)
+  /// Valor adicional de ESE día (horas extra pactadas, trabajo especial,
+  /// bono puntual). Se captura junto con la marca del día porque es cuando se
+  /// sabe. La nota es obligatoria: un monto sin explicación no se guarda.
+  additionalAmount Decimal?      @db.Decimal(18, 2)
+  additionalNote   String?
   reasonCode    String?
   notes         String?
   sourceType    SourceType      @default(MANUAL)

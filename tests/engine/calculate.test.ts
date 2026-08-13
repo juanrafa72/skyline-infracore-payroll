@@ -520,3 +520,72 @@ describe('determinismo — BR-054', () => {
     expect(results.size).toBe(1)
   })
 })
+
+describe('adicional marcado día por día', () => {
+  it('suma el adicional al bruto y lo describe con su nota', () => {
+    const result = calculateWorkerPayroll(
+      input({
+        entries: [
+          entry(WEEK[0]!),
+          entry(WEEK[1]!, {
+            additionalAmount: toCents('75.00'),
+            additionalNote: 'se quedó cerrando el tramo',
+          }),
+        ],
+      }),
+    )
+    expect(toDecimalString(result.basePay)).toBe('400.00')
+    expect(toDecimalString(result.additionsTotal)).toBe('75.00')
+    expect(toDecimalString(result.netPay)).toBe('475.00')
+    expect(result.additions[0]!.description).toContain('se quedó cerrando el tramo')
+  })
+
+  it('NO paga un adicional sin nota: lo reporta como error', () => {
+    const result = calculateWorkerPayroll(
+      input({
+        entries: [entry(WEEK[0]!, { additionalAmount: toCents('75.00'), additionalNote: null })],
+      }),
+    )
+    expect(toDecimalString(result.additionsTotal)).toBe('0.00')
+    expect(result.exceptions.map((e) => e.code)).toContain('UNUSUAL_ADDITION')
+    expect(result.exceptions.find((e) => e.code === 'UNUSUAL_ADDITION')!.level).toBe('CRITICAL')
+  })
+
+  it('ignora una nota en blanco igual que si no existiera', () => {
+    const result = calculateWorkerPayroll(
+      input({
+        entries: [entry(WEEK[0]!, { additionalAmount: toCents('50.00'), additionalNote: '   ' })],
+      }),
+    )
+    expect(toDecimalString(result.additionsTotal)).toBe('0.00')
+    expect(result.exceptions.map((e) => e.code)).toContain('UNUSUAL_ADDITION')
+  })
+
+  it('un adicional en medio día también cuenta', () => {
+    const result = calculateWorkerPayroll(
+      input({
+        rates: [rate({ amount: toCents('200.00') })],
+        entries: [
+          entry(WEEK[0]!, {
+            dayType: 'HALF_DAY',
+            additionalAmount: toCents('30.00'),
+            additionalNote: 'viaje',
+          }),
+        ],
+      }),
+    )
+    expect(toDecimalString(result.basePay)).toBe('100.00')
+    expect(toDecimalString(result.netPay)).toBe('130.00')
+  })
+
+  it('convive con los adicionales de la semana', () => {
+    const result = calculateWorkerPayroll(
+      input({
+        entries: [entry(WEEK[0]!, { additionalAmount: toCents('25.00'), additionalNote: 'extra' })],
+        additions: [{ id: 'a', category: 'BONUS', amount: toCents('100.00'), description: 'Bono' }],
+      }),
+    )
+    expect(toDecimalString(result.additionsTotal)).toBe('125.00')
+    expect(result.additions).toHaveLength(2)
+  })
+})

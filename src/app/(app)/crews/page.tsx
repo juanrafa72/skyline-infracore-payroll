@@ -27,6 +27,7 @@ export default async function CrewsPage() {
       <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
         <DataTable
           rows={crews}
+          href={(crew) => `/crews/${crew.id}`}
           empty={<EmptyState title="Sin cuadrillas" hint="Agrega la primera con el formulario de la derecha." />}
           columns={[
             { key: 'name', header: 'Cuadrilla', primary: true, render: (c) => c.name },
@@ -34,6 +35,11 @@ export default async function CrewsPage() {
             { key: 'operation', header: 'Operación', render: (c) => c.operation?.name ?? '—' },
             { key: 'project', header: 'Proyecto', render: (c) => c.project?.name ?? '—' },
             { key: 'members', header: 'Integrantes', align: 'right', render: (c) => String(c._count.memberships) },
+            {
+              key: 'internal',
+              header: 'Contab. interna',
+              render: (c) => (c.tracksInternalAccounting ? 'sí' : '—'),
+            },
           ]}
         />
 

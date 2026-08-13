@@ -18,6 +18,7 @@ const NAV: ReadonlyArray<{ group: string; items: ReadonlyArray<{ href: string; l
     group: 'Maestros',
     items: [
       { href: '/workers', label: 'Trabajadores' },
+      { href: '/contractors', label: 'Contratistas' },
       { href: '/crews', label: 'Cuadrillas' },
       { href: '/projects', label: 'Proyectos' },
       { href: '/customers', label: 'Clientes' },

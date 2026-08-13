@@ -35,6 +35,9 @@ export interface WorkEntryInput {
   projectId: string | null
   crewId: string | null
   operationId: string | null
+  /** Adicional pactado ESE día. Siempre acompañado de su explicación. */
+  additionalAmount?: Cents | null
+  additionalNote?: string | null
 }
 
 export interface AdditionInput {
