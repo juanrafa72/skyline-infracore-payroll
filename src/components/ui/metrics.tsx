@@ -40,7 +40,7 @@ export function Kpi({
 
   return (
     <Card className={href ? 'transition hover:border-[var(--accent)]' : ''}>
-      {href ? <Link href={href}>{body}</Link> : body}
+      {href ? <Link prefetch={false} href={href}>{body}</Link> : body}
     </Card>
   )
 }
@@ -92,7 +92,7 @@ export function BarList({
         return (
           <li key={row.label}>
             {row.href ? (
-              <Link href={row.href} className="block rounded p-1 hover:bg-[var(--hover)]">
+              <Link prefetch={false} href={row.href} className="block rounded p-1 hover:bg-[var(--hover)]">
                 {content}
               </Link>
             ) : (

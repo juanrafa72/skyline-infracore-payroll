@@ -58,5 +58,12 @@ async function hasValidSignature(cookieValue: string): Promise<boolean> {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  matcher: [
+    /*
+     * Solo páginas. Se excluye todo lo que no necesita revisión de sesión:
+     * archivos internos de Next, imágenes, iconos y el manifiesto. Cada
+     * petición que pasa por aquí cuesta una invocación en el borde.
+     */
+    '/((?!_next/|favicon\\.ico|robots\\.txt|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|css|js|woff2?)$).*)',
+  ],
 }

@@ -169,6 +169,7 @@ export default async function CrewPage({ params }: { params: Promise<{ id: strin
                 >
                   <span>
                     <Link
+                      prefetch={false}
                       href={`/workers/${membership.workerId}`}
                       className="font-medium text-[var(--accent)] hover:underline"
                     >

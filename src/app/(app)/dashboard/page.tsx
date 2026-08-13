@@ -115,6 +115,7 @@ export default async function DashboardPage({
       <div className="mb-6 flex flex-wrap gap-1.5">
         {(Object.keys(RANGE_LABELS) as RangeKey[]).map((option) => (
           <Link
+            prefetch={false}
             key={option}
             href={`/dashboard?r=${option}`}
             className={`rounded-md border px-3 py-1.5 text-xs font-medium transition ${
@@ -253,13 +254,14 @@ export default async function DashboardPage({
           action={
             currentWeek ? (
               <Link
+                prefetch={false}
                 href={`/payroll/${currentWeek.id}`}
                 className="text-xs font-medium text-[var(--accent)] hover:underline"
               >
                 Ir a la semana actual
               </Link>
             ) : (
-              <Link href="/payroll" className="text-xs font-medium text-[var(--accent)] hover:underline">
+              <Link prefetch={false} href="/payroll" className="text-xs font-medium text-[var(--accent)] hover:underline">
                 Abrir la semana actual
               </Link>
             )

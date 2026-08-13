@@ -218,6 +218,7 @@ export default async function WeekPage({
               </span>
               {showAll ? (
                 <Link
+                  prefetch={false}
                   href={`/payroll/${week.id}`}
                   className="rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--hover)]"
                 >
@@ -225,6 +226,7 @@ export default async function WeekPage({
                 </Link>
               ) : (
                 <Link
+                  prefetch={false}
                   href={`/payroll/${week.id}?todos=1`}
                   className="rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--hover)]"
                 >
@@ -233,6 +235,7 @@ export default async function WeekPage({
               )}
               {operations.map((operation) => (
                 <Link
+                  prefetch={false}
                   key={operation.id}
                   href={`/payroll/${week.id}?op=${operation.id}${showAll ? '&todos=1' : ''}`}
                   className={`rounded border px-2 py-1 ${
@@ -246,6 +249,7 @@ export default async function WeekPage({
               ))}
               {filters.op ? (
                 <Link
+                  prefetch={false}
                   href={`/payroll/${week.id}${showAll ? '?todos=1' : ''}`}
                   className="rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--hover)]"
                 >
@@ -298,6 +302,7 @@ export default async function WeekPage({
                   >
                     <div className="flex items-center justify-between gap-2 md:block">
                       <Link
+                        prefetch={false}
                         href={`/workers/${worker.id}`}
                         className="text-sm font-medium text-[var(--accent)] hover:underline"
                       >

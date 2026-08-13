@@ -74,6 +74,7 @@ export default async function ProductionPage({
           const isActive = toIso(week.startDate) === range.startDate
           return (
             <Link
+              prefetch={false}
               key={week.id}
               href={`/production?semana=${toIso(week.startDate)}`}
               className={`rounded-md border px-2.5 py-1 text-xs font-medium ${
@@ -136,6 +137,7 @@ export default async function ProductionPage({
                       <td className="px-3 py-2">
                         {record.crew ? (
                           <Link
+                            prefetch={false}
                             href={`/crews/${record.crewId}`}
                             className="font-medium text-[var(--accent)] hover:underline"
                           >

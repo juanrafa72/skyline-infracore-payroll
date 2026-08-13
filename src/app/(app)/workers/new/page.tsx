@@ -82,6 +82,7 @@ export default async function NewWorkerPage() {
           <div className="flex gap-2 sm:col-span-2">
             <Button>Guardar</Button>
             <Link
+              prefetch={false}
               href="/workers"
               className="inline-flex h-9 items-center rounded-md border border-[var(--border)] px-3.5 text-sm font-medium"
             >

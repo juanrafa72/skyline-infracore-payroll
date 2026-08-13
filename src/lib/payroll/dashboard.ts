@@ -196,30 +196,63 @@ export interface TrendPoint {
   net: number
 }
 
-/** Últimas N semanas de actividad, para ver hacia dónde va la operación. */
+/**
+ * Últimas N semanas de actividad.
+ *
+ * Los conteos se hacen en la base, no trayendo las filas. Traer los días de 12
+ * semanas para contarlos en memoria puede ser traer miles de registros en cada
+ * carga del dashboard: lento y caro en un servidor que se paga por uso.
+ */
 export async function weeklyTrend(companyId: string, weeks: number): Promise<TrendPoint[]> {
-  const rows = await prisma.payrollWeek.findMany({
+  const periods = await prisma.payrollWeek.findMany({
     where: { companyId, isOffCycle: false },
     orderBy: [{ startDate: 'desc' }],
     take: weeks,
-    include: {
-      _count: { select: { workEntries: true } },
-      payrolls: { select: { netPay: true, workerId: true } },
-      workEntries: {
-        where: { dayType: { in: ['FULL_DAY', 'HALF_DAY', 'HOURLY'] } },
-        select: { workerId: true },
-      },
-    },
+    select: { id: true, weekNumber: true },
   })
+  if (periods.length === 0) return []
 
-  return rows
-    .reverse()
-    .map((week) => ({
-      label: `S${week.weekNumber}`,
-      days: week.workEntries.length,
-      people: new Set(week.workEntries.map((entry) => entry.workerId)).size,
-      net: week.payrolls.reduce((sum, payroll) => sum + Number(payroll.netPay), 0),
-    }))
+  const ids = periods.map((period) => period.id)
+
+  const [days, people, net] = await Promise.all([
+    prisma.workEntry.groupBy({
+      by: ['payrollWeekId'],
+      where: {
+        companyId,
+        payrollWeekId: { in: ids },
+        dayType: { in: ['FULL_DAY', 'HALF_DAY', 'HOURLY'] },
+      },
+      _count: { _all: true },
+    }),
+    prisma.workEntry.findMany({
+      where: {
+        companyId,
+        payrollWeekId: { in: ids },
+        dayType: { in: ['FULL_DAY', 'HALF_DAY', 'HOURLY'] },
+      },
+      select: { payrollWeekId: true, workerId: true },
+      distinct: ['payrollWeekId', 'workerId'],
+    }),
+    prisma.workerPayroll.groupBy({
+      by: ['payrollWeekId'],
+      where: { companyId, payrollWeekId: { in: ids } },
+      _sum: { netPay: true },
+    }),
+  ])
+
+  const daysByWeek = new Map(days.map((row) => [row.payrollWeekId, row._count._all]))
+  const netByWeek = new Map(net.map((row) => [row.payrollWeekId, Number(row._sum.netPay ?? 0)]))
+  const peopleByWeek = new Map<string, number>()
+  for (const row of people) {
+    peopleByWeek.set(row.payrollWeekId, (peopleByWeek.get(row.payrollWeekId) ?? 0) + 1)
+  }
+
+  return periods.reverse().map((period) => ({
+    label: `S${period.weekNumber}`,
+    days: daysByWeek.get(period.id) ?? 0,
+    people: peopleByWeek.get(period.id) ?? 0,
+    net: netByWeek.get(period.id) ?? 0,
+  }))
 }
 
 export interface ControlSignals {

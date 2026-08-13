@@ -125,6 +125,7 @@ export function Shell({
                   return (
                     <li key={item.href}>
                       <Link
+                        prefetch={false}
                         href={item.href}
                         onClick={() => setOpen(false)}
                         className={`block rounded-md px-2 py-1.5 text-sm transition ${

@@ -66,6 +66,7 @@ export function LinkButton({
       : 'border border-[var(--border)] hover:bg-[var(--hover)]'
   return (
     <Link
+      prefetch={false}
       href={href}
       className={`inline-flex h-9 items-center rounded-md px-3.5 text-sm font-medium transition ${styles}`}
     >
@@ -242,7 +243,7 @@ export function DataTable<T>({
                     className={`px-3 py-2.5 ${column.align === 'right' ? 'text-right tabular-nums' : ''}`}
                   >
                     {href && column.primary ? (
-                      <Link href={href(row)} className="font-medium text-[var(--accent)] hover:underline">
+                      <Link prefetch={false} href={href(row)} className="font-medium text-[var(--accent)] hover:underline">
                         {column.render(row)}
                       </Link>
                     ) : (
@@ -276,7 +277,7 @@ export function DataTable<T>({
           )
           return (
             <li key={index} className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3.5">
-              {href ? <Link href={href(row)}>{content}</Link> : content}
+              {href ? <Link prefetch={false} href={href(row)}>{content}</Link> : content}
             </li>
           )
         })}
