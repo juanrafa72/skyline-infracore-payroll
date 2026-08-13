@@ -6,41 +6,35 @@ import { useState } from 'react'
 
 const NAV: ReadonlyArray<{
   group: string
-  items: ReadonlyArray<{ href: string; label: string; soon?: boolean; permission?: string }>
+  items: ReadonlyArray<{ href: string; label: string; permission?: string }>
 }> = [
   {
-    group: 'Operación',
+    group: 'Mi trabajo',
     items: [
-      { href: '/dashboard', label: 'Dashboard', permission: 'dashboard:view' },
-      { href: '/payroll', label: 'Nómina', permission: 'payroll:view' },
-      { href: '/approvals', label: 'Aprobaciones', permission: 'payroll:approve' },
-      { href: '/payments', label: 'Pagos', permission: 'payment:view' },
-      { href: '/production', label: 'Producción', permission: 'payroll:view' },
-      { href: '/reports', label: 'Reportes', permission: 'payroll:view' },
+      { href: '/inicio', label: 'Inicio' },
+      { href: '/payroll', label: 'Nómina' },
+      { href: '/approvals', label: 'Aprobar', permission: 'payroll:approve' },
+      { href: '/payments', label: 'Pagar', permission: 'payment:execute' },
     ],
   },
   {
-    group: 'Maestros',
+    group: 'Mis listas',
     items: [
-      { href: '/workers', label: 'Trabajadores', permission: 'worker:view' },
-      { href: '/contractors', label: 'Contratistas', permission: 'contractor:manage' },
+      { href: '/workers', label: 'Mi gente', permission: 'worker:view' },
       { href: '/crews', label: 'Cuadrillas', permission: 'crew:manage' },
+      { href: '/contractors', label: 'Contratistas', permission: 'contractor:manage' },
       { href: '/projects', label: 'Proyectos', permission: 'project:manage' },
       { href: '/customers', label: 'Clientes', permission: 'project:manage' },
     ],
   },
   {
-    group: 'Pendiente',
+    group: 'Consultar',
     items: [
-      { href: '/advances', label: 'Anticipos', soon: true },
-      { href: '/debts', label: 'Deudas', soon: true },
-      { href: '/audit', label: 'Auditoría', soon: true },
-      { href: '/settings', label: 'Configuración', soon: true },
+      { href: '/production', label: 'Producción', permission: 'payroll:view' },
+      { href: '/dashboard', label: 'Números', permission: 'dashboard:view' },
+      { href: '/reports', label: 'Reportes', permission: 'payroll:view' },
+      { href: '/users', label: 'Usuarios', permission: 'user:manage' },
     ],
-  },
-  {
-    group: 'Administración',
-    items: [{ href: '/users', label: 'Usuarios y roles', permission: 'user:manage' }],
   },
 ]
 
@@ -82,9 +76,8 @@ export function Shell({
         className={`${open ? 'block' : 'hidden'} shrink-0 border-b border-[var(--border)] bg-[var(--surface)] lg:block lg:w-60 lg:border-b-0 lg:border-r`}
       >
         <div className="hidden px-4 py-5 lg:block">
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--muted)]">
-            Payroll
-          </p>
+          <p className="text-sm font-semibold">Nómina</p>
+          <p className="text-xs text-[var(--muted)]">Skyline · Infracore</p>
         </div>
 
         <div className="px-3 py-3 lg:pt-0">
@@ -109,19 +102,6 @@ export function Shell({
                   .filter((item) => !item.permission || allowed.has(item.permission))
                   .map((item) => {
                   const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`)
-                  if (item.soon) {
-                    return (
-                      <li key={item.href}>
-                        <span
-                          className="flex cursor-not-allowed items-center justify-between rounded-md px-2 py-1.5 text-sm text-[var(--muted)] opacity-60"
-                          title="Se construye en un módulo posterior del plan"
-                        >
-                          {item.label}
-                          <span className="text-[10px] uppercase">pronto</span>
-                        </span>
-                      </li>
-                    )
-                  }
                   return (
                     <li key={item.href}>
                       <Link

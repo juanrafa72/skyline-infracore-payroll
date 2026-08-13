@@ -6,6 +6,7 @@ import { prisma } from '@/lib/db/client'
 import { shortDay, toIso } from '@/lib/payroll/week'
 import { addWorkerToPeriod, calculateWeek, removeWorkerFromPeriod, saveWorkEntries } from '../actions'
 import { SubmitWeek } from './SubmitWeek'
+import { ESTADO_NOMINA, label } from '@/lib/payroll/labels'
 import { DayCell } from './DayCell'
 
 export const dynamic = 'force-dynamic'
@@ -458,7 +459,7 @@ export default async function WeekPage({
                         <td className="px-3 py-2.5 text-right tabular-nums">${money(payroll.deductionsTotal)}</td>
                         <td className="px-3 py-2.5 text-right font-semibold tabular-nums">${money(payroll.netPay)}</td>
                         <td className="px-3 py-2.5">
-                          <Badge tone="info">{payroll.status}</Badge>
+                          <Badge tone="info">{label(ESTADO_NOMINA, payroll.status)}</Badge>
                         </td>
                       </tr>
                     ))}

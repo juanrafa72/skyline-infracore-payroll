@@ -3,6 +3,7 @@ import { Badge, Button, Card, DataTable, EmptyState, Field, PageHeader, money } 
 import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
 import { createRate } from '../actions'
+import { FORMA_PAGO, TIPO_PERSONA, TIPO_TARIFA, TURNO, label } from '@/lib/payroll/labels'
 
 export const dynamic = 'force-dynamic'
 
@@ -51,8 +52,8 @@ export default async function WorkerDetailPage({ params }: { params: Promise<{ i
         <Card>
           <h2 className="text-sm font-semibold">Datos</h2>
           <dl className="mt-3 space-y-2 text-sm">
-            <Row label="Tipo" value={worker.personType} />
-            <Row label="Se paga por" value={worker.compensationType} />
+            <Row label="Tipo" value={label(TIPO_PERSONA, worker.personType)} />
+            <Row label="Se paga por" value={label(FORMA_PAGO, worker.compensationType)} />
             <Row label="Cuadrilla" value={crew?.name ?? '—'} />
             <Row label="Teléfono" value={worker.phone ?? '—'} />
             <Row label="Nómina formal" value={worker.isOnFormalPayroll ? 'Sí' : 'No'} />
@@ -133,8 +134,8 @@ export default async function WorkerDetailPage({ params }: { params: Promise<{ i
               primary: true,
               render: (rate) => `$${money(rate.amount)}`,
             },
-            { key: 'type', header: 'Tipo', render: (rate) => rate.rateType },
-            { key: 'shift', header: 'Turno', render: (rate) => rate.shift },
+            { key: 'type', header: 'Tipo', render: (rate) => label(TIPO_TARIFA, rate.rateType) },
+            { key: 'shift', header: 'Turno', render: (rate) => label(TURNO, rate.shift) },
             { key: 'from', header: 'Desde', render: (rate) => isoDate(rate.effectiveFrom) },
             {
               key: 'to',

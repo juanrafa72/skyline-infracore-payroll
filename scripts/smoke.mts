@@ -46,6 +46,7 @@ let SESSION_COOKIE = ''
 
 const ROUTES = [
   '/',
+  '/inicio',
   '/dashboard',
   '/workers',
   '/workers/new',

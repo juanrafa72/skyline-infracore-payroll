@@ -5,6 +5,7 @@ import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
 import { toIso } from '@/lib/payroll/week'
 import { PaymentPanel } from './PaymentPanel'
+import { METODO_PAGO, label } from '@/lib/payroll/labels'
 
 export const dynamic = 'force-dynamic'
 
@@ -116,7 +117,7 @@ export default async function PaymentsPage() {
                       <td className="px-3 py-2 text-[var(--muted)]">
                         {payment.payrollWeek?.label ?? '—'}
                       </td>
-                      <td className="px-3 py-2">{payment.method}</td>
+                      <td className="px-3 py-2">{payment.method ? label(METODO_PAGO, payment.method) : '—'}</td>
                       <td className="px-3 py-2 font-mono text-xs">{payment.reference}</td>
                       <td className="px-3 py-2 text-right tabular-nums text-[var(--muted)]">
                         ${money(payment.approvedAmount)}
