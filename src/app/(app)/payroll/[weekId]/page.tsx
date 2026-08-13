@@ -32,8 +32,18 @@ const DAY_OPTIONS = [
   { value: 'NO_WORK', label: 'No' },
 ] as const
 
-export default async function WeekPage({ params }: { params: Promise<{ weekId: string }> }) {
+/** Cuántos días atrás se considera que alguien "sigue trabajando". */
+const RECENT_DAYS = 60
+
+export default async function WeekPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ weekId: string }>
+  searchParams: Promise<{ todos?: string; op?: string }>
+}) {
   const { weekId } = await params
+  const filters = await searchParams
   const company = await getActiveCompany()
 
   const week = await prisma.payrollWeek.findFirst({
@@ -41,9 +51,34 @@ export default async function WeekPage({ params }: { params: Promise<{ weekId: s
   })
   if (!week) notFound()
 
-  const [workers, entries, payrolls, exceptions] = await Promise.all([
+  /*
+   * Por defecto solo se muestra a quien sigue activo de verdad.
+   * Del Excel entraron años de historia: en Skyline hay 149 personas marcadas
+   * activas y apenas una docena trabajando. Mostrarlas todas convierte la
+   * captura en una búsqueda entre nombres viejos, que es justo donde se cometen
+   * los errores. Quien no aparezca se puede traer con "ver todos".
+   */
+  const recentCutoff = new Date(week.endDate)
+  recentCutoff.setUTCDate(recentCutoff.getUTCDate() - RECENT_DAYS)
+
+  const showAll = filters.todos === '1'
+  const workerFilter = {
+    companyId: company.id,
+    status: 'ACTIVE' as const,
+    ...(filters.op ? { defaultOperationId: filters.op } : {}),
+    ...(showAll
+      ? {}
+      : {
+          OR: [
+            { workEntries: { some: { workDate: { gte: recentCutoff } } } },
+            { workEntries: { none: {} } }, // recién creados a mano
+          ],
+        }),
+  }
+
+  const [workers, entries, payrolls, exceptions, totalActive, operations] = await Promise.all([
     prisma.worker.findMany({
-      where: { companyId: company.id, status: 'ACTIVE' },
+      where: workerFilter,
       orderBy: { displayName: 'asc' },
       include: { rates: { where: { active: true } } },
     }),
@@ -56,6 +91,8 @@ export default async function WeekPage({ params }: { params: Promise<{ weekId: s
     prisma.exception.findMany({
       where: { companyId: company.id, payrollWeekId: week.id, status: 'OPEN' },
     }),
+    prisma.worker.count({ where: { companyId: company.id, status: 'ACTIVE' } }),
+    prisma.operation.findMany({ where: { companyId: company.id }, orderBy: { sortOrder: 'asc' } }),
   ])
 
   // El período puede durar 1, 7, 14, 15, 16, 28, 30 o 31 días según la
@@ -125,9 +162,19 @@ export default async function WeekPage({ params }: { params: Promise<{ weekId: s
 
       {workers.length === 0 ? (
         <EmptyState
-          title="No hay trabajadores activos"
-          hint="Primero registra al menos una persona para poder marcar sus días."
-          action={<LinkButton href="/workers/new">Nuevo trabajador</LinkButton>}
+          title={totalActive === 0 ? 'No hay trabajadores activos' : 'Nadie coincide con el filtro'}
+          hint={
+            totalActive === 0
+              ? 'Primero registra al menos una persona para poder marcar sus días.'
+              : `Hay ${totalActive} personas activas, pero ninguna registra días recientes o coincide con la operación elegida.`
+          }
+          action={
+            totalActive === 0 ? (
+              <LinkButton href="/workers/new">Nuevo trabajador</LinkButton>
+            ) : (
+              <LinkButton href={`/payroll/${week.id}?todos=1`}>Ver todos</LinkButton>
+            )
+          }
         />
       ) : (
         <>
@@ -136,6 +183,55 @@ export default async function WeekPage({ params }: { params: Promise<{ weekId: s
             <p className="mb-3 text-xs text-[var(--muted)]">
               Sí = día completo · ½ = medio día · No = no trabajó · — = sin registrar todavía.
             </p>
+
+            <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-[var(--muted)]">
+                Mostrando <strong>{workers.length}</strong> de {totalActive} personas activas
+              </span>
+              {showAll ? (
+                <Link
+                  href={`/payroll/${week.id}`}
+                  className="rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--hover)]"
+                >
+                  Ver solo quienes trabajan ahora
+                </Link>
+              ) : (
+                <Link
+                  href={`/payroll/${week.id}?todos=1`}
+                  className="rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--hover)]"
+                >
+                  Ver todos ({totalActive})
+                </Link>
+              )}
+              {operations.map((operation) => (
+                <Link
+                  key={operation.id}
+                  href={`/payroll/${week.id}?op=${operation.id}${showAll ? '&todos=1' : ''}`}
+                  className={`rounded border px-2 py-1 ${
+                    filters.op === operation.id
+                      ? 'border-[var(--accent)] bg-[var(--accent)] text-white'
+                      : 'border-[var(--border)] hover:bg-[var(--hover)]'
+                  }`}
+                >
+                  {operation.name}
+                </Link>
+              ))}
+              {filters.op ? (
+                <Link
+                  href={`/payroll/${week.id}${showAll ? '?todos=1' : ''}`}
+                  className="rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--hover)]"
+                >
+                  Quitar filtro
+                </Link>
+              ) : null}
+            </div>
+
+            {!showAll ? (
+              <p className="mb-3 text-xs text-[var(--muted)]">
+                Se ocultan quienes no registran días desde hace {RECENT_DAYS} días. Vienen del
+                histórico del Excel y no se han retirado formalmente.
+              </p>
+            ) : null}
 
             <form action={saveWorkEntries}>
               <input type="hidden" name="weekId" value={week.id} />
