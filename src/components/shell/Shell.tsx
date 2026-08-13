@@ -3,25 +3,28 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState } from 'react'
-import type { ActiveCompany } from '@/lib/company/context'
 
-const NAV: ReadonlyArray<{ group: string; items: ReadonlyArray<{ href: string; label: string; soon?: boolean }> }> = [
+const NAV: ReadonlyArray<{
+  group: string
+  items: ReadonlyArray<{ href: string; label: string; soon?: boolean; permission?: string }>
+}> = [
   {
     group: 'Operación',
     items: [
-      { href: '/dashboard', label: 'Dashboard' },
-      { href: '/payroll', label: 'Nómina' },
-      { href: '/reports', label: 'Reportes' },
+      { href: '/dashboard', label: 'Dashboard', permission: 'dashboard:view' },
+      { href: '/payroll', label: 'Nómina', permission: 'payroll:view' },
+      { href: '/production', label: 'Producción', permission: 'payroll:view' },
+      { href: '/reports', label: 'Reportes', permission: 'payroll:view' },
     ],
   },
   {
     group: 'Maestros',
     items: [
-      { href: '/workers', label: 'Trabajadores' },
-      { href: '/contractors', label: 'Contratistas' },
-      { href: '/crews', label: 'Cuadrillas' },
-      { href: '/projects', label: 'Proyectos' },
-      { href: '/customers', label: 'Clientes' },
+      { href: '/workers', label: 'Trabajadores', permission: 'worker:view' },
+      { href: '/contractors', label: 'Contratistas', permission: 'contractor:manage' },
+      { href: '/crews', label: 'Cuadrillas', permission: 'crew:manage' },
+      { href: '/projects', label: 'Proyectos', permission: 'project:manage' },
+      { href: '/customers', label: 'Clientes', permission: 'project:manage' },
     ],
   },
   {
@@ -35,17 +38,28 @@ const NAV: ReadonlyArray<{ group: string; items: ReadonlyArray<{ href: string; l
       { href: '/settings', label: 'Configuración', soon: true },
     ],
   },
+  {
+    group: 'Administración',
+    items: [{ href: '/users', label: 'Usuarios y roles', permission: 'user:manage' }],
+  },
 ]
 
 export function Shell({
   companies,
   active,
+  user,
+  canSwitchCompany,
+  permissions,
   children,
 }: {
-  companies: readonly ActiveCompany[]
-  active: ActiveCompany
+  companies: ReadonlyArray<{ id: string; displayName: string }>
+  active: { id: string; displayName: string }
+  user: { name: string; roles: readonly string[] }
+  canSwitchCompany: boolean
+  permissions: readonly string[]
   children: React.ReactNode
 }) {
+  const allowed = new Set(permissions)
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
 
@@ -74,7 +88,14 @@ export function Shell({
         </div>
 
         <div className="px-3 py-3 lg:pt-0">
-          <CompanySwitcher companies={companies} active={active} />
+          {canSwitchCompany && companies.length > 1 ? (
+            <CompanySwitcher companies={companies} active={active} />
+          ) : (
+            <div className="rounded-md border border-[var(--border)] px-2.5 py-1.5">
+              <p className="text-xs text-[var(--muted)]">Compañía</p>
+              <p className="text-sm font-medium">{active.displayName}</p>
+            </div>
+          )}
         </div>
 
         <nav className="px-2 pb-6">
@@ -84,7 +105,9 @@ export function Shell({
                 {section.group}
               </p>
               <ul>
-                {section.items.map((item) => {
+                {section.items
+                  .filter((item) => !item.permission || allowed.has(item.permission))
+                  .map((item) => {
                   const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`)
                   if (item.soon) {
                     return (
@@ -119,6 +142,21 @@ export function Shell({
             </div>
           ))}
         </nav>
+
+        <div className="border-t border-[var(--border)] px-3 py-3">
+          <p className="truncate text-sm font-medium">{user.name}</p>
+          <p className="truncate text-xs text-[var(--muted)]">
+            {user.roles.map((role) => ROLE_LABELS[role] ?? role).join(' · ') || 'sin rol'}
+          </p>
+          <form action="/api/auth/logout" method="post" className="mt-2">
+            <button
+              type="submit"
+              className="w-full rounded-md border border-[var(--border)] px-2 py-1.5 text-xs hover:bg-[var(--hover)]"
+            >
+              Salir
+            </button>
+          </form>
+        </div>
       </aside>
 
       <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</main>
@@ -126,12 +164,20 @@ export function Shell({
   )
 }
 
+const ROLE_LABELS: Record<string, string> = {
+  SUPER_ADMIN: 'Administrador',
+  PAYROLL_PREPARER: 'Prepara nómina',
+  PAYROLL_APPROVER: 'Aprueba nómina',
+  TREASURY: 'Tesorería',
+  AUDITOR: 'Auditor',
+}
+
 function CompanySwitcher({
   companies,
   active,
 }: {
-  companies: readonly ActiveCompany[]
-  active: ActiveCompany
+  companies: ReadonlyArray<{ id: string; displayName: string }>
+  active: { id: string }
 }) {
   return (
     <form action="/api/company" method="post">

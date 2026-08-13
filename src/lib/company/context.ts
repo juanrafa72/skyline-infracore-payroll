@@ -1,8 +1,6 @@
-import { cookies } from 'next/headers'
 import { prisma } from '@/lib/db/client'
+import { requireUser } from '@/lib/auth/rbac'
 import type { PayPeriodType } from '@/lib/payroll/period'
-
-const COOKIE = 'active_company'
 
 export interface ActiveCompany {
   id: string
@@ -16,32 +14,20 @@ export interface ActiveCompany {
 /**
  * Compañía activa de la sesión.
  *
- * TEMPORAL: hoy vive en una cookie porque todavía no existe autenticación (M3).
- * Cuando entre Auth.js pasará a la sesión del servidor y el cambio exigirá el
- * permiso `company:switch` y quedará auditado (docs/ARCHITECTURE.md §5).
+ * Sale de la sesión del servidor, no de un valor que mande el navegador: así
+ * nadie puede ver otra compañía cambiando una cookie o un parámetro.
  */
 export async function getActiveCompany(): Promise<ActiveCompany> {
-  const store = await cookies()
-  const requested = store.get(COOKIE)?.value
-
-  const company = requested
-    ? await prisma.company.findUnique({ where: { id: requested } })
-    : null
-
-  if (company) return company
-
-  const fallback = await prisma.company.findFirst({ orderBy: { code: 'asc' } })
-  if (!fallback) {
-    throw new Error('No hay compañías configuradas. Ejecutar: npm run db:seed')
-  }
-  return fallback
+  const user = await requireUser()
+  const company = await prisma.company.findUnique({ where: { id: user.companyId } })
+  if (!company) throw new Error('La compañía de la sesión ya no existe.')
+  return company
 }
 
 export async function listCompanies(): Promise<ActiveCompany[]> {
+  const user = await requireUser()
   return prisma.company.findMany({
-    where: { active: true },
+    where: { id: { in: user.availableCompanies.map((company) => company.id) } },
     orderBy: { displayName: 'asc' },
   })
 }
-
-export const ACTIVE_COMPANY_COOKIE = COOKIE

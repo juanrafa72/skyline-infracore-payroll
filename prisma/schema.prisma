@@ -221,6 +221,7 @@ model Project {
   rates       WorkerRate[]
   payrollLines PayrollLine[]
   crewPricing CrewPricing[]
+  production  Production[]
 
   @@unique([companyId, code])
   @@map("project")
@@ -380,6 +381,7 @@ model Contractor {
   crews       Crew[]
   settlements ContractorSettlement[]
   advances    Advance[]
+  production  Production[]
   debts       Debt[]
   payments    Payment[]
 
@@ -415,6 +417,7 @@ model Crew {
   payrollLines PayrollLine[]
   pricing     CrewPricing[]
   shares      CrewMemberShare[]
+  production  Production[]
 
   @@unique([companyId, code])
   @@map("crew")
@@ -443,8 +446,9 @@ model CrewPricing {
   createdById   String?
   createdAt     DateTime  @default(now())
 
-  crew    Crew     @relation(fields: [crewId], references: [id], onDelete: Cascade)
-  project Project? @relation(fields: [projectId], references: [id])
+  crew       Crew         @relation(fields: [crewId], references: [id], onDelete: Cascade)
+  project    Project?     @relation(fields: [projectId], references: [id])
+  production Production[]
 
   @@index([crewId, effectiveFrom])
   @@map("crew_pricing")
@@ -597,6 +601,7 @@ model PayrollWeek {
   settlements ContractorSettlement[]
   payments    Payment[]
   members     PayrollWeekMember[]
+  production  Production[]
 
   @@unique([companyId, year, weekNumber])
   @@index([companyId, startDate])
@@ -1254,6 +1259,50 @@ enum AdjustmentType {
   REVERSAL
   ADDITIONAL_PAYMENT
   CREDIT
+}
+
+// ─────────────────────────────────────────────────────────────
+// PRODUCCIÓN
+// ─────────────────────────────────────────────────────────────
+
+/// Lo que produjo una cuadrilla: tantos pies de strand, tantos de fibra.
+///
+/// El precio se congela al registrar (`appliedPrice`), igual que las tarifas de
+/// las personas: cambiar la negociación mañana no puede alterar lo que ya se
+/// liquidó. El importe se calcula con el mismo motor de dinero, en centavos.
+model Production {
+  id            String   @id @default(uuid(7))
+  companyId     String
+  payrollWeekId String?
+  projectId     String?
+  crewId        String?
+  contractorId  String?
+  productionDate DateTime @db.Date
+  unitCode      String
+  unitLabel     String
+  unitOfMeasure String   @default("FOOT")
+  quantity      Decimal  @db.Decimal(14, 2)
+  /// SNAPSHOT del precio pactado en el momento del registro.
+  appliedPrice  Decimal  @db.Decimal(18, 4)
+  pricingId     String?
+  amount        Decimal  @db.Decimal(18, 2)
+  sourceType    SourceType @default(MANUAL)
+  externalRef   String?
+  notes         String?
+  createdById   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  payrollWeek PayrollWeek? @relation(fields: [payrollWeekId], references: [id])
+  project     Project?     @relation(fields: [projectId], references: [id])
+  crew        Crew?        @relation(fields: [crewId], references: [id])
+  contractor  Contractor?  @relation(fields: [contractorId], references: [id])
+  pricing     CrewPricing? @relation(fields: [pricingId], references: [id])
+
+  @@index([companyId, productionDate])
+  @@index([companyId, payrollWeekId])
+  @@index([crewId, productionDate])
+  @@map("production")
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -14,12 +14,14 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "check": "npm run typecheck && npm run lint && npm run test && npm run build",
-    "smoke": "node scripts/smoke.mjs",
-    "clean": "node scripts/clean-icloud-dupes.mjs"
+    "smoke": "tsx scripts/smoke.mts",
+    "clean": "node scripts/clean-icloud-dupes.mjs",
+    "user:create": "tsx scripts/create-user.mts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.9.1",
+    "bcryptjs": "^3.0.3",
     "decimal.js": "^10.6.0",
     "next": "^16.3.0",
     "pg": "^8.23.0",
@@ -30,6 +32,7 @@
   "devDependencies": {
     "@netlify/plugin-nextjs": "^5.15.13",
     "@tailwindcss/postcss": "^4.3.3",
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^26.2.0",
     "@types/pg": "^8.21.0",
     "@types/react": "^19.2.18",

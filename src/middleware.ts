@@ -1,53 +1,58 @@
 import { NextResponse, type NextRequest } from 'next/server'
 
 /**
- * Candado temporal del sitio publicado.
+ * Puerta de entrada.
  *
- * NO es el sistema de usuarios: es una sola contraseña compartida que impide que
- * cualquiera en internet abra la nómina mientras se construye el login real
- * (módulo M3 del plan). Se activa solo si existe la variable `SITE_PASSWORD`,
- * así en local no estorba.
+ * Aquí solo se comprueba que exista una cookie de sesión con firma válida. La
+ * verificación de verdad —que la sesión siga viva y qué permisos tiene— ocurre
+ * dentro de la aplicación, contra la base de datos. El middleware corre en el
+ * borde y no puede consultarla.
  *
- * Lo que este candado NO hace:
- *  - no distingue a Leo de Rafael ni del tesorero
- *  - no registra quién entró
- *  - no aplica permisos
- * Todo eso llega con la autenticación real. Hasta entonces, cualquiera que tenga
- * la contraseña ve y edita todo.
+ * Es decir: esto filtra tráfico anónimo, NO autoriza nada.
  */
-export function middleware(request: NextRequest) {
-  const expected = process.env.SITE_PASSWORD
-  if (!expected) return NextResponse.next()
+const PUBLIC_PATHS = ['/login', '/api/auth']
 
-  const header = request.headers.get('authorization')
+export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl
 
-  if (header?.startsWith('Basic ')) {
-    let decoded = ''
-    try {
-      decoded = atob(header.slice(6))
-    } catch {
-      decoded = ''
-    }
-    const password = decoded.slice(decoded.indexOf(':') + 1)
-    if (decoded.includes(':') && safeEqual(password, expected)) {
-      return NextResponse.next()
-    }
+  if (PUBLIC_PATHS.some((path) => pathname.startsWith(path))) {
+    return NextResponse.next()
   }
 
-  return new NextResponse('Acceso restringido', {
-    status: 401,
-    headers: {
-      'WWW-Authenticate': 'Basic realm="Payroll Skyline / Infracore", charset="UTF-8"',
-    },
-  })
+  const cookie = request.cookies.get('payroll_session')?.value
+  if (cookie && (await hasValidSignature(cookie))) {
+    return NextResponse.next()
+  }
+
+  const login = new URL('/login', request.url)
+  if (pathname !== '/') login.searchParams.set('volver', pathname)
+  return NextResponse.redirect(login)
 }
 
-/** Comparación de tiempo constante: no revela la contraseña por el tiempo de respuesta. */
-function safeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false
+async function hasValidSignature(cookieValue: string): Promise<boolean> {
+  const secret = process.env.SESSION_SECRET
+  if (!secret) return false
+
+  const separator = cookieValue.lastIndexOf('.')
+  if (separator <= 0) return false
+
+  const sessionId = cookieValue.slice(0, separator)
+  const provided = cookieValue.slice(separator + 1)
+
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  )
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(sessionId))
+  const expected = Buffer.from(signature).toString('base64url')
+
+  if (provided.length !== expected.length) return false
   let difference = 0
-  for (let index = 0; index < a.length; index += 1) {
-    difference |= a.charCodeAt(index) ^ b.charCodeAt(index)
+  for (let index = 0; index < provided.length; index += 1) {
+    difference |= provided.charCodeAt(index) ^ expected.charCodeAt(index)
   }
   return difference === 0
 }
