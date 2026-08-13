@@ -1,0 +1,15 @@
+node_modules
+.next
+.env
+.env.local
+*.tsbuildinfo
+coverage
+.DS_Store
+
+# Duplicados que crea iCloud
+* [0-9].*
+.netlify
+
+# Volcados crudos de los Excel: contienen nombres, tarifas y deudas de personas.
+# Se quedan solo en el equipo. Las conclusiones están en docs/EXCEL_ANALYSIS.md
+tools/excel-analysis/*.txt

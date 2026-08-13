@@ -1,0 +1,1302 @@
+// Modelo de datos — ver docs/DATA_MODEL.md
+//
+// Reglas que este esquema hace cumplir:
+//  - Dinero siempre Decimal(18,2). Nunca Float.
+//  - Toda tabla transaccional lleva companyId obligatorio.
+//  - Los saldos de anticipos y deudas NO son columnas: se derivan de sus movimientos.
+//  - audit_log es append-only (trigger en la migración).
+//  - Una nómina PAID/RECONCILED/CLOSED no se modifica (trigger en la migración).
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+
+}
+
+// ─────────────────────────────────────────────────────────────
+// ORGANIZACIÓN Y SEGURIDAD
+// ─────────────────────────────────────────────────────────────
+
+model Company {
+  id           String   @id @default(uuid(7))
+  code         String   @unique // SKYLINE | INFRACORE
+  legalName    String
+  displayName  String
+  ein          String?
+  address      String?
+  logoUrl      String?
+  currency     String   @default("USD")
+  timezone     String   @default("America/New_York")
+  weekStartDay Int      @default(0) // 0 = domingo — BR-010
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  users        UserCompanyRole[]
+  operations   Operation[]
+  customers    Customer[]
+  projects     Project[]
+  workers      Worker[]
+  crews        Crew[]
+  contractors  Contractor[]
+  equipment    Equipment[]
+  vendors      Vendor[]
+  payrollWeeks PayrollWeek[]
+  settings     CompanySetting[]
+
+  @@map("company")
+}
+
+model User {
+  id                 String    @id @default(uuid(7))
+  email              String    @unique
+  name               String
+  passwordHash       String?
+  entraObjectId      String?   @unique
+  mfaSecret          String?
+  mfaEnabled         Boolean   @default(false)
+  status             UserStatus @default(ACTIVE)
+  failedLoginCount   Int       @default(0)
+  lockedUntil        DateTime?
+  lastLoginAt        DateTime?
+  mustChangePassword Boolean   @default(true)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  companyRoles UserCompanyRole[]
+  sessions     UserSession[]
+  auditLogs    AuditLog[]
+
+  @@map("app_user")
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+model Role {
+  id          String  @id @default(uuid(7))
+  code        String  @unique
+  name        String
+  description String?
+  isSystem    Boolean @default(false)
+
+  permissions RolePermission[]
+  userRoles   UserCompanyRole[]
+
+  @@map("role")
+}
+
+model Permission {
+  id          String  @id @default(uuid(7))
+  code        String  @unique // 'payroll:approve', 'payment:execute', ...
+  description String?
+
+  roles RolePermission[]
+
+  @@map("permission")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permission")
+}
+
+model UserCompanyRole {
+  id           String    @id @default(uuid(7))
+  userId       String
+  companyId    String
+  roleId       String
+  active       Boolean   @default(true)
+  assignedById String?
+  assignedAt   DateTime  @default(now())
+  revokedAt    DateTime?
+
+  user    User    @relation(fields: [userId], references: [id])
+  company Company @relation(fields: [companyId], references: [id])
+  role    Role    @relation(fields: [roleId], references: [id])
+
+  @@unique([userId, companyId, roleId])
+  @@index([companyId, active])
+  @@map("user_company_role")
+}
+
+model UserSession {
+  id              String    @id @default(uuid(7))
+  userId          String
+  activeCompanyId String?
+  ip              String?
+  userAgent       String?
+  createdAt       DateTime  @default(now())
+  expiresAt       DateTime
+  revokedAt       DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, expiresAt])
+  @@map("user_session")
+}
+
+// ─────────────────────────────────────────────────────────────
+// CATÁLOGOS
+// ─────────────────────────────────────────────────────────────
+
+model Operation {
+  id        String  @id @default(uuid(7))
+  companyId String
+  code      String // AERIAL | UNDERGROUND | BLOWFIBER | ADMIN | DATA_CENTER
+  name      String
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+
+  company    Company     @relation(fields: [companyId], references: [id])
+  projects   Project[]
+  workRates  WorkerRate[]
+  workEntries WorkEntry[]
+  crews      Crew[]
+
+  @@unique([companyId, code])
+  @@map("operation")
+}
+
+/// Cliente / general contractor. En los Excel esta era la columna EMPRESA.
+model Customer {
+  id                     String   @id @default(uuid(7))
+  companyId              String
+  name                   String
+  code                   String?
+  contactName            String?
+  contactEmail           String?
+  contactPhone           String?
+  paymentTerms           String?
+  earlyPaymentDiscountPct Decimal? @db.Decimal(7, 4) // "descuento pronto pago" — BR-074
+  active                 Boolean  @default(true)
+  createdAt              DateTime @default(now())
+
+  company  Company   @relation(fields: [companyId], references: [id])
+  projects Project[]
+
+  @@unique([companyId, name])
+  @@map("customer")
+}
+
+model Project {
+  id               String    @id @default(uuid(7))
+  companyId        String
+  code             String
+  name             String
+  customerId       String?
+  operationId      String?
+  location         String?
+  state            String?
+  projectManagerId String?
+  startDate        DateTime? @db.Date
+  endDate          DateTime? @db.Date
+  active           Boolean   @default(true)
+  notes            String?
+  createdAt        DateTime  @default(now())
+
+  company     Company      @relation(fields: [companyId], references: [id])
+  customer    Customer?    @relation(fields: [customerId], references: [id])
+  operation   Operation?   @relation(fields: [operationId], references: [id])
+  workEntries WorkEntry[]
+  crews       Crew[]
+  rates       WorkerRate[]
+  payrollLines PayrollLine[]
+
+  @@unique([companyId, code])
+  @@map("project")
+}
+
+model Worker {
+  id                 String           @id @default(uuid(7))
+  companyId          String
+  code               String
+  firstName          String
+  lastName           String
+  displayName        String
+  personType         PersonType       @default(EMPLOYEE)
+  compensationType   CompensationType @default(DAILY_RATE)
+  isOnFormalPayroll  Boolean          @default(false)
+  defaultOperationId String?
+  defaultCrewId      String?
+  defaultProjectId   String?
+  contractorId       String?
+  hireDate           DateTime?        @db.Date
+  terminationDate    DateTime?        @db.Date
+  status             WorkerStatus     @default(ACTIVE)
+  email              String?
+  phone              String?
+  portalUserId       String?
+  bankAccountLast4   String?
+  paymentMethodDefault PaymentMethod?
+  documentsFolderRef String?
+  notes              String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  company     Company          @relation(fields: [companyId], references: [id])
+  contractor  Contractor?      @relation(fields: [contractorId], references: [id])
+  aliases     WorkerAlias[]
+  rates       WorkerRate[]
+  workEntries WorkEntry[]
+  payrolls    WorkerPayroll[]
+  memberships CrewMembership[]
+  advances    Advance[]
+  debts       Debt[]
+  payments    Payment[]
+
+  @@unique([companyId, code])
+  @@index([companyId, status])
+  @@map("worker")
+}
+
+enum PersonType {
+  EMPLOYEE
+  CONTRACTOR_MEMBER
+  ADMINISTRATIVE
+  SUBCONTRACTOR
+}
+
+enum WorkerStatus {
+  ACTIVE
+  INACTIVE
+  TERMINATED
+}
+
+enum CompensationType {
+  DAILY_RATE
+  HOURLY
+  FIXED_WEEKLY
+  PRODUCTION
+  PIECE_RATE
+  PERCENTAGE
+  CONTRACTOR_SETTLEMENT
+  MANUAL
+}
+
+/// Resuelve los nombres con sufijo de los Excel (JAIRO MEJIA1, ALEJANDRO APONTE-N).
+/// Ningún alias se une automáticamente: requiere confirmación humana — BR/EXCEL_MAPPING §1.1
+model WorkerAlias {
+  id           String    @id @default(uuid(7))
+  workerId     String
+  alias        String
+  sourceFile   String?
+  sourceSheet  String?
+  confirmed    Boolean   @default(false)
+  resolvedById String?
+  resolvedAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  worker Worker @relation(fields: [workerId], references: [id])
+
+  @@unique([workerId, alias])
+  @@index([alias])
+  @@map("worker_alias")
+}
+
+/// Historial de tarifas — BR-030..BR-036. Una nómina histórica nunca cambia
+/// porque después se haya cambiado una tarifa.
+model WorkerRate {
+  id            String    @id @default(uuid(7))
+  companyId     String
+  workerId      String
+  rateType      RateType  @default(DAILY)
+  amount        Decimal   @db.Decimal(18, 2)
+  shift         Shift     @default(ANY)
+  projectId     String?
+  operationId   String?
+  effectiveFrom DateTime  @db.Date
+  effectiveTo   DateTime? @db.Date
+  approvedById  String?
+  approvedAt    DateTime?
+  sourceNote    String?
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+
+  worker    Worker     @relation(fields: [workerId], references: [id])
+  project   Project?   @relation(fields: [projectId], references: [id])
+  operation Operation? @relation(fields: [operationId], references: [id])
+  lines     PayrollLine[]
+
+  @@index([workerId, effectiveFrom, effectiveTo])
+  @@index([companyId, active])
+  @@map("worker_rate")
+}
+
+enum RateType {
+  DAILY
+  HOURLY
+  WEEKLY
+  PIECE
+  PERCENTAGE
+}
+
+enum Shift {
+  DAY
+  NIGHT
+  ANY
+}
+
+model Contractor {
+  id            String   @id @default(uuid(7))
+  companyId     String
+  name          String
+  legalName     String?
+  ein           String?
+  contactName   String?
+  email         String?
+  phone         String?
+  commissionPct Decimal? @db.Decimal(7, 4) // "COMI JRC" — BR-103
+  paymentTerms  String?
+  portalUserId  String?
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  company     Company                @relation(fields: [companyId], references: [id])
+  workers     Worker[]
+  crews       Crew[]
+  settlements ContractorSettlement[]
+  advances    Advance[]
+  debts       Debt[]
+  payments    Payment[]
+
+  @@unique([companyId, name])
+  @@map("contractor")
+}
+
+model Crew {
+  id             String  @id @default(uuid(7))
+  companyId      String
+  code           String
+  name           String
+  operationId    String?
+  contractorId   String?
+  projectId      String?
+  leaderWorkerId String?
+  active         Boolean @default(true)
+  createdAt      DateTime @default(now())
+
+  company     Company          @relation(fields: [companyId], references: [id])
+  operation   Operation?       @relation(fields: [operationId], references: [id])
+  contractor  Contractor?      @relation(fields: [contractorId], references: [id])
+  project     Project?         @relation(fields: [projectId], references: [id])
+  memberships CrewMembership[]
+  workEntries WorkEntry[]
+  payrollLines PayrollLine[]
+
+  @@unique([companyId, code])
+  @@map("crew")
+}
+
+model CrewMembership {
+  id       String    @id @default(uuid(7))
+  crewId   String
+  workerId String
+  role     CrewRole  @default(MEMBER)
+  from     DateTime  @db.Date
+  to       DateTime? @db.Date
+
+  crew   Crew   @relation(fields: [crewId], references: [id])
+  worker Worker @relation(fields: [workerId], references: [id])
+
+  @@index([crewId, from, to])
+  @@index([workerId])
+  @@map("crew_membership")
+}
+
+enum CrewRole {
+  LEADER
+  MEMBER
+}
+
+/// Máquinas y vehículos. NUNCA una persona — BR-120, BR-121.
+model Equipment {
+  id                String          @id @default(uuid(7))
+  companyId         String
+  code              String
+  name              String
+  kind              EquipmentKind   @default(MACHINE)
+  ownership         Ownership       @default(OWNED)
+  dailyCost         Decimal?        @db.Decimal(18, 2)
+  vendorId          String?
+  assignedCrewId    String?
+  assignedProjectId String?
+  status            EquipmentStatus @default(ACTIVE)
+  notes             String?
+  createdAt         DateTime        @default(now())
+
+  company Company @relation(fields: [companyId], references: [id])
+  vendor  Vendor? @relation(fields: [vendorId], references: [id])
+
+  @@unique([companyId, code])
+  @@map("equipment")
+}
+
+enum EquipmentKind {
+  MACHINE
+  VEHICLE
+  TOOL
+}
+
+enum Ownership {
+  OWNED
+  RENTED
+  SUBCONTRACTED
+}
+
+enum EquipmentStatus {
+  ACTIVE
+  IN_REPAIR
+  RETIRED
+}
+
+model Vendor {
+  id        String   @id @default(uuid(7))
+  companyId String
+  name      String
+  taxId     String?
+  contact   String?
+  category  String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  company   Company     @relation(fields: [companyId], references: [id])
+  equipment Equipment[]
+  payments  Payment[]
+  debts     Debt[]
+
+  @@unique([companyId, name])
+  @@map("vendor")
+}
+
+// ─────────────────────────────────────────────────────────────
+// TRABAJO Y NÓMINA
+// ─────────────────────────────────────────────────────────────
+
+model PayrollWeek {
+  id          String            @id @default(uuid(7))
+  companyId   String
+  year        Int
+  weekNumber  Int
+  startDate   DateTime          @db.Date
+  endDate     DateTime          @db.Date
+  label       String
+  status      PayrollWeekStatus @default(OPEN)
+  createdById String?
+  closedById  String?
+  closedAt    DateTime?
+  createdAt   DateTime          @default(now())
+
+  company     Company                @relation(fields: [companyId], references: [id])
+  workEntries WorkEntry[]
+  payrolls    WorkerPayroll[]
+  settlements ContractorSettlement[]
+  payments    Payment[]
+
+  @@unique([companyId, year, weekNumber])
+  @@index([companyId, startDate])
+  @@map("payroll_week")
+}
+
+enum PayrollWeekStatus {
+  OPEN
+  CLOSED
+}
+
+/// Un día de una persona. Único por (compañía, trabajador, fecha) — BR-025.
+/// El mismo par (trabajador, fecha) en la OTRA compañía dispara
+/// CROSS_COMPANY_DUPLICATE — BR-165. Existe 448 veces en los Excel actuales.
+model WorkEntry {
+  id            String          @id @default(uuid(7))
+  companyId     String
+  payrollWeekId String
+  workerId      String
+  workDate      DateTime        @db.Date
+  dayType       DayType
+  hoursWorked   Decimal?        @db.Decimal(6, 2) // solo si dayType = HOURLY. Nunca derivado.
+  shift         Shift           @default(DAY)
+  projectId     String?
+  crewId        String?
+  operationId   String?
+  status        WorkEntryStatus @default(WORKED)
+  reasonCode    String?
+  notes         String?
+  sourceType    SourceType      @default(MANUAL)
+  importRowId   String?
+  createdById   String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  payrollWeek PayrollWeek @relation(fields: [payrollWeekId], references: [id])
+  worker      Worker      @relation(fields: [workerId], references: [id])
+  project     Project?    @relation(fields: [projectId], references: [id])
+  crew        Crew?       @relation(fields: [crewId], references: [id])
+  operation   Operation?  @relation(fields: [operationId], references: [id])
+  lines       PayrollLine[]
+
+  @@unique([companyId, workerId, workDate])
+  @@index([companyId, payrollWeekId, workerId])
+  @@index([workerId, workDate]) // detección entre compañías
+  @@map("work_entry")
+}
+
+enum DayType {
+  FULL_DAY
+  HALF_DAY
+  NO_WORK
+  HOURLY
+  OTHER
+}
+
+enum WorkEntryStatus {
+  WORKED
+  NO_WORK
+  WAITING_PROJECT
+  RAIN
+  VACATION
+  MAINTENANCE
+  REST
+  OTHER
+}
+
+enum SourceType {
+  MANUAL
+  IMPORT
+  SHAREPOINT
+}
+
+model WorkerPayroll {
+  id            String        @id @default(uuid(7))
+  companyId     String
+  payrollWeekId String
+  workerId      String
+  status        PayrollStatus @default(DRAFT)
+
+  daysFull   Int     @default(0)
+  daysHalf   Int     @default(0)
+  daysNoWork Int     @default(0)
+  hoursTotal Decimal @default(0) @db.Decimal(8, 2)
+
+  basePay         Decimal @default(0) @db.Decimal(18, 2)
+  additionsTotal  Decimal @default(0) @db.Decimal(18, 2)
+  grossPay        Decimal @default(0) @db.Decimal(18, 2)
+  deductionsTotal Decimal @default(0) @db.Decimal(18, 2)
+  netPay          Decimal @default(0) @db.Decimal(18, 2)
+
+  calculationVersion Int    @default(1)
+  /// Huella de las ENTRADAS materiales. Si cambia tras aprobar, la aprobación
+  /// se invalida automáticamente — ver docs/PAYROLL_FLOW.md §3.
+  calculationHash    String?
+
+  preparedById              String?
+  preparedAt                DateTime?
+  approvedById              String?
+  approvedAt                DateTime?
+  approvalInvalidatedAt     DateTime?
+  approvalInvalidatedReason String?
+  rejectedById              String?
+  rejectedAt                DateTime?
+  rejectionReason           String?
+  paymentId                 String?   @unique
+  notes                     String?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  payrollWeek PayrollWeek @relation(fields: [payrollWeekId], references: [id])
+  worker      Worker      @relation(fields: [workerId], references: [id])
+  payment     Payment?    @relation(fields: [paymentId], references: [id])
+  lines       PayrollLine[]
+  additions   Addition[]
+  deductions  Deduction[]
+
+  @@unique([companyId, payrollWeekId, workerId])
+  @@index([companyId, payrollWeekId, status])
+  @@map("worker_payroll")
+}
+
+enum PayrollStatus {
+  DRAFT
+  PREPARED
+  PENDING_APPROVAL
+  REJECTED
+  APPROVED
+  READY_TO_PAY
+  PAYMENT_IN_PROCESS
+  PAID
+  RECONCILED
+  CLOSED
+  IMPORTED_HISTORICAL // BR-153: el histórico migrado nunca entra como PAID
+}
+
+model PayrollLine {
+  id              String   @id @default(uuid(7))
+  workerPayrollId String
+  workEntryId     String?
+  lineType        LineType
+  workDate        DateTime? @db.Date
+  quantity        Decimal   @default(0) @db.Decimal(10, 2)
+  /// SNAPSHOT de la tarifa aplicada — BR-032.
+  appliedRate     Decimal   @db.Decimal(18, 2)
+  rateSourceId    String?
+  amount          Decimal   @db.Decimal(18, 2)
+  projectId       String?
+  crewId          String?
+  shift           Shift     @default(DAY)
+  description     String?
+
+  workerPayroll WorkerPayroll @relation(fields: [workerPayrollId], references: [id], onDelete: Cascade)
+  workEntry     WorkEntry?    @relation(fields: [workEntryId], references: [id])
+  rateSource    WorkerRate?   @relation(fields: [rateSourceId], references: [id])
+  project       Project?      @relation(fields: [projectId], references: [id])
+  crew          Crew?         @relation(fields: [crewId], references: [id])
+
+  @@index([workerPayrollId])
+  @@map("payroll_line")
+}
+
+enum LineType {
+  BASE_DAY
+  BASE_HALF_DAY
+  BASE_HOURLY
+  BASE_WEEKLY
+  BASE_PRODUCTION
+  BASE_PIECE
+  BASE_PERCENTAGE
+}
+
+model Addition {
+  id                     String           @id @default(uuid(7))
+  companyId              String
+  workerPayrollId        String?
+  contractorSettlementId String?
+  category               AdditionCategory
+  amount                 Decimal          @db.Decimal(18, 2)
+  description            String // obligatoria — BR-061
+  workDate               DateTime?        @db.Date
+  createdById            String?
+  approvedById           String?
+  createdAt              DateTime         @default(now())
+
+  workerPayroll WorkerPayroll?        @relation(fields: [workerPayrollId], references: [id], onDelete: Cascade)
+  settlement    ContractorSettlement? @relation(fields: [contractorSettlementId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, workerPayrollId])
+  @@map("addition")
+}
+
+enum AdditionCategory {
+  BONUS
+  REIMBURSEMENT
+  TRAVEL
+  PER_DIEM
+  COMPLETION_BONUS
+  EMERGENCY
+  MANUAL_ADJUSTMENT
+  OTHER
+}
+
+model Deduction {
+  id                     String              @id @default(uuid(7))
+  companyId              String
+  workerPayrollId        String?
+  contractorSettlementId String?
+  category               DeductionCategory
+  amount                 Decimal             @db.Decimal(18, 2)
+  description            String // obligatoria — BR-071
+  /// ADVANCE_RECOVERY y DEBT_RECOVERY solo las genera el motor — BR-072
+  sourceType             DeductionSource     @default(MANUAL)
+  advanceRecoveryId      String?             @unique
+  debtTransactionId      String?             @unique
+  workDate               DateTime?           @db.Date
+  createdById            String?
+  approvedById           String?
+  createdAt              DateTime            @default(now())
+
+  workerPayroll   WorkerPayroll?        @relation(fields: [workerPayrollId], references: [id], onDelete: Cascade)
+  settlement      ContractorSettlement? @relation(fields: [contractorSettlementId], references: [id], onDelete: Cascade)
+  advanceRecovery AdvanceRecovery?      @relation(fields: [advanceRecoveryId], references: [id])
+  debtTransaction DebtTransaction?      @relation(fields: [debtTransactionId], references: [id])
+
+  @@index([companyId, workerPayrollId])
+  @@map("deduction")
+}
+
+enum DeductionCategory {
+  ADVANCE_RECOVERY
+  DEBT_RECOVERY
+  EQUIPMENT
+  HOTEL
+  VEHICLE
+  LOAN
+  DAMAGE
+  PPE
+  RENT
+  CASH_ADVANCE
+  OTHER
+}
+
+enum DeductionSource {
+  MANUAL
+  ADVANCE_ENGINE
+  DEBT_ENGINE
+}
+
+/// Liquidación de contratista. SEPARADA de WorkerPayroll — BR-100.
+model ContractorSettlement {
+  id                    String        @id @default(uuid(7))
+  companyId             String
+  payrollWeekId         String
+  contractorId          String
+  projectId             String?
+  invoiceNumber         String?
+  invoiceAmount         Decimal       @default(0) @db.Decimal(18, 2)
+  additionsTotal        Decimal       @default(0) @db.Decimal(18, 2)
+  deductionsTotal       Decimal       @default(0) @db.Decimal(18, 2)
+  advanceRecoveryTotal  Decimal       @default(0) @db.Decimal(18, 2)
+  commissionPct         Decimal?      @db.Decimal(7, 4)
+  commissionAmount      Decimal       @default(0) @db.Decimal(18, 2)
+  /// Descuento del CLIENTE por pronto pago: reduce ingreso, no el pago al
+  /// contratista. Van separados a propósito — BR-074.
+  earlyPaymentDiscount  Decimal       @default(0) @db.Decimal(18, 2)
+  netSettlement         Decimal       @default(0) @db.Decimal(18, 2)
+  status                PayrollStatus @default(DRAFT)
+  calculationHash       String?
+  preparedById          String?
+  preparedAt            DateTime?
+  approvedById          String?
+  approvedAt            DateTime?
+  approvalInvalidatedAt DateTime?
+  paymentId             String?       @unique
+  notes                 String?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  payrollWeek PayrollWeek     @relation(fields: [payrollWeekId], references: [id])
+  contractor  Contractor      @relation(fields: [contractorId], references: [id])
+  payment     Payment?        @relation(fields: [paymentId], references: [id])
+  lines       SettlementLine[]
+  additions   Addition[]
+  deductions  Deduction[]
+
+  @@index([companyId, payrollWeekId, status])
+  @@map("contractor_settlement")
+}
+
+model SettlementLine {
+  id                     String  @id @default(uuid(7))
+  contractorSettlementId String
+  lineType               String
+  description            String
+  quantity               Decimal @default(0) @db.Decimal(14, 2)
+  unitAmount             Decimal @default(0) @db.Decimal(18, 4)
+  amount                 Decimal @db.Decimal(18, 2)
+  projectId              String?
+  crewId                 String?
+
+  settlement ContractorSettlement @relation(fields: [contractorSettlementId], references: [id], onDelete: Cascade)
+
+  @@index([contractorSettlementId])
+  @@map("settlement_line")
+}
+
+// ─────────────────────────────────────────────────────────────
+// ANTICIPOS Y DEUDAS
+// ─────────────────────────────────────────────────────────────
+
+/// El monto original es INMUTABLE tras aprobar — BR-081.
+/// El saldo NO es columna: se deriva de las recuperaciones — BR-083.
+model Advance {
+  id               String         @id @default(uuid(7))
+  companyId        String
+  beneficiaryType  BeneficiaryType
+  workerId         String?
+  contractorId     String?
+  requestDate      DateTime       @db.Date
+  amount           Decimal        @db.Decimal(18, 2)
+  reason           String
+  recoveryMethod   RecoveryMethod @default(FIXED_WEEKLY)
+  recoveryAmount   Decimal?       @db.Decimal(18, 2)
+  recoveryPct      Decimal?       @db.Decimal(7, 4)
+  recoveryCap      Decimal?       @db.Decimal(18, 2)
+  recoveryStartWeek String?
+  status           AdvanceStatus  @default(PENDING)
+  requestedById    String?
+  approvedById     String?
+  approvedAt       DateTime?
+  paidPaymentId    String?
+  notes            String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  worker     Worker?           @relation(fields: [workerId], references: [id])
+  contractor Contractor?       @relation(fields: [contractorId], references: [id])
+  recoveries AdvanceRecovery[]
+  pauses     AdvancePause[]
+
+  @@index([companyId, status])
+  @@index([workerId, status])
+  @@map("advance")
+}
+
+enum BeneficiaryType {
+  WORKER
+  CONTRACTOR
+}
+
+enum RecoveryMethod {
+  FIXED_WEEKLY
+  PERCENTAGE_OF_NET
+  PERCENTAGE_WITH_CAP
+  MANUAL
+  LUMP_SUM
+}
+
+enum AdvanceStatus {
+  PENDING
+  APPROVED
+  ACTIVE
+  PARTIALLY_RECOVERED
+  PAID
+  CANCELLED
+}
+
+model AdvanceRecovery {
+  id                     String   @id @default(uuid(7))
+  advanceId              String
+  companyId              String
+  payrollWeekId          String?
+  workerPayrollId        String?
+  contractorSettlementId String?
+  amount                 Decimal  @db.Decimal(18, 2)
+  recoveredAt            DateTime @default(now())
+  createdById            String?
+  notes                  String?
+
+  advance   Advance    @relation(fields: [advanceId], references: [id])
+  deduction Deduction?
+
+  @@index([advanceId])
+  @@map("advance_recovery")
+}
+
+model AdvancePause {
+  id            String    @id @default(uuid(7))
+  advanceId     String
+  payrollWeekId String?
+  from          DateTime? @db.Date
+  to            DateTime? @db.Date
+  reason        String
+  createdById   String?
+  createdAt     DateTime  @default(now())
+
+  advance Advance @relation(fields: [advanceId], references: [id])
+
+  @@index([advanceId])
+  @@map("advance_pause")
+}
+
+/// Una deuda es un libro mayor, no un número — BR-090.
+/// El saldo se deriva de sus movimientos — BR-091.
+model Debt {
+  id             String       @id @default(uuid(7))
+  companyId      String
+  debtorType     DebtorType
+  workerId       String?
+  contractorId   String?
+  vendorId       String?
+  originalAmount Decimal      @db.Decimal(18, 2)
+  originDate     DateTime     @db.Date
+  reason         String
+  recoveryRule   RecoveryMethod @default(FIXED_WEEKLY)
+  recoveryAmount Decimal?     @db.Decimal(18, 2)
+  recoveryPct    Decimal?     @db.Decimal(7, 4)
+  recoveryCap    Decimal?     @db.Decimal(18, 2)
+  status         DebtStatus   @default(ACTIVE)
+  createdById    String?
+  approvedById   String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  worker       Worker?           @relation(fields: [workerId], references: [id])
+  contractor   Contractor?       @relation(fields: [contractorId], references: [id])
+  vendor       Vendor?           @relation(fields: [vendorId], references: [id])
+  transactions DebtTransaction[]
+
+  @@index([companyId, status])
+  @@map("debt")
+}
+
+enum DebtorType {
+  WORKER
+  CONTRACTOR
+  VENDOR
+}
+
+enum DebtStatus {
+  ACTIVE
+  PARTIALLY_RECOVERED
+  SETTLED
+  WRITTEN_OFF
+  PAUSED
+}
+
+model DebtTransaction {
+  id              String              @id @default(uuid(7))
+  debtId          String
+  companyId       String
+  type            DebtTransactionType
+  amount          Decimal             @db.Decimal(18, 2)
+  transactionDate DateTime            @db.Date
+  description     String
+  payrollWeekId   String?
+  paymentId       String?
+  createdById     String?
+  /// Obligatorio para FORGIVENESS — BR-093
+  approvedById    String?
+  createdAt       DateTime            @default(now())
+
+  debt      Debt       @relation(fields: [debtId], references: [id])
+  deduction Deduction?
+
+  @@index([debtId, transactionDate])
+  @@map("debt_transaction")
+}
+
+enum DebtTransactionType {
+  ORIGINAL
+  CHARGE
+  PAYMENT
+  PAYROLL_RECOVERY
+  FORGIVENESS
+  ADJUSTMENT
+}
+
+// ─────────────────────────────────────────────────────────────
+// PAGOS Y COMPROBANTES
+// ─────────────────────────────────────────────────────────────
+
+model Payment {
+  id             String        @id @default(uuid(7))
+  companyId      String
+  paymentNumber  String
+  payeeType      PayeeType
+  workerId       String?
+  contractorId   String?
+  vendorId       String?
+  payrollWeekId  String?
+  /// Congelado al aprobar. Pagar por encima de esto está bloqueado.
+  approvedAmount Decimal       @db.Decimal(18, 2)
+  amountPaid     Decimal       @default(0) @db.Decimal(18, 2)
+  paymentDate    DateTime?     @db.Date
+  method         PaymentMethod?
+  reference      String?
+  bankAccountLast4 String?
+  notes          String?
+  status         PaymentStatus @default(PENDING)
+  paidById       String?
+  paidAt         DateTime?
+  reversedById   String?
+  reversedAt     DateTime?
+  reversalReason String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  payrollWeek PayrollWeek?  @relation(fields: [payrollWeekId], references: [id])
+  worker      Worker?       @relation(fields: [workerId], references: [id])
+  contractor  Contractor?   @relation(fields: [contractorId], references: [id])
+  vendor      Vendor?       @relation(fields: [vendorId], references: [id])
+  workerPayroll WorkerPayroll?
+  settlement    ContractorSettlement?
+  proofs        PaymentProof[]
+  receipts      Receipt[]
+  adjustments   PaymentAdjustment[] @relation("OriginalPayment")
+
+  @@unique([companyId, paymentNumber])
+  @@index([companyId, status, paymentDate])
+  @@map("payment")
+}
+
+enum PayeeType {
+  WORKER
+  CONTRACTOR
+  VENDOR
+}
+
+enum PaymentMethod {
+  ZELLE
+  ACH
+  WIRE
+  CHECK
+  CASH
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING
+  IN_PROCESS
+  PAID
+  FAILED
+  REVERSED
+}
+
+model PaymentProof {
+  id           String   @id @default(uuid(7))
+  paymentId    String
+  companyId    String
+  fileKey      String
+  fileName     String
+  mimeType     String
+  sizeBytes    Int
+  sha256       String
+  uploadedById String?
+  uploadedAt   DateTime @default(now())
+
+  payment Payment @relation(fields: [paymentId], references: [id])
+
+  @@index([paymentId])
+  @@map("payment_proof")
+}
+
+model Receipt {
+  id            String   @id @default(uuid(7))
+  companyId     String
+  paymentId     String
+  receiptNumber String
+  pdfFileKey    String?
+  /// Congela lo mostrado: si algo cambia después, el comprobante emitido no cambia.
+  snapshotJson  Json
+  generatedAt   DateTime @default(now())
+  generatedById String?
+  sentEmailAt   DateTime?
+  sentWhatsappAt DateTime?
+  downloadCount Int      @default(0)
+
+  payment Payment @relation(fields: [paymentId], references: [id])
+
+  @@unique([companyId, receiptNumber])
+  @@index([paymentId])
+  @@map("receipt")
+}
+
+/// Una nómina pagada no se edita. Se corrige con estos instrumentos — BR/§8.
+model PaymentAdjustment {
+  id                String         @id @default(uuid(7))
+  companyId         String
+  originalPaymentId String
+  type              AdjustmentType
+  amount            Decimal        @db.Decimal(18, 2)
+  reason            String
+  newPaymentId      String?
+  createdById       String?
+  approvedById      String?
+  approvedAt        DateTime?
+  createdAt         DateTime       @default(now())
+
+  originalPayment Payment @relation("OriginalPayment", fields: [originalPaymentId], references: [id])
+
+  @@index([companyId, originalPaymentId])
+  @@map("payment_adjustment")
+}
+
+enum AdjustmentType {
+  ADJUSTMENT
+  REVERSAL
+  ADDITIONAL_PAYMENT
+  CREDIT
+}
+
+// ─────────────────────────────────────────────────────────────
+// IMPORTACIÓN, EXCEPCIONES, DIFERENCIAS, AUDITORÍA
+// ─────────────────────────────────────────────────────────────
+
+model ImportBatch {
+  id              String            @id @default(uuid(7))
+  companyId       String
+  fileName        String
+  fileHash        String
+  sourceType      ImportSourceType  @default(EXCEL)
+  targetEntity    String
+  importedById    String?
+  startedAt       DateTime          @default(now())
+  finishedAt      DateTime?
+  rowsRead        Int               @default(0)
+  rowsAccepted    Int               @default(0)
+  rowsRejected    Int               @default(0)
+  rowsDuplicated  Int               @default(0)
+  status          ImportStatus      @default(PENDING)
+  mappingJson     Json?
+  notes           String?
+
+  rows ImportRow[]
+
+  @@unique([companyId, fileHash, targetEntity]) // idempotencia — BR-150
+  @@map("import_batch")
+}
+
+enum ImportSourceType {
+  EXCEL
+  SHAREPOINT
+  CSV
+}
+
+enum ImportStatus {
+  PENDING
+  MAPPING
+  PREVIEW
+  VALIDATED
+  IMPORTED
+  REVERTED
+  FAILED
+}
+
+model ImportRow {
+  id                String          @id @default(uuid(7))
+  importBatchId     String
+  rowNumber         Int
+  rawJson           Json
+  naturalKey        String?
+  status            ImportRowStatus @default(ACCEPTED)
+  rejectionReason   String?
+  createdEntityType String?
+  createdEntityId   String?
+
+  batch ImportBatch @relation(fields: [importBatchId], references: [id], onDelete: Cascade)
+
+  @@index([importBatchId, status])
+  @@index([naturalKey])
+  @@map("import_row")
+}
+
+enum ImportRowStatus {
+  ACCEPTED
+  REJECTED
+  DUPLICATE
+}
+
+model Exception {
+  id             String          @id @default(uuid(7))
+  companyId      String
+  code           String
+  level          ExceptionLevel
+  entityType     String
+  entityId       String?
+  payrollWeekId  String?
+  workerId       String?
+  title          String
+  detail         String?
+  expectedValue  Decimal?        @db.Decimal(18, 2)
+  actualValue    Decimal?        @db.Decimal(18, 2)
+  difference     Decimal?        @db.Decimal(18, 2)
+  status         ExceptionStatus @default(OPEN)
+  detectedAt     DateTime        @default(now())
+  resolvedById   String?
+  resolvedAt     DateTime?
+  resolutionNote String?
+
+  @@index([companyId, status, level])
+  @@index([companyId, payrollWeekId])
+  @@map("exception")
+}
+
+enum ExceptionLevel {
+  WARNING
+  REVIEW_REQUIRED
+  CRITICAL
+}
+
+enum ExceptionStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+  DISMISSED
+}
+
+/// Las diferencias nunca desaparecen en silencio — BR-131.
+model Variance {
+  id            String         @id @default(uuid(7))
+  companyId     String
+  context       String
+  sourceAName   String
+  sourceAAmount Decimal        @db.Decimal(18, 2)
+  sourceBName   String
+  sourceBAmount Decimal        @db.Decimal(18, 2)
+  difference    Decimal        @db.Decimal(18, 2)
+  payrollWeekId String?
+  entityType    String?
+  entityId      String?
+  status        VarianceStatus @default(OPEN)
+  explanation   String?
+  resolvedById  String?
+  resolvedAt    DateTime?
+  createdAt     DateTime       @default(now())
+
+  @@index([companyId, status])
+  @@map("variance")
+}
+
+enum VarianceStatus {
+  OPEN
+  EXPLAINED
+  RESOLVED
+}
+
+/// APPEND-ONLY. El trigger de la migración impide UPDATE y DELETE — BR-140.
+model AuditLog {
+  id               String   @id @default(uuid(7))
+  companyId        String?
+  userId           String?
+  userEmailSnapshot String?
+  action           String
+  entityType       String
+  entityId         String?
+  payrollWeekId    String?
+  oldValueJson     Json?
+  newValueJson     Json?
+  changedFields    String[]
+  reason           String?
+  ip               String?
+  userAgent        String?
+  createdAt        DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([companyId, entityType, entityId, createdAt])
+  @@index([companyId, payrollWeekId, createdAt])
+  @@index([userId, createdAt])
+  @@map("audit_log")
+}
+
+/// Aquí viven las reglas marcadas NEEDS BUSINESS CONFIRMATION (A1–A15).
+/// Mientras confirmed = false, el motor usa el valor por defecto conservador
+/// y la UI muestra la insignia "Regla sin confirmar".
+model CompanySetting {
+  id                        String    @id @default(uuid(7))
+  companyId                 String
+  key                       String
+  value                     String
+  valueType                 String    @default("string")
+  confirmed                 Boolean   @default(false)
+  needsBusinessConfirmation Boolean   @default(false)
+  confirmedById             String?
+  confirmedAt               DateTime?
+  description               String?
+  updatedAt                 DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, key])
+  @@map("company_setting")
+}

@@ -1,0 +1,377 @@
+/**
+ * PayrollEngine — toda la matemática de dinero del sistema.
+ *
+ * Propiedades garantizadas (BR-054):
+ *  - PURO: no consulta la base de datos, no lee el reloj, no usa aleatoriedad.
+ *  - DETERMINISTA: la misma entrada produce siempre la misma salida.
+ *  - AUDITABLE: devuelve la traza de cada concepto.
+ *
+ * Orden de cálculo (BR-050), sin excepciones:
+ *   basePay → additions → grossPay → deductions(prioridad) → netPay
+ */
+import {
+  ZERO,
+  add,
+  isNegative,
+  min,
+  multiplyQuantity,
+  percentage,
+  quantityToHundredths,
+  subtract,
+  sum,
+  toDecimalString,
+  type Cents,
+} from './money'
+import { resolveRate } from './rates'
+import type {
+  AdvanceInput,
+  CalculatedDeduction,
+  CalculatedLine,
+  CalculationInput,
+  CalculationResult,
+  DebtInput,
+  EngineException,
+  WorkEntryInput,
+} from './types'
+
+export * from './money'
+export * from './types'
+export { resolveRate } from './rates'
+
+export function calculateWorkerPayroll(input: CalculationInput): CalculationResult {
+  const exceptions: EngineException[] = []
+
+  const base = calculateBasePay(input, exceptions)
+  const additionsTotal = calculateAdditions(input)
+  const grossPay = calculateGrossPay(base.basePay, additionsTotal)
+
+  const deductions = calculateDeductions(input, grossPay, exceptions)
+  const deductionsTotal = sum(deductions.map((d) => d.amount))
+
+  const rawNet = calculateNetPay(grossPay, deductionsTotal)
+
+  let netPay = rawNet
+  let carriedForward = ZERO
+
+  if (isNegative(rawNet)) {
+    exceptions.push({
+      code: 'NEGATIVE_PAYROLL',
+      level: 'CRITICAL',
+      title: 'Neto negativo',
+      detail:
+        `Los descuentos (${toDecimalString(deductionsTotal)}) superan el bruto ` +
+        `(${toDecimalString(grossPay)}).`,
+    })
+    if (input.settings.negativeNetBehavior === 'CLAMP_AND_CARRY') {
+      carriedForward = subtract(ZERO, rawNet)
+      netPay = ZERO
+    }
+  }
+
+  return {
+    workerId: input.workerId,
+    daysFull: base.daysFull,
+    daysHalf: base.daysHalf,
+    daysNoWork: base.daysNoWork,
+    hoursTotal: base.hoursTotal,
+    lines: base.lines,
+    additions: input.additions,
+    deductions,
+    basePay: base.basePay,
+    additionsTotal,
+    grossPay,
+    deductionsTotal,
+    netPay,
+    carriedForward,
+    exceptions,
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Pago base
+// ─────────────────────────────────────────────────────────────
+
+interface BaseResult {
+  lines: CalculatedLine[]
+  basePay: Cents
+  daysFull: number
+  daysHalf: number
+  daysNoWork: number
+  hoursTotal: string
+}
+
+export function calculateBasePay(
+  input: CalculationInput,
+  exceptions: EngineException[],
+): BaseResult {
+  const lines: CalculatedLine[] = []
+  let daysFull = 0
+  let daysHalf = 0
+  let daysNoWork = 0
+  let hoursHundredths = 0n
+
+  if (input.compensationType === 'FIXED_WEEKLY') {
+    const amount = input.fixedWeeklyAmount ?? ZERO
+    if (input.fixedWeeklyAmount === null) {
+      exceptions.push({
+        code: 'MISSING_RATE',
+        level: 'CRITICAL',
+        title: 'Falta la tarifa semanal fija',
+        detail: 'El trabajador es de pago semanal fijo pero no tiene monto configurado.',
+      })
+    }
+    for (const entry of input.entries) countDay(entry, () => (daysFull += 1), () => (daysHalf += 1), () => (daysNoWork += 1))
+    lines.push({
+      workEntryId: null,
+      lineType: 'BASE_WEEKLY',
+      workDate: null,
+      quantity: '1',
+      appliedRate: amount,
+      rateSourceId: null,
+      amount,
+      projectId: null,
+      crewId: null,
+      shift: 'DAY',
+      description: 'Pago semanal fijo',
+    })
+    return { lines, basePay: amount, daysFull, daysHalf, daysNoWork, hoursTotal: '0.00' }
+  }
+
+  for (const entry of [...input.entries].sort((a, b) => a.workDate.localeCompare(b.workDate))) {
+    countDay(entry, () => (daysFull += 1), () => (daysHalf += 1), () => (daysNoWork += 1))
+
+    if (entry.dayType === 'NO_WORK' && !input.settings.payNoWorkDays) continue
+    if (entry.dayType === 'OTHER') continue
+
+    const isHourly = entry.dayType === 'HOURLY'
+    const rate = resolveRate(input.rates, {
+      workDate: entry.workDate,
+      rateType: isHourly ? 'HOURLY' : 'DAILY',
+      shift: entry.shift,
+      projectId: entry.projectId,
+      operationId: entry.operationId,
+    })
+
+    if (rate === null) {
+      // BR-033: nunca se paga cero en silencio.
+      exceptions.push({
+        code: 'MISSING_RATE',
+        level: 'CRITICAL',
+        title: 'Sin tarifa vigente',
+        detail: `No hay tarifa ${isHourly ? 'por hora' : 'diaria'} vigente el ${entry.workDate}.`,
+        workDate: entry.workDate,
+      })
+      continue
+    }
+
+    if (isHourly) {
+      const hours = entry.hoursWorked ?? '0'
+      hoursHundredths += quantityToHundredths(hours)
+      const amount = multiplyQuantity(rate.amount, hours)
+      lines.push(makeLine(entry, 'BASE_HOURLY', hours, rate.amount, rate.id, amount, `${hours} h`))
+      continue
+    }
+
+    const factor =
+      entry.dayType === 'HALF_DAY' ? input.settings.halfDayFactor : entry.dayType === 'FULL_DAY' ? '1' : '0'
+    const amount = multiplyQuantity(rate.amount, factor)
+    const lineType = entry.dayType === 'HALF_DAY' ? 'BASE_HALF_DAY' : 'BASE_DAY'
+    const label = entry.dayType === 'HALF_DAY' ? 'Medio día' : entry.dayType === 'FULL_DAY' ? 'Día completo' : 'Día no trabajado'
+    lines.push(makeLine(entry, lineType, factor, rate.amount, rate.id, amount, label))
+  }
+
+  return {
+    lines,
+    basePay: sum(lines.map((line) => line.amount)),
+    daysFull,
+    daysHalf,
+    daysNoWork,
+    hoursTotal: hundredthsToString(hoursHundredths),
+  }
+}
+
+function countDay(
+  entry: WorkEntryInput,
+  onFull: () => void,
+  onHalf: () => void,
+  onNone: () => void,
+): void {
+  if (entry.dayType === 'FULL_DAY' || entry.dayType === 'HOURLY') onFull()
+  else if (entry.dayType === 'HALF_DAY') onHalf()
+  else if (entry.dayType === 'NO_WORK') onNone()
+}
+
+function makeLine(
+  entry: WorkEntryInput,
+  lineType: CalculatedLine['lineType'],
+  quantity: string,
+  appliedRate: Cents,
+  rateSourceId: string,
+  amount: Cents,
+  description: string,
+): CalculatedLine {
+  return {
+    workEntryId: entry.id,
+    lineType,
+    workDate: entry.workDate,
+    quantity,
+    appliedRate,
+    rateSourceId,
+    amount,
+    projectId: entry.projectId,
+    crewId: entry.crewId,
+    shift: entry.shift === 'ANY' ? 'DAY' : entry.shift,
+    description,
+  }
+}
+
+function hundredthsToString(value: bigint): string {
+  const negative = value < 0n
+  const absolute = negative ? -value : value
+  return `${negative ? '-' : ''}${absolute / 100n}.${(absolute % 100n).toString().padStart(2, '0')}`
+}
+
+// ─────────────────────────────────────────────────────────────
+// Adicionales, bruto, descuentos, neto
+// ─────────────────────────────────────────────────────────────
+
+export function calculateAdditions(input: CalculationInput): Cents {
+  return sum(input.additions.map((addition) => addition.amount))
+}
+
+export function calculateGrossPay(basePay: Cents, additionsTotal: Cents): Cents {
+  return add(basePay, additionsTotal)
+}
+
+export function calculateNetPay(grossPay: Cents, deductionsTotal: Cents): Cents {
+  return subtract(grossPay, deductionsTotal)
+}
+
+/**
+ * Descuentos en orden de prioridad (BR-056):
+ *   1. recuperación de anticipos
+ *   2. recuperación de deudas
+ *   3. descuentos manuales
+ *
+ * Las recuperaciones nunca exceden el saldo (BR-087) ni el disponible del bruto.
+ */
+export function calculateDeductions(
+  input: CalculationInput,
+  grossPay: Cents,
+  exceptions: EngineException[],
+): CalculatedDeduction[] {
+  const deductions: CalculatedDeduction[] = []
+  let available = grossPay
+
+  for (const advance of input.advances) {
+    if (advance.paused) continue
+    const amount = calculateAdvanceRecovery(advance, grossPay, available)
+    if (amount === ZERO) continue
+    deductions.push({
+      category: 'ADVANCE_RECOVERY',
+      amount,
+      description: `Recuperación de anticipo`,
+      sourceType: 'ADVANCE_ENGINE',
+      advanceId: advance.id,
+    })
+    available = subtract(available, amount)
+  }
+
+  for (const debt of input.debts) {
+    if (debt.recoveryRule === 'PAUSED') continue
+    const amount = calculateDebtRecovery(debt, grossPay, available)
+    if (amount === ZERO) continue
+    deductions.push({
+      category: 'DEBT_RECOVERY',
+      amount,
+      description: `Recuperación de deuda`,
+      sourceType: 'DEBT_ENGINE',
+      debtId: debt.id,
+    })
+    available = subtract(available, amount)
+  }
+
+  for (const manual of input.manualDeductions) {
+    deductions.push({
+      category: manual.category,
+      amount: manual.amount,
+      description: manual.description,
+      sourceType: 'MANUAL',
+    })
+    if (manual.amount > available && available >= ZERO) {
+      exceptions.push({
+        code: 'UNUSUAL_DEDUCTION',
+        level: 'REVIEW_REQUIRED',
+        title: 'Descuento mayor al disponible',
+        detail: `El descuento "${manual.description}" (${toDecimalString(manual.amount)}) supera lo que queda por pagar.`,
+      })
+    }
+    available = subtract(available, manual.amount)
+  }
+
+  return deductions
+}
+
+export function calculateAdvanceRecovery(
+  advance: AdvanceInput,
+  grossPay: Cents,
+  available: Cents,
+): Cents {
+  return capRecovery(
+    computeRecovery(
+      advance.recoveryMethod === 'LUMP_SUM' ? 'FULL' : advance.recoveryMethod,
+      advance.recoveryAmount,
+      advance.recoveryPct,
+      advance.recoveryCap,
+      advance.balance,
+      grossPay,
+    ),
+    advance.balance,
+    available,
+  )
+}
+
+export function calculateDebtRecovery(
+  debt: DebtInput,
+  grossPay: Cents,
+  available: Cents,
+): Cents {
+  return capRecovery(
+    computeRecovery(debt.recoveryRule, debt.recoveryAmount, debt.recoveryPct, debt.recoveryCap, debt.balance, grossPay),
+    debt.balance,
+    available,
+  )
+}
+
+function computeRecovery(
+  rule: string,
+  amount: Cents | null,
+  pct: string | null,
+  cap: Cents | null,
+  balance: Cents,
+  grossPay: Cents,
+): Cents {
+  switch (rule) {
+    case 'FULL':
+      return balance
+    case 'FIXED_WEEKLY':
+      return amount ?? ZERO
+    case 'PERCENTAGE_OF_NET':
+      return pct === null ? ZERO : percentage(grossPay, pct)
+    case 'PERCENTAGE_WITH_CAP': {
+      if (pct === null) return ZERO
+      const computed = percentage(grossPay, pct)
+      return cap === null ? computed : min(computed, cap)
+    }
+    default: // MANUAL, PAUSED
+      return ZERO
+  }
+}
+
+/** La recuperación nunca supera el saldo ni lo disponible, y nunca es negativa. */
+function capRecovery(requested: Cents, balance: Cents, available: Cents): Cents {
+  if (requested <= ZERO) return ZERO
+  const cappedByBalance = min(requested, balance)
+  const cappedByAvailable = min(cappedByBalance, available)
+  return cappedByAvailable <= ZERO ? ZERO : cappedByAvailable
+}
