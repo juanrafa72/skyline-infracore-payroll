@@ -11,7 +11,6 @@
   "workspace": {
     "packageJson": {
       "dependencies": [
-        "npm:@netlify/database@^1.1.0",
         "npm:@netlify/plugin-nextjs@^5.15.13",
         "npm:@prisma/adapter-pg@^7.9.1",
         "npm:@prisma/client@^7.9.1",

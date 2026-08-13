@@ -122,12 +122,17 @@ módulos de Turbopack.
       anticipos y deudas, neto negativo, semanas domingo–sábado con la numeración de Excel
 - [x] **M4–M5 (parcial)** — aplicación navegable: dashboard, trabajadores con historial de
       tarifas, cuadrillas, proyectos, clientes, rejilla semanal de días, cálculo y reportes
-- [ ] **M3** — autenticación real. Hoy la compañía activa vive en una cookie y **no hay
-      login**: cualquiera con acceso al equipo entra. Es lo siguiente.
+- [x] **Períodos de pago** — diario, semanal, catorcenal (14 días), quincenal
+      (1–15 y 16–fin de mes) y mensual, por compañía y con excepción por trabajador.
+      Cortes fuera de calendario para liquidar a quien se retira.
+- [x] **Publicado** en Netlify con base en Neon, detrás de contraseña compartida
+- [ ] **M3** — autenticación real por persona y rol. Hoy solo hay **una contraseña
+      compartida**: todos ven todo, cualquiera puede cambiar montos y no queda
+      registro de quién fue. Es lo siguiente y es bloqueante para operar de verdad.
 - [ ] M6–M14 — anticipos, deudas, Approval Center, Payment Center, comprobantes,
       auditoría visible. Ver `docs/IMPLEMENTATION_PLAN.md`
 
-**92 tests pasando** · `npm run check` en verde.
+**110 tests pasando** · `npm run check` en verde.
 
 ### Verificación contra el Excel
 
@@ -135,6 +140,23 @@ Federico Quintero, Underground, semana 30 de 2026 (19–25 jul), 7 días a $200
 → el sistema calcula **$1.400,00**, el mismo número de la hoja `DH UG` del Excel.
 
 Fases 2–4 no se empiezan hasta que Phase 1 esté verde y validada por el negocio.
+
+### Publicado
+
+- **Sitio:** https://skyline-infracore-payroll.netlify.app
+- **Acceso:** contraseña compartida en la variable `SITE_PASSWORD` de Netlify.
+  Es un candado temporal (`src/middleware.ts`), **no** el login por persona.
+- **Base de datos:** PostgreSQL administrado en Neon. La dirección vive en la
+  variable `DATABASE_URL` de Netlify, nunca en el repositorio.
+- **Repositorio:** `juanrafa72/skyline-infracore-payroll` (privado).
+- Cada despliegue aplica migraciones y vuelve a sembrar catálogos (el seed usa
+  upsert, no duplica).
+
+```bash
+netlify deploy --build --prod    # publicar
+SMOKE_BASE=https://skyline-infracore-payroll.netlify.app \
+  SMOKE_PASSWORD=... npm run smoke   # verificar lo publicado
+```
 
 ### Base de datos local
 

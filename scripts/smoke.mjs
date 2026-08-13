@@ -5,9 +5,13 @@
  * relación mal escrita, por ejemplo). Esto sí: pide cada página al servidor y
  * falla si revienta al armarse.
  *
- * Uso:  npm run dev   (en otra terminal)   y luego   npm run smoke
+ * Uso local:      npm run dev   (en otra terminal)   y luego   npm run smoke
+ * Uso publicado:  SMOKE_BASE=https://... SMOKE_PASSWORD=... npm run smoke
  */
 const BASE = process.env.SMOKE_BASE ?? 'http://localhost:3100'
+
+// El sitio publicado está detrás de una contraseña compartida (SITE_PASSWORD).
+const PASSWORD = process.env.SMOKE_PASSWORD
 
 const ROUTES = [
   '/',
@@ -35,6 +39,9 @@ const APP_TITLE = 'Payroll · Skyline Advance Tech / Infracore'
 
 async function get(route, companyId) {
   const headers = companyId ? { Cookie: `active_company=${companyId}` } : {}
+  if (PASSWORD) {
+    headers.Authorization = `Basic ${Buffer.from(`admin:${PASSWORD}`).toString('base64')}`
+  }
   const response = await fetch(`${BASE}${route}`, { headers, redirect: 'follow' })
   return { status: response.status, body: await response.text() }
 }
