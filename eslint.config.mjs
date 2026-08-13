@@ -39,6 +39,22 @@ const config = [
     rules: PURE_ENGINE_RULES,
   },
   {
+    // `include: { relacion: false }` no es válido en Prisma: compila, pasa el
+    // typecheck y revienta al abrir la página. Ya rompió dos pantallas.
+    files: ['src/**/*.ts', 'src/**/*.tsx'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "Property[key.name][value.value=false][parent.parent.key.name='include']",
+          message:
+            'Prisma no acepta `include: { relacion: false }`. Para no traer una relación, ' +
+            'simplemente no la escribas.',
+        },
+      ],
+    },
+  },
+  {
     // money.ts es la única frontera autorizada para tocar `Math`: valida que un
     // `number` de entrada represente centavos exactos antes de convertirlo.
     // Ningún otro archivo del motor puede redondear por su cuenta.

@@ -429,21 +429,23 @@ export async function calculateWeek(formData: FormData) {
   revalidatePath(`/payroll/${weekId}`)
 }
 
-/** Agrega a alguien a este período aunque todavía no tenga días marcados. */
+/** Agrega personas al período, aunque todavía no tengan días marcados. */
 export async function addWorkerToPeriod(formData: FormData) {
   const company = await getActiveCompany()
   const weekId = String(formData.get('weekId') ?? '')
-  const workerId = String(formData.get('workerId') ?? '')
-  if (!workerId) return
+  const workerIds = formData.getAll('workerId').map(String).filter(Boolean)
+  if (workerIds.length === 0) return
 
   const week = await prisma.payrollWeek.findFirst({ where: { id: weekId, companyId: company.id } })
   if (!week) throw new Error('Período no encontrado')
 
-  await prisma.payrollWeekMember.upsert({
-    where: { payrollWeekId_workerId: { payrollWeekId: week.id, workerId } },
-    update: { removedAt: null, removedById: null, removalReason: null },
-    create: { companyId: company.id, payrollWeekId: week.id, workerId },
-  })
+  for (const workerId of workerIds) {
+    await prisma.payrollWeekMember.upsert({
+      where: { payrollWeekId_workerId: { payrollWeekId: week.id, workerId } },
+      update: { removedAt: null, removedById: null, removalReason: null },
+      create: { companyId: company.id, payrollWeekId: week.id, workerId },
+    })
+  }
 
   await prisma.auditLog.create({
     data: {
@@ -452,7 +454,7 @@ export async function addWorkerToPeriod(formData: FormData) {
       entityType: 'PayrollWeek',
       entityId: week.id,
       payrollWeekId: week.id,
-      newValueJson: { workerId },
+      newValueJson: { workerIds, count: workerIds.length },
       changedFields: ['members'],
     },
   })

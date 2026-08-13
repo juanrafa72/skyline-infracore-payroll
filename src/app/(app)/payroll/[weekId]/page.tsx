@@ -4,9 +4,10 @@ import { Badge, Button, EmptyState, LinkButton, PageHeader, Stat, money } from '
 import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
 import { shortDay, toIso } from '@/lib/payroll/week'
-import { addWorkerToPeriod, calculateWeek, removeWorkerFromPeriod, saveWorkEntries } from '../actions'
+import { calculateWeek, removeWorkerFromPeriod, saveWorkEntries } from '../actions'
 import { SubmitWeek } from './SubmitWeek'
-import { ESTADO_NOMINA, label } from '@/lib/payroll/labels'
+import { WorkerPicker } from './WorkerPicker'
+import { ESTADO_NOMINA, TIPO_TARIFA, label } from '@/lib/payroll/labels'
 import { DayCell } from './DayCell'
 
 export const dynamic = 'force-dynamic'
@@ -20,8 +21,8 @@ export const dynamic = 'force-dynamic'
  * literalmente en el código.
  */
 function gridTemplate(dayCount: number): string {
-  if (dayCount > 16) return 'minmax(150px,1fr) minmax(0,6fr) minmax(80px,0.7fr)'
-  return `minmax(150px,1.6fr) repeat(${dayCount},minmax(0,1fr)) minmax(80px,0.9fr)`
+  if (dayCount > 16) return 'minmax(190px,1fr) minmax(0,6fr) minmax(64px,0.5fr)'
+  return `minmax(190px,1.7fr) repeat(${dayCount},minmax(0,1fr)) minmax(64px,0.6fr)`
 }
 
 /** Clase estática que consume la variable. Esta sí la compila Tailwind. */
@@ -113,8 +114,16 @@ export default async function WeekPage({
   const available = await prisma.worker.findMany({
     where: { companyId: company.id, status: 'ACTIVE', id: { notIn: [...shownIds] } },
     orderBy: { displayName: 'asc' },
-    select: { id: true, displayName: true },
+    include: {
+      rates: { where: { active: true }, orderBy: { effectiveFrom: 'desc' }, take: 1 },
+    },
   })
+
+  const crews = await prisma.crew.findMany({
+    where: { companyId: company.id },
+    select: { id: true, name: true },
+  })
+  const crewName = new Map(crews.map((crew) => [crew.id, crew.name]))
 
   // El período puede durar 1, 7, 14, 15, 16, 28, 30 o 31 días según la
   // frecuencia, o lo que dure un corte. Se recorre de inicio a fin.
@@ -292,7 +301,7 @@ export default async function WeekPage({
                     </span>
                   ))}
                   <span className="text-right text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-                    Tarifa
+                    Quitar
                   </span>
                 </div>
 
@@ -302,17 +311,27 @@ export default async function WeekPage({
                     style={gridStyle}
                     className={`border-b border-[var(--border)] px-3 py-3 last:border-b-0 md:grid ${GRID_CLASS} md:items-center md:py-2`}
                   >
-                    <div className="flex items-center justify-between gap-2 md:block">
+                    <div className="min-w-0">
                       <Link
                         prefetch={false}
                         href={`/workers/${worker.id}`}
-                        className="text-sm font-medium text-[var(--accent)] hover:underline"
+                        className="block truncate text-sm font-medium text-[var(--accent)] hover:underline"
                       >
                         {worker.displayName}
                       </Link>
-                      <span className="text-xs tabular-nums text-[var(--muted)] md:hidden">
-                        {worker.rates[0] ? `$${money(worker.rates[0].amount)}` : 'sin tarifa'}
-                      </span>
+                      {/* La tarifa, justo debajo del nombre: es donde se cometen los errores */}
+                      {worker.rates[0] ? (
+                        <span className="block text-xs tabular-nums text-[var(--muted)]">
+                          ${money(worker.rates[0].amount)} {label(TIPO_TARIFA, worker.rates[0].rateType).toLowerCase()}
+                          {worker.defaultCrewId && crewName.get(worker.defaultCrewId)
+                            ? ` · ${crewName.get(worker.defaultCrewId)}`
+                            : ''}
+                        </span>
+                      ) : (
+                        <span className="block text-xs font-medium text-red-600">
+                          sin tarifa — no se podrá calcular
+                        </span>
+                      )}
                     </div>
 
                     {/* `md:contents` disuelve este envoltorio dentro de la rejilla en escritorio */}
@@ -342,14 +361,7 @@ export default async function WeekPage({
                       })}
                     </div>
 
-                    <div className="mt-2 flex items-center justify-between gap-2 md:mt-0 md:justify-end">
-                      <span className="text-sm tabular-nums">
-                        {worker.rates[0] ? (
-                          `$${money(worker.rates[0].amount)}`
-                        ) : (
-                          <Badge tone="critical">falta</Badge>
-                        )}
-                      </span>
+                    <div className="mt-2 flex items-center justify-end gap-2 md:mt-0">
                       <button
                         type="submit"
                         formAction={removeWorkerFromPeriod}
@@ -370,30 +382,21 @@ export default async function WeekPage({
               </div>
             </form>
 
-            {available.length > 0 ? (
-              <form
-                action={addWorkerToPeriod}
-                className="mt-3 flex flex-wrap items-end gap-2 rounded-lg border border-dashed border-[var(--border)] p-3"
-              >
-                <input type="hidden" name="weekId" value={week.id} />
-                <label className="min-w-[220px] flex-1">
-                  <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
-                    Agregar a alguien que sí trabajó
-                  </span>
-                  <select
-                    name="workerId"
-                    className="h-9 w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 text-sm"
-                  >
-                    {available.map((person) => (
-                      <option key={person.id} value={person.id}>
-                        {person.displayName}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <Button variant="secondary">Agregar al período</Button>
-              </form>
-            ) : null}
+            <WorkerPicker
+              weekId={week.id}
+              candidates={available.map((person) => ({
+                id: person.id,
+                name: person.displayName,
+                rate: person.rates[0] ? money(person.rates[0].amount) : null,
+                rateType: person.rates[0]
+                  ? label(TIPO_TARIFA, person.rates[0].rateType).toLowerCase()
+                  : '',
+                crew:
+                  person.defaultCrewId && crewName.get(person.defaultCrewId)
+                    ? crewName.get(person.defaultCrewId)!
+                    : null,
+              }))}
+            />
 
             <form action={calculateWeek} className="mt-2">
               <input type="hidden" name="weekId" value={week.id} />
