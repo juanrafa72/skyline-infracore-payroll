@@ -512,3 +512,155 @@ export async function removeWorkerFromPeriod(formData: FormData) {
 
   revalidatePath(`/payroll/${weekId}`)
 }
+
+/**
+ * Fija quiénes trabajaron en el período.
+ *
+ * Reemplaza la lista completa: lo que se marque queda, lo que no se marque
+ * sale. Sacar a alguien que ya tiene días marcados se rechaza; primero hay que
+ * borrarle los días, para que quitar de una lista nunca borre trabajo real.
+ */
+export async function setPeriodRoster(formData: FormData) {
+  const company = await getActiveCompany()
+  const weekId = String(formData.get('weekId') ?? '')
+  const chosen = new Set(formData.getAll('workerId').map(String).filter(Boolean))
+
+  const week = await prisma.payrollWeek.findFirst({ where: { id: weekId, companyId: company.id } })
+  if (!week) throw new Error('Período no encontrado')
+
+  const withDays = await prisma.workEntry.findMany({
+    where: { companyId: company.id, payrollWeekId: week.id },
+    select: { workerId: true },
+    distinct: ['workerId'],
+  })
+  const protectedIds = new Set(withDays.map((row) => row.workerId))
+
+  const removedWithDays = [...protectedIds].filter((id) => !chosen.has(id))
+  if (removedWithDays.length > 0) {
+    const people = await prisma.worker.findMany({
+      where: { id: { in: removedWithDays } },
+      select: { displayName: true },
+    })
+    throw new Error(
+      `No puedes sacar a ${people.map((p) => p.displayName).join(', ')}: ya tiene(n) días ` +
+        'marcados en esta semana. Déjalos en "—" y guarda primero.',
+    )
+  }
+
+  const existing = await prisma.payrollWeekMember.findMany({
+    where: { companyId: company.id, payrollWeekId: week.id },
+  })
+  const known = new Map(existing.map((row) => [row.workerId, row]))
+
+  await prisma.$transaction(async (tx) => {
+    for (const workerId of chosen) {
+      await tx.payrollWeekMember.upsert({
+        where: { payrollWeekId_workerId: { payrollWeekId: week.id, workerId } },
+        update: { removedAt: null, removedById: null, removalReason: null },
+        create: { companyId: company.id, payrollWeekId: week.id, workerId },
+      })
+    }
+    for (const [workerId, row] of known) {
+      if (!chosen.has(workerId) && !row.removedAt) {
+        await tx.payrollWeekMember.update({
+          where: { id: row.id },
+          data: { removedAt: new Date(), removalReason: 'No trabajó este período' },
+        })
+      }
+    }
+    await tx.auditLog.create({
+      data: {
+        companyId: company.id,
+        action: 'PERIOD_ROSTER_SET',
+        entityType: 'PayrollWeek',
+        entityId: week.id,
+        payrollWeekId: week.id,
+        newValueJson: { count: chosen.size },
+        changedFields: ['members'],
+      },
+    })
+  })
+
+  revalidatePath(`/payroll/${weekId}`)
+  redirect(`/payroll/${weekId}`)
+}
+
+/**
+ * Crea una persona con su tarifa y la mete al período, en un solo paso.
+ *
+ * Una persona sin tarifa no sirve para nada aquí: por eso la tarifa se pide
+ * junto con el nombre y no se puede dejar en blanco.
+ */
+export async function createWorkerWithRate(
+  _previous: string | null,
+  formData: FormData,
+): Promise<string> {
+  const company = await getActiveCompany()
+
+  const name = String(formData.get('name') ?? '').trim()
+  const rate = String(formData.get('rate') ?? '').trim()
+  const rateType = String(formData.get('rateType') ?? 'DAILY')
+  const operationId = String(formData.get('operationId') ?? '').trim()
+  const weekId = String(formData.get('weekId') ?? '')
+
+  if (!name) return 'Escribe el nombre.'
+  if (!/^\d+(\.\d{1,2})?$/.test(rate)) return 'La tarifa debe ser un número, con máximo 2 decimales.'
+
+  const week = await prisma.payrollWeek.findFirst({ where: { id: weekId, companyId: company.id } })
+  if (!week) return 'Período no encontrado.'
+
+  const duplicate = await prisma.worker.findFirst({
+    where: { companyId: company.id, displayName: { equals: name, mode: 'insensitive' } },
+  })
+  if (duplicate) {
+    return `Ya existe "${duplicate.displayName}". Búscalo en la lista en vez de crearlo otra vez.`
+  }
+
+  const count = await prisma.worker.count({ where: { companyId: company.id } })
+  const parts = name.split(/\s+/)
+
+  await prisma.$transaction(async (tx) => {
+    const worker = await tx.worker.create({
+      data: {
+        companyId: company.id,
+        code: `W-${String(count + 1).padStart(4, '0')}`,
+        firstName: parts[0] ?? name,
+        lastName: parts.slice(1).join(' ') || '—',
+        displayName: name,
+        compensationType: rateType === 'HOURLY' ? 'HOURLY' : 'DAILY_RATE',
+        defaultOperationId: operationId || null,
+      },
+    })
+
+    await tx.workerRate.create({
+      data: {
+        companyId: company.id,
+        workerId: worker.id,
+        rateType: rateType === 'HOURLY' ? 'HOURLY' : 'DAILY',
+        amount: rate,
+        effectiveFrom: week.startDate,
+        operationId: operationId || null,
+        sourceNote: 'Creada al armar la nómina',
+      },
+    })
+
+    await tx.payrollWeekMember.create({
+      data: { companyId: company.id, payrollWeekId: week.id, workerId: worker.id },
+    })
+
+    await tx.auditLog.create({
+      data: {
+        companyId: company.id,
+        action: 'WORKER_CREATED_IN_PAYROLL',
+        entityType: 'Worker',
+        entityId: worker.id,
+        payrollWeekId: week.id,
+        newValueJson: { name, rate, rateType },
+        changedFields: ['displayName', 'rate'],
+      },
+    })
+  })
+
+  revalidatePath(`/payroll/${weekId}`)
+  return `LISTO|${name} agregado con tarifa $${Number(rate).toFixed(2)}`
+}
