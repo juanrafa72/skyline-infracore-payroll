@@ -1,5 +1,8 @@
 [build]
-  command = "npx prisma generate && npm run build"
+  # Las migraciones se aplican en cada despliegue: la base publicada siempre
+  # tiene la misma estructura que el código. El seed usa upsert, así que
+  # repetirlo no duplica nada.
+  command = "npx prisma generate && npx prisma migrate deploy && npx tsx prisma/seed.ts && npm run build"
   publish = ".next"
 
 [build.environment]

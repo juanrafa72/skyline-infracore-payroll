@@ -16,29 +16,57 @@ import {
   type RateInput,
   type WorkEntryInput,
 } from '@/lib/payroll/engine'
-import { toIso, weekRangeOf } from '@/lib/payroll/week'
+import { offCyclePeriod, periodOf, type PayPeriodType } from '@/lib/payroll/period'
+import { toIso } from '@/lib/payroll/week'
 
+/**
+ * Abre un período de pago.
+ *
+ * Dos modos:
+ *  - regular: se elige la frecuencia (diario, semanal, catorcenal, quincenal,
+ *    mensual) y el sistema calcula las fechas del ciclo que contiene la fecha dada.
+ *  - corte: se dan las fechas a mano. Sirve para liquidar a alguien que se retira
+ *    sin esperar el cierre normal. Queda marcado como corte para que no se
+ *    confunda con un período regular.
+ */
 export async function openWeek(formData: FormData) {
   const company = await getActiveCompany()
-  const date = String(formData.get('date') ?? '')
-  const range = weekRangeOf(date)
+  const mode = String(formData.get('mode') ?? 'regular')
+
+  const period =
+    mode === 'cut'
+      ? offCyclePeriod(String(formData.get('cutFrom') ?? ''), String(formData.get('cutTo') ?? ''))
+      : periodOf(
+          String(formData.get('date') ?? ''),
+          (String(formData.get('periodType') ?? 'WEEKLY') as PayPeriodType),
+          company.biweeklyAnchor ? { biweeklyAnchor: toIso(company.biweeklyAnchor) } : {},
+        )
+
+  const isCut = mode === 'cut'
+  const settlementType = isCut
+    ? (String(formData.get('settlementType') ?? 'FINAL_SETTLEMENT') as 'FINAL_SETTLEMENT' | 'PARTIAL_CUT')
+    : 'REGULAR'
 
   const week = await prisma.payrollWeek.upsert({
     where: {
       companyId_year_weekNumber: {
         companyId: company.id,
-        year: range.year,
-        weekNumber: range.weekNumber,
+        year: period.year,
+        weekNumber: period.periodNumber,
       },
     },
     update: {},
     create: {
       companyId: company.id,
-      year: range.year,
-      weekNumber: range.weekNumber,
-      startDate: new Date(`${range.startDate}T00:00:00Z`),
-      endDate: new Date(`${range.endDate}T00:00:00Z`),
-      label: range.label,
+      year: period.year,
+      weekNumber: period.periodNumber,
+      startDate: new Date(`${period.startDate}T00:00:00Z`),
+      endDate: new Date(`${period.endDate}T00:00:00Z`),
+      label: period.label,
+      periodType: period.periodType,
+      isOffCycle: isCut,
+      settlementType,
+      offCycleReason: isCut ? String(formData.get('cutReason') ?? '') || null : null,
     },
   })
 

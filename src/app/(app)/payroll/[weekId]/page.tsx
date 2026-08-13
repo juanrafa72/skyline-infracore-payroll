@@ -8,8 +8,22 @@ import { calculateWeek, saveWorkEntries } from '../actions'
 
 export const dynamic = 'force-dynamic'
 
-/** Nombre + 7 días + tarifa, en una sola fila de rejilla en escritorio. */
-const GRID = 'md:grid-cols-[minmax(150px,1.6fr)_repeat(7,minmax(0,1fr))_minmax(80px,0.9fr)] md:gap-2'
+/**
+ * Columnas de la rejilla: nombre + N días + tarifa.
+ *
+ * El número de días depende de la frecuencia (1, 7, 14, 15, 16, 30, 31…), así
+ * que la plantilla se pasa como variable CSS en línea. No puede ser una clase
+ * de Tailwind armada con texto: Tailwind solo genera las clases que ve escritas
+ * literalmente en el código.
+ */
+function gridTemplate(dayCount: number): string {
+  if (dayCount > 16) return 'minmax(150px,1fr) minmax(0,6fr) minmax(80px,0.7fr)'
+  return `minmax(150px,1.6fr) repeat(${dayCount},minmax(0,1fr)) minmax(80px,0.9fr)`
+}
+
+/** Clase estática que consume la variable. Esta sí la compila Tailwind. */
+const GRID_CLASS = 'md:[grid-template-columns:var(--payroll-grid)] md:gap-2'
+
 
 const DAY_OPTIONS = [
   { value: '', label: '—' },
@@ -44,12 +58,15 @@ export default async function WeekPage({ params }: { params: Promise<{ weekId: s
     }),
   ])
 
+  // El período puede durar 1, 7, 14, 15, 16, 28, 30 o 31 días según la
+  // frecuencia, o lo que dure un corte. Se recorre de inicio a fin.
   const days: string[] = []
-  const start = new Date(week.startDate)
-  for (let offset = 0; offset < 7; offset += 1) {
-    const day = new Date(start)
-    day.setUTCDate(start.getUTCDate() + offset)
-    days.push(toIso(day))
+  for (
+    let cursor = new Date(week.startDate);
+    toIso(cursor) <= toIso(week.endDate);
+    cursor.setUTCDate(cursor.getUTCDate() + 1)
+  ) {
+    days.push(toIso(cursor))
   }
 
   const entryMap = new Map(
@@ -66,6 +83,10 @@ export default async function WeekPage({ params }: { params: Promise<{ weekId: s
   )
 
   const critical = exceptions.filter((exception) => exception.level === 'CRITICAL')
+  // Con más de 16 días las casillas van dentro de su propio bloque, no como
+  // columnas de la rejilla: `md:contents` solo sirve cuando sí son columnas.
+  const inlineDays = days.length <= 16
+  const gridStyle = { '--payroll-grid': gridTemplate(days.length) } as React.CSSProperties
 
   return (
     <>
@@ -74,6 +95,21 @@ export default async function WeekPage({ params }: { params: Promise<{ weekId: s
         subtitle={`${toIso(week.startDate)} → ${toIso(week.endDate)} · ${company.displayName}`}
         action={<LinkButton href="/payroll" variant="secondary">Volver</LinkButton>}
       />
+
+      {week.isOffCycle ? (
+        <div className="mb-5 rounded-lg border border-amber-300 bg-amber-50 p-3.5 text-sm text-amber-900">
+          <strong>
+            {week.settlementType === 'FINAL_SETTLEMENT'
+              ? 'Liquidación por retiro'
+              : 'Corte parcial'}
+          </strong>{' '}
+          — período fuera de calendario, de {toIso(week.startDate)} a {toIso(week.endDate)}.
+          {week.offCycleReason ? ` ${week.offCycleReason}` : ''}
+          <br />
+          No forma parte del ciclo regular: los días que se marquen aquí no deben marcarse
+          también en el período normal.
+        </div>
+      ) : null}
 
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="Bruto" value={`$${money(totals.gross)}`} />
@@ -110,7 +146,10 @@ export default async function WeekPage({ params }: { params: Promise<{ weekId: s
                 enviaría cada día dos veces y el segundo valor pisaría al primero.
               */}
               <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-                <div className={`hidden md:grid ${GRID} border-b border-[var(--border)] bg-[var(--hover)] px-3 py-2.5`}>
+                <div
+                  style={gridStyle}
+                  className={`hidden ${inlineDays ? 'md:grid' : ''} ${GRID_CLASS} border-b border-[var(--border)] bg-[var(--hover)] px-3 py-2.5`}
+                >
                   <span className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
                     Trabajador
                   </span>
@@ -130,7 +169,8 @@ export default async function WeekPage({ params }: { params: Promise<{ weekId: s
                 {workers.map((worker) => (
                   <div
                     key={worker.id}
-                    className={`border-b border-[var(--border)] px-3 py-3 last:border-b-0 md:grid ${GRID} md:items-center md:py-2`}
+                    style={gridStyle}
+                    className={`border-b border-[var(--border)] px-3 py-3 last:border-b-0 md:grid ${GRID_CLASS} md:items-center md:py-2`}
                   >
                     <div className="flex items-center justify-between gap-2 md:block">
                       <Link
@@ -145,7 +185,7 @@ export default async function WeekPage({ params }: { params: Promise<{ weekId: s
                     </div>
 
                     {/* `md:contents` disuelve este envoltorio dentro de la rejilla en escritorio */}
-                    <div className="mt-3 grid grid-cols-4 gap-2 md:mt-0 md:contents">
+                    <div className={`mt-3 grid grid-cols-4 gap-2 md:mt-0 ${inlineDays ? "md:contents" : "md:grid-cols-8 md:gap-1.5"}`}>
                       {days.map((day) => {
                         const current = entryMap.get(`${worker.id}:${day}`) ?? ''
                         return (
@@ -153,7 +193,7 @@ export default async function WeekPage({ params }: { params: Promise<{ weekId: s
                           // el campo y muestra lo que quedó guardado. Sin esto, un campo no
                           // controlado conserva en pantalla lo que tenía antes.
                           <label key={`${day}:${current}`} className="block">
-                            <span className="mb-0.5 block text-center text-[11px] text-[var(--muted)] md:hidden">
+                            <span className={`mb-0.5 block text-center text-[11px] text-[var(--muted)] ${inlineDays ? 'md:hidden' : ''}`}>
                               {shortDay(day)}
                             </span>
                             <DaySelect worker={worker.id} day={day} value={current} />

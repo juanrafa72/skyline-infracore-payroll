@@ -20,7 +20,18 @@ const PURE_ENGINE_RULES = {
 }
 
 const config = [
-  { ignores: ['.next/**', 'node_modules/**', 'coverage/**', 'next-env.d.ts'] },
+  {
+    ignores: [
+      '.next/**',
+      '.netlify/**',
+      'node_modules/**',
+      'coverage/**',
+      'next-env.d.ts',
+      // Duplicados que crea iCloud: ".next 3", "page 2.tsx"…
+      '**/* [0-9]/**',
+      '**/* [0-9].*',
+    ],
+  },
   ...next,
   ...nextTypescript,
   {

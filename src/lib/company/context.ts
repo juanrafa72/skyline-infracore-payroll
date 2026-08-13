@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers'
 import { prisma } from '@/lib/db/client'
+import type { PayPeriodType } from '@/lib/payroll/period'
 
 const COOKIE = 'active_company'
 
@@ -8,6 +9,8 @@ export interface ActiveCompany {
   code: string
   legalName: string
   displayName: string
+  defaultPayPeriod: PayPeriodType
+  biweeklyAnchor: Date | null
 }
 
 /**

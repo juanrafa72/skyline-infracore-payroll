@@ -32,6 +32,11 @@ model Company {
   currency     String   @default("USD")
   timezone     String   @default("America/New_York")
   weekStartDay Int      @default(0) // 0 = domingo — BR-010
+  /// Frecuencia de pago por defecto. Cada trabajador puede tener la suya.
+  defaultPayPeriod PayPeriodType @default(WEEKLY)
+  /// Primer día del primer ciclo catorcenal. Solo aplica a BIWEEKLY: el ciclo
+  /// de 14 días no se deduce del calendario, depende de cuándo arrancó.
+  biweeklyAnchor DateTime? @db.Date
   active       Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -229,6 +234,8 @@ model Worker {
   displayName        String
   personType         PersonType       @default(EMPLOYEE)
   compensationType   CompensationType @default(DAILY_RATE)
+  /// Frecuencia de pago propia. Si está vacía se usa la de la compañía.
+  payPeriod          PayPeriodType?
   isOnFormalPayroll  Boolean          @default(false)
   defaultOperationId String?
   defaultCrewId      String?
@@ -495,6 +502,12 @@ model PayrollWeek {
   endDate     DateTime          @db.Date
   label       String
   status      PayrollWeekStatus @default(OPEN)
+  periodType  PayPeriodType     @default(WEEKLY)
+  /// Un corte fuera de calendario no pertenece al ciclo regular. Se marca para
+  /// que no se confunda con un período normal ni se cuente dos veces.
+  isOffCycle     Boolean        @default(false)
+  settlementType SettlementType @default(REGULAR)
+  offCycleReason String?
   createdById String?
   closedById  String?
   closedAt    DateTime?
@@ -514,6 +527,22 @@ model PayrollWeek {
 enum PayrollWeekStatus {
   OPEN
   CLOSED
+}
+
+/// Frecuencia con la que se paga.
+enum PayPeriodType {
+  DAILY        // diario
+  WEEKLY       // semanal (domingo a sábado, como los Excel)
+  BIWEEKLY     // catorcenal: cada 14 días exactos
+  SEMI_MONTHLY // quincenal: 1–15 y 16–fin de mes
+  MONTHLY      // mensual
+}
+
+/// Por qué existe este período de pago.
+enum SettlementType {
+  REGULAR           // cierre normal del ciclo
+  FINAL_SETTLEMENT  // corte por retiro: se liquida todo lo pendiente
+  PARTIAL_CUT       // corte parcial solicitado, sin retiro
 }
 
 /// Un día de una persona. Único por (compañía, trabajador, fecha) — BR-025.
