@@ -15,7 +15,7 @@
 | Dinero | **`Decimal(18,2)` en BD + centavos enteros (`bigint`) en el motor** | Ver §4. |
 | Tests | **Vitest** | Rápido, mismo transpilador que la app. Los tests financieros corren en cada `npm run check`. |
 | PDF | **`@react-pdf/renderer`** | Generación real en servidor, sin navegador headless. Los comprobantes son documentos, no capturas de pantalla. |
-| Storage | **Interfaz `FileStorage`** con adaptador local hoy, S3/Azure Blob después | Los comprobantes bancarios son evidencia; nunca se sirven como archivo estático público. Se descargan por endpoint que verifica permisos. |
+| Archivos | **SharePoint (Microsoft 365)** vía Microsoft Graph | Decisión del negocio: los archivos ya viven ahí y está pagado. Evita un proveedor más y mantiene la evidencia dentro del entorno corporativo, con sus permisos y respaldos. La base solo guarda la **referencia** al archivo, nunca el archivo. |
 | Colas / jobs | **Ninguna al inicio** | Phase 1 no lo necesita. Cuando entren SharePoint y notificaciones, se añade una cola simple sobre Postgres antes que introducir Redis. |
 
 ### Alternativas descartadas
@@ -196,6 +196,23 @@ suelen aprobar desde el teléfono.
   resultantes con su snapshot; no se recalcula al pintar.
 
 ---
+
+## 9-bis. Qué hace cada proveedor (y qué NO hace)
+
+Tres piezas, con fronteras claras a propósito:
+
+| Pieza | Para qué | Qué **no** hace |
+|---|---|---|
+| **Netlify** | Únicamente alojar y ejecutar la aplicación. Recibe el código, lo compila y responde a las visitas. | No guarda datos. No guarda archivos. Si mañana se cambia de proveedor de hosting, no se pierde nada. |
+| **Neon (PostgreSQL)** | Toda la información: trabajadores, días, tarifas, nóminas, pagos, auditoría. | No guarda archivos. No ejecuta la aplicación. |
+| **SharePoint** | Los archivos: comprobantes de pago, evidencias bancarias, documentos del personal. Y como fuente de lectura de producción/ventas (Phase 2). | No es la base de datos. No se consulta para calcular nómina. |
+
+Regla: **la base guarda la referencia, SharePoint guarda el archivo.** Un comprobante
+nunca se sirve como archivo público: se pide por un endpoint que verifica permisos y
+devuelve un enlace temporal.
+
+Consecuencia práctica: el costo de Netlify es solo **cómputo** (cuántas veces se ejecuta
+el código). No crece por acumular datos ni archivos.
 
 ## 10. Despliegue
 

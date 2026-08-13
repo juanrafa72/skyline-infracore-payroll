@@ -97,6 +97,37 @@ ExternalRecord
 
 ---
 
+## 1-bis. SharePoint como almacén de archivos
+
+**Decisión del negocio:** los archivos del sistema viven en SharePoint, no en un
+proveedor de almacenamiento aparte.
+
+Razones:
+- Ya está pagado y en uso; no se agrega un proveedor más.
+- La evidencia se queda dentro del entorno corporativo, con sus permisos, su
+  auditoría y sus respaldos.
+- Netlify queda estrictamente como hosting: no guarda nada.
+
+Qué se guarda ahí:
+
+| Archivo | Carpeta propuesta |
+|---|---|
+| Comprobante bancario de un pago | `/Pagos/{compañía}/{año}/Semana {n}/` |
+| Recibo de pago en PDF | `/Comprobantes/{compañía}/{año}/` |
+| Documentos del personal | ya existen en `TRABAJADORES INFO PERSONAL` |
+
+Cómo funciona:
+
+1. El usuario sube el archivo desde la aplicación.
+2. El servidor lo envía a SharePoint por Microsoft Graph (`PUT /drive/items/.../content`).
+3. La base guarda **solo la referencia**: `driveId`, `itemId`, nombre, tamaño y sha256.
+4. Para verlo, la aplicación verifica permisos y pide a Graph un enlace temporal.
+
+**La base nunca guarda el archivo, y el archivo nunca se sirve público.**
+
+Permisos necesarios: `Sites.Selected` con escritura sobre el sitio Skyline.
+Los mismos de la lectura, ampliados a escritura solo en las carpetas del sistema.
+
 ## 2. Email (Phase 4)
 
 - Proveedor: **Microsoft Graph `sendMail`** desde una cuenta de la organización.

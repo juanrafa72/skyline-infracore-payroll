@@ -74,7 +74,12 @@ Confundirlas rompe la contabilidad.
 
 Next.js 15 (App Router) · TypeScript strict · Tailwind v4 · PostgreSQL 16 · Prisma ·
 Auth.js v5 (Credentials hoy, Microsoft Entra ID después) · Zod · Vitest ·
-`@react-pdf/renderer` para comprobantes · storage detrás de interfaz (local → S3/Azure).
+`@react-pdf/renderer` para comprobantes · **archivos en SharePoint** vía Microsoft Graph.
+
+**Fronteras entre proveedores — no cruzarlas:**
+- **Netlify** = solo hosting. Nunca guardar datos ni archivos ahí.
+- **Neon** = todos los datos. Nunca archivos.
+- **SharePoint** = todos los archivos. La base guarda solo la referencia.
 
 Justificación y alternativas descartadas: `docs/ARCHITECTURE.md`.
 
