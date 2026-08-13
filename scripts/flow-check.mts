@@ -155,15 +155,34 @@ async function main() {
     })
   }
   check('quedan 5 días marcados',
-    (await prisma.workEntry.count({ where: { payrollWeekId: week.id } })) === 5)
+    (await prisma.workEntry.count({ where: { payrollWeekId: week.id, workerId: worker.id } })) === 5)
 
-  const blocked = await removeFromRoster(PREFIX, week.id, worker.id)
-  check('no deja quitarla teniendo días', !blocked.ok, blocked.message)
-  check('el aviso explica qué hacer', /marcado/.test(blocked.message))
+  // Quitar: se prueba con OTRA persona para no alterar el resto del recorrido.
+  const extra = await prisma.worker.create({
+    data: {
+      companyId: PREFIX, code: 'FW2', firstName: 'Otro', lastName: 'Trabajador',
+      displayName: 'Otro Trabajador', defaultOperationId: operation.id,
+    },
+  })
+  await setRoster(PREFIX, week.id, [extra.id])
+  await prisma.workEntry.create({
+    data: {
+      companyId: PREFIX, payrollWeekId: week.id, workerId: extra.id,
+      workDate: new Date('2026-07-19T00:00:00Z'), dayType: 'FULL_DAY',
+      operationId: operation.id,
+    },
+  })
+  const removed = await removeFromRoster(PREFIX, week.id, extra.id)
+  check('quitar borra a la persona y sus días en un paso', removed.ok, removed.message)
+  check('dice cuántos días borró', /1 día/.test(removed.message), removed.message)
+  check('ya no está en la semana',
+    !(await currentRoster(PREFIX, week.id)).includes(extra.id))
 
   // ── 3. Calcular
   console.log('\n3. Calcular')
-  const entries = await prisma.workEntry.findMany({ where: { payrollWeekId: week.id } })
+  const entries = await prisma.workEntry.findMany({
+    where: { payrollWeekId: week.id, workerId: worker.id },
+  })
   const rates = await prisma.workerRate.findMany({ where: { workerId: worker.id } })
 
   const result = calculateWorkerPayroll({
