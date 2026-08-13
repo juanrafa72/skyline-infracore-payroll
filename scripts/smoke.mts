@@ -82,12 +82,48 @@ async function get(route: string): Promise<{ status: number; body: string }> {
   return { status: response.status, body: await response.text() }
 }
 
+/**
+ * Formularios anidados.
+ *
+ * Un <form> dentro de otro <form> es HTML inválido: el navegador descarta el de
+ * adentro y su botón termina enviando el formulario de afuera. La página abre
+ * bien, compila bien, y el botón simplemente no hace lo que dice.
+ *
+ * Ya rompió el botón de "quitar" en la nómina. Se revisa sobre el HTML que
+ * realmente se sirve, así que da igual en qué componente esté el error.
+ */
+function nestedForms(body: string): number {
+  let depth = 0
+  let worst = 0
+  const tags = body.match(/<\/?form\b[^>]*>/gi) ?? []
+  for (const tag of tags) {
+    if (tag.startsWith('</')) depth = Math.max(0, depth - 1)
+    else {
+      depth += 1
+      worst = Math.max(worst, depth)
+    }
+  }
+  return worst
+}
+
 function check(route: string, { status, body }: { status: number; body: string }) {
   const marker = ERROR_MARKERS.find((needle) => body.includes(needle))
   const rendered = body.includes(APP_TITLE)
   if (status !== 200 || marker || !rendered) {
     return marker ?? (rendered ? `HTTP ${status}` : 'la pantalla no se armó')
   }
+
+  const depth = nestedForms(body)
+  if (depth > 1) {
+    return `formulario dentro de otro formulario (${depth} niveles) — algún botón no va a funcionar`
+  }
+
+  // Un código interno en pantalla es un error: todo debe estar en español.
+  const rawCode = /(?:>|\s)(PENDING_APPROVAL|DAILY_RATE|FULL_DAY|IMPORTED_HISTORICAL|READY_TO_PAY)(?:<|\s)/.exec(
+    body.replace(/<script[\s\S]*?<\/script>/g, ''),
+  )
+  if (rawCode) return `muestra el código interno "${rawCode[1]}" en vez de texto en español`
+
   return null
 }
 
@@ -115,13 +151,30 @@ async function main() {
   const dynamic: string[] = []
   for (const [list, prefix] of [
     ['/workers', '/workers/'],
-    ['/payroll', '/payroll/'],
     ['/crews', '/crews/'],
     ['/contractors', '/contractors/'],
   ] as const) {
     const html = (await get(list)).body
     const found = html.match(new RegExp(`${prefix}(${UUID})`))
     if (found) dynamic.push(`${prefix}${found[1]}`)
+  }
+
+  /*
+   * Para la nómina hay que revisar una semana QUE TENGA GENTE. Una semana vacía
+   * muestra el paso 1 y deja fuera media pantalla: la rejilla de días, el botón
+   * de quitar y el de enviar a aprobación. Justo donde estuvo el error que
+   * llegó a producción.
+   */
+  const weekWithPeople = await prisma.payrollWeek.findFirst({
+    where: { workEntries: { some: {} } },
+    orderBy: { startDate: 'desc' },
+    select: { id: true },
+  })
+  if (weekWithPeople) {
+    dynamic.push(`/payroll/${weekWithPeople.id}`)
+    dynamic.push(`/payroll/${weekWithPeople.id}?paso=personas`)
+  } else {
+    console.log('  aviso  ninguna semana tiene gente: la rejilla de días no se revisó')
   }
 
   let failed = 0

@@ -1,34 +1,46 @@
 'use client'
 
-import { useActionState } from 'react'
+import { useState, useTransition } from 'react'
 import { removeWorkerFromPeriod } from '../actions'
 
 /**
- * Botón de quitar a alguien del período.
+ * Quitar a alguien de la semana.
  *
- * Si no se puede (porque ya tiene días marcados), el motivo sale aquí mismo
- * como aviso. Antes reventaba en una pantalla de error del sistema.
+ * SIN formulario propio, a propósito: este botón vive dentro del formulario de
+ * los días, y un <form> dentro de otro <form> es HTML inválido — el navegador
+ * descarta el de adentro y el botón termina enviando el formulario equivocado.
+ * Fue exactamente el error que llegó a producción. La acción se llama directo.
  */
 export function RemoveWorker({ weekId, workerId }: { weekId: string; workerId: string }) {
-  const [message, action] = useActionState(removeWorkerFromPeriod, null)
-  const ok = message?.startsWith('LISTO|')
+  const [pending, startTransition] = useTransition()
+  const [message, setMessage] = useState<string | null>(null)
 
   return (
-    <form action={action} className="text-right">
-      <input type="hidden" name="weekId" value={weekId} />
-      <input type="hidden" name="workerId" value={workerId} />
+    <div className="text-right">
       <button
-        type="submit"
+        type="button"
+        disabled={pending}
+        onClick={() => {
+          setMessage(null)
+          const data = new FormData()
+          data.set('weekId', weekId)
+          data.set('workerId', workerId)
+          startTransition(async () => {
+            const result = await removeWorkerFromPeriod(null, data)
+            if (!result.startsWith('LISTO|')) setMessage(result)
+          })
+        }}
         title="Quitar de esta semana"
-        className="rounded border border-[var(--border)] px-1.5 py-0.5 text-xs text-[var(--muted)] hover:border-red-300 hover:text-red-700"
+        className="rounded border border-[var(--border)] px-2 py-0.5 text-xs text-[var(--muted)] transition hover:border-red-300 hover:text-red-700 disabled:opacity-50"
       >
-        quitar
+        {pending ? '…' : 'quitar'}
       </button>
-      {message && !ok ? (
+
+      {message ? (
         <p className="mt-1 rounded border border-amber-300 bg-amber-50 p-1.5 text-left text-xs text-amber-900">
           {message}
         </p>
       ) : null}
-    </form>
+    </div>
   )
 }

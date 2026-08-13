@@ -87,24 +87,32 @@ export default async function WeekPage({
 
   const workers = chosenWorkers.filter((worker) => !removedIds.has(worker.id))
 
-  // Para el paso 1: todos los activos, pero SOLO los que tienen tarifa. Una
-  // persona sin tarifa no sirve aquí, y ofrecerla es invitar a un error.
-  const [everyone, crews] = await Promise.all([
-    prisma.worker.findMany({
-      where: { companyId: company.id, status: 'ACTIVE' },
-      orderBy: { displayName: 'asc' },
-      include: { rates: { where: { active: true }, orderBy: { effectiveFrom: 'desc' }, take: 1 } },
-    }),
-    prisma.crew.findMany({ where: { companyId: company.id }, select: { id: true, name: true } }),
-  ])
-  const crewName = new Map(crews.map((crew) => [crew.id, crew.name]))
-
-  const withRate = everyone.filter((person) => person.rates.length > 0)
-  const hiddenWithoutRate = everyone.length - withRate.length
   const workersWithDays = new Set(entries.map((entry) => entry.workerId))
 
-  // Paso 1 cuando no hay nadie elegido todavía, o cuando se pide cambiar la lista.
+  // Paso 1 cuando no hay nadie elegido todavía, o cuando se pide agregar.
   const showChooser = workers.length === 0 || filters.paso === 'personas'
+
+  /*
+   * La lista completa de personas solo se consulta en el paso 1. Traerla
+   * siempre significaba cargar 149 trabajadores con sus tarifas en cada
+   * pantalla de días, para nada.
+   */
+  const [everyone, crews] = showChooser
+    ? await Promise.all([
+        prisma.worker.findMany({
+          where: { companyId: company.id, status: 'ACTIVE' },
+          orderBy: { displayName: 'asc' },
+          include: {
+            rates: { where: { active: true }, orderBy: { effectiveFrom: 'desc' }, take: 1 },
+          },
+        }),
+        prisma.crew.findMany({ where: { companyId: company.id }, select: { id: true, name: true } }),
+      ])
+    : [[], []]
+
+  const crewName = new Map(crews.map((crew) => [crew.id, crew.name]))
+  const withRate = everyone.filter((person) => person.rates.length > 0)
+  const hiddenWithoutRate = everyone.length - withRate.length
 
   // El período puede durar 1, 7, 14, 15, 16, 28, 30 o 31 días según la
   // frecuencia, o lo que dure un corte. Se recorre de inicio a fin.
@@ -226,9 +234,9 @@ export default async function WeekPage({
               <Link
                 prefetch={false}
                 href={`/payroll/${week.id}?paso=personas`}
-                className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm font-medium hover:bg-[var(--hover)]"
+                className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
               >
-                Cambiar personas
+                + Agregar personas
               </Link>
             </div>
 
