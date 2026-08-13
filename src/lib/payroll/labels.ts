@@ -54,6 +54,19 @@ export const TIPO_TARIFA: Record<string, string> = {
   PERCENTAGE: 'Porcentaje',
 }
 
+export const ESTADO_ORDEN: Record<string, string> = {
+  PENDING_PAYMENT: 'Pendiente de pago',
+  PARTIALLY_PAID: 'Pagada en parte',
+  PAID: 'Pagada',
+  CANCELLED: 'Anulada',
+}
+
+export const TIPO_DOCUMENTO: Record<string, string> = {
+  PAYMENT_PROOF: 'Comprobante bancario',
+  ORDER_PDF: 'Desprendible',
+  OTHER: 'Otro',
+}
+
 export const TURNO: Record<string, string> = {
   DAY: 'Día',
   NIGHT: 'Noche',

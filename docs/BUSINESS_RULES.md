@@ -195,6 +195,32 @@ Estados de una regla:
 | BR-172 | El modelo debe permitir margen por compañía, semana, proyecto, cuadrilla, contratista y operación. | CONFIRMED |
 | BR-173 | El margen es un reporte derivado. Nunca se almacena como cifra editable. | CONFIRMED |
 
+## 19. Desembolsos: a quién se le transfiere el dinero
+
+La **empresa receptora** es a quién se le manda el dinero para cubrir el pago de
+una o varias personas. **No** es la compañía dueña de la nómina: un trabajador
+de Skyline puede pagarse enviando fondos a un subcontratista, a una agencia o a
+él mismo. Confundirlas rompe la contabilidad, igual que confundir `Company` con
+`Customer`.
+
+| ID | Regla | Estado |
+|---|---|---|
+| BR-180 | Toda nómina debe tener empresa receptora asignada **antes** de aprobarse. Sin ella no se puede saber a quién transferirle. Se impone en `applyTransition`, el único punto por donde pasan todas las aprobaciones. | CONFIRMED |
+| BR-181 | La empresa receptora la asigna quien **aprueba**, no quien prepara: preparar es decidir cuánto, aprobar es decidir a dónde. | CONFIRMED |
+| BR-182 | La asignación se puede hacer de a uno o a varios a la vez. Solo mientras la nómina no esté aprobada; después hay que devolverla, y eso queda registrado. | CONFIRMED |
+| BR-183 | Las nóminas aprobadas se agrupan automáticamente por **(semana + empresa receptora)**. Cada grupo es una `DisbursementOrder`. | CONFIRMED |
+| BR-184 | La suma de todas las órdenes debe dar **exactamente** el total aprobado, comparado en centavos enteros y sin tolerancia. Un centavo de diferencia bloquea. | CONFIRMED |
+| BR-185 | Cada orden lleva un consecutivo único por compañía y año (`OD-<COMPAÑÍA>-<AÑO>-<NNNN>`), generado con una instrucción atómica para que dos personas aprobando a la vez no saquen el mismo número. | CONFIRMED |
+| BR-186 | La orden congela snapshots: nombre de la compañía, de la empresa receptora, de cada trabajador, su monto y la semana. Renombrar algo después no altera un documento ya emitido. | CONFIRMED |
+| BR-187 | Una orden puede tener muchos trabajadores; una nómina puede generar muchas órdenes; una orden corresponde a **una sola** empresa receptora. | CONFIRMED |
+| BR-188 | Lo transferido tiene que ser **exactamente** la suma de las personas marcadas. Si no coincide, no se registra nada: un número que no cuadra con nadie hace imposible saber a quién le llegó. | CONFIRMED |
+| BR-189 | Un giro que no cubre a toda la orden exige explicación por escrito. La orden queda `PARTIALLY_PAID` y el resto sigue pendiente en ella. | CONFIRMED |
+| BR-190 | Una orden pagada o anulada es inmutable: montos, receptora, semana, referencia y snapshots quedan congelados por trigger. Solo se pueden agregar comprobantes y el registro de envío a contabilidad. | CONFIRMED |
+| BR-191 | Devolver una nómina que ya está en una orden **sin pagar** la saca de la orden y recalcula el total; si la orden queda vacía se anula con el motivo. Si la orden ya movió dinero, la nómina **no** se devuelve: se corrige con un ajuste. | CONFIRMED |
+| BR-192 | Una empresa receptora con historial no se borra: se desactiva. Impuesto por trigger, para que el historial contable no quede apuntando a nada. | CONFIRMED |
+| BR-193 | El PDF de la orden debe traer el detalle completo por trabajador, no solo el total. Un soporte que solo diga «empresa + monto» no explica por qué salió el dinero. | CONFIRMED |
+| BR-194 | Se registra quién asignó la receptora, quién la creó, quién aprobó, quién pagó, cuándo, con qué referencia y a quién se le envió el soporte. | CONFIRMED |
+
 ---
 
 ## Cómo se resuelve un `NEEDS BUSINESS CONFIRMATION`

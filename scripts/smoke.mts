@@ -55,6 +55,8 @@ const ROUTES = [
   '/projects',
   '/production',
   '/approvals',
+  '/disbursements',
+  '/recipients',
   '/payments',
   '/users',
   '/customers',
@@ -177,7 +179,42 @@ async function main() {
     console.log('  aviso  ninguna semana tiene gente: la rejilla de días no se revisó')
   }
 
-  let failed = 0
+  /*
+   * El desprendible de una orden de desembolso.
+   *
+   * Es un archivo, no una pantalla: si el generador se rompe, ninguna de las
+   * revisiones anteriores se entera, y contabilidad se queda sin el soporte.
+   */
+  const order = await prisma.disbursementOrder.findFirst({
+    orderBy: { createdAt: 'desc' },
+    select: { id: true, orderNumber: true },
+  })
+  let pdfChecks = 0
+  let pdfFailed = 0
+  if (order) {
+    pdfChecks = 1
+    const response = await fetch(`${BASE}/disbursements/${order.id}/pdf`, {
+      headers: { Cookie: `payroll_session=${SESSION_COOKIE}` },
+    })
+    const bytes = Buffer.from(await response.arrayBuffer())
+    const type = response.headers.get('content-type') ?? ''
+    const looksLikePdf =
+      bytes.subarray(0, 8).toString('latin1').startsWith('%PDF-') &&
+      bytes.subarray(-8).toString('latin1').includes('%%EOF')
+
+    if (response.status !== 200 || !type.includes('application/pdf') || !looksLikePdf) {
+      console.log(
+        `  FALLA  desprendible ${order.orderNumber}  → HTTP ${response.status}, ${type}, ${bytes.length} bytes`,
+      )
+      pdfFailed = 1
+    } else {
+      console.log(`  ok     desprendible ${order.orderNumber} (${bytes.length} bytes)`)
+    }
+  } else {
+    console.log('  aviso  no hay órdenes de desembolso: el desprendible no se revisó')
+  }
+
+  let failed = pdfFailed
   const routes = [...ROUTES, ...dynamic]
 
   for (const route of routes) {
@@ -207,7 +244,8 @@ async function main() {
   await prisma.userSession.delete({ where: { id: sessionId } })
   await prisma.$disconnect()
 
-  console.log(`\n${routes.length + 1 - failed}/${routes.length + 1} verificaciones correctas.`)
+  const total = routes.length + 1 + pdfChecks
+  console.log(`\n${total - failed}/${total} verificaciones correctas.`)
   if (failed > 0) process.exit(1)
 }
 

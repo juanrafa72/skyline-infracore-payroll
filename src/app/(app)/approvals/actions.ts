@@ -4,6 +4,8 @@ import { revalidatePath } from 'next/cache'
 import { assertCan, requireUser } from '@/lib/auth/rbac'
 import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
+import { assignRecipient, generateOrders } from '@/lib/disbursement/orders'
+import { createRecipient } from '@/lib/disbursement/recipients'
 import { applyTransition } from '@/lib/payroll/workflow/service'
 import type { WorkflowAction } from '@/lib/payroll/workflow'
 
@@ -23,6 +25,24 @@ async function run(action: WorkflowAction, formData: FormData): Promise<string> 
 
   const result = await applyTransition(user, ids, action, reason)
 
+  /*
+   * Aprobar y ordenar el desembolso son el mismo acto.
+   *
+   * Si se dejaran separados, una nómina podría quedar aprobada sin que nadie
+   * sepa a quién transferirle, que es exactamente el hueco que este flujo
+   * viene a tapar. Se generan aquí, agrupadas por semana y empresa receptora.
+   */
+  let orders = ''
+  if (action === 'APPROVE' && result.moved > 0) {
+    const generated = await generateOrders(user, ids)
+    if (generated.ok && generated.orderNumbers && generated.orderNumbers.length > 0) {
+      orders = ` ${generated.message}`
+    } else if (!generated.ok) {
+      orders = ` OJO: ${generated.message}`
+    }
+    revalidatePath('/disbursements')
+  }
+
   revalidatePath('/approvals')
   revalidatePath('/payments')
 
@@ -31,7 +51,7 @@ async function run(action: WorkflowAction, formData: FormData): Promise<string> 
   ]
 
   if (result.skipped.length === 0) {
-    return `LISTO|${result.moved} nómina(s) ${verb}(s).`
+    return `LISTO|${result.moved} nómina(s) ${verb}(s).${orders}`
   }
 
   const detail = result.skipped
@@ -40,7 +60,74 @@ async function run(action: WorkflowAction, formData: FormData): Promise<string> 
 
   return result.moved === 0
     ? `Nada se movió. ${detail}`
-    : `PARCIAL|${result.moved} ${verb}(s). Quedaron fuera → ${detail}`
+    : `PARCIAL|${result.moved} ${verb}(s).${orders} Quedaron fuera → ${detail}`
+}
+
+/**
+ * Asigna la empresa receptora a las nóminas marcadas.
+ *
+ * La misma acción sirve para una persona o para cincuenta: quien aprueba marca
+ * a todos los que se pagan con fondos a la misma empresa y los asigna de una.
+ */
+export async function assignRecipientAction(
+  _previous: string | null,
+  formData: FormData,
+): Promise<string> {
+  const user = await assertCan('payroll:approve')
+  const ids = formData.getAll('payrollId').map(String).filter(Boolean)
+  const recipientId = String(formData.get('recipientId') ?? '')
+
+  if (!recipientId) return 'Escoge la empresa receptora.'
+
+  const result = await assignRecipient(user, ids, recipientId)
+  revalidatePath('/approvals')
+  return result.ok ? `LISTO|${result.message}` : result.message
+}
+
+/**
+ * Crea una empresa receptora sin salir de la aprobación, y la deja asignada a
+ * quienes estén marcados. Tener que irse a otra pantalla en mitad de la
+ * revisión es la clase de fricción que hace que la gente se salte el paso.
+ */
+export async function createAndAssignRecipient(
+  _previous: string | null,
+  formData: FormData,
+): Promise<string> {
+  const user = await assertCan('payroll:approve')
+  const ids = formData.getAll('payrollId').map(String).filter(Boolean)
+
+  const created = await createRecipient(user, {
+    name: String(formData.get('name') ?? ''),
+    legalName: String(formData.get('legalName') ?? ''),
+    taxId: String(formData.get('taxId') ?? ''),
+    contactName: String(formData.get('contactName') ?? ''),
+    email: String(formData.get('email') ?? ''),
+    phone: String(formData.get('phone') ?? ''),
+    bankName: String(formData.get('bankName') ?? ''),
+    bankAccountLast4: String(formData.get('bankAccountLast4') ?? ''),
+    paymentDetails: String(formData.get('paymentDetails') ?? ''),
+    notes: String(formData.get('notes') ?? ''),
+    confirmDifferent: String(formData.get('confirmDifferent') ?? '') === '1',
+  })
+
+  if (!created.ok || !created.recipientId) {
+    revalidatePath('/approvals')
+    return created.message
+  }
+
+  if (ids.length === 0) {
+    revalidatePath('/approvals')
+    revalidatePath('/recipients')
+    return `LISTO|${created.message}`
+  }
+
+  const assigned = await assignRecipient(user, ids, created.recipientId)
+  revalidatePath('/approvals')
+  revalidatePath('/recipients')
+
+  return assigned.ok
+    ? `LISTO|${created.message} ${assigned.message}`
+    : `${created.message} Pero no se pudo asignar: ${assigned.message}`
 }
 
 export async function approvePayrolls(_previous: string | null, formData: FormData) {

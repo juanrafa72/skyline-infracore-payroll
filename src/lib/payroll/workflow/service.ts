@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db/client'
 import type { CurrentUser } from '@/lib/auth/rbac'
+import { canDetach, detachFromOrder } from '@/lib/disbursement/detach'
 import { toIso } from '@/lib/payroll/week'
 import {
   LABELS,
@@ -99,6 +100,17 @@ export async function invalidateIfStale(workerPayrollId: string): Promise<boolea
   if (!approvalIsStale(payroll.calculationHash, hash)) return false
 
   await prisma.$transaction(async (tx) => {
+    /*
+     * Si ya había una orden de desembolso, la persona sale de ella y el total
+     * se recalcula. Dejarla dentro con el monto viejo haría que tesorería
+     * transfiriera una cifra que ya no corresponde a lo aprobado.
+     *
+     * Si la orden ya movió dinero no se puede sacar, y así queda: la
+     * excepción crítica obliga a revisarlo a mano, que es lo correcto cuando
+     * el dinero ya salió.
+     */
+    const detached = await detachFromOrder(tx, workerPayrollId, 'cambió algo después de aprobar')
+
     await tx.workerPayroll.update({
       where: { id: workerPayrollId },
       data: {
@@ -123,7 +135,13 @@ export async function invalidateIfStale(workerPayrollId: string): Promise<boolea
         title: 'Cambió después de aprobar',
         detail:
           'Se modificó algo que afecta el pago después de la aprobación. La nómina volvió a ' +
-          'esperar aprobación y debe revisarse de nuevo.',
+          'esperar aprobación y debe revisarse de nuevo.' +
+          (detached.orderNumber && detached.ok
+            ? ` Salió de la orden ${detached.orderNumber}, cuyo total se recalculó.`
+            : '') +
+          (detached.ok
+            ? ''
+            : ` OJO: sigue en la orden ${detached.orderNumber}, que ya tiene dinero desembolsado. Hay que revisarlo a mano.`),
       },
     })
 
@@ -198,6 +216,21 @@ export async function applyTransition(
       continue
     }
 
+    /*
+     * Aprobar es decidir a dónde va el dinero, no solo cuánto.
+     *
+     * Sin empresa receptora asignada no se puede saber a quién transferirle, y
+     * una nómina aprobada así llegaría a tesorería sin destino. Se bloquea
+     * aquí, en el único sitio por donde pasan todas las aprobaciones — BR-180.
+     */
+    if (action === 'APPROVE' && !payroll.paymentRecipientId) {
+      result.skipped.push({
+        workerName: payroll.worker.displayName,
+        reason: 'No tiene empresa receptora asignada. Asígnasela antes de aprobar.',
+      })
+      continue
+    }
+
     // Antes de aprobar se exige que no queden errores críticos abiertos.
     if (action === 'APPROVE') {
       const critical = await prisma.exception.count({
@@ -217,6 +250,24 @@ export async function applyTransition(
       }
     }
 
+    /*
+     * Devolver una nómina que ya está en una orden de desembolso.
+     *
+     * Si la orden todavía no ha movido dinero, la persona sale de la orden y
+     * el total se recalcula. Si ya movió, no se devuelve: hacerlo dejaría a
+     * tesorería con un documento que no corresponde a nadie.
+     */
+    if (action === 'RETURN') {
+      const detachable = await canDetach(payroll.id)
+      if (!detachable.ok) {
+        result.skipped.push({
+          workerName: payroll.worker.displayName,
+          reason: detachable.reason ?? 'Ya tiene dinero desembolsado.',
+        })
+        continue
+      }
+    }
+
     const hash = await currentHash(payroll.id)
     const withoutSecondPair = isSelfApproval({
       action,
@@ -228,6 +279,10 @@ export async function applyTransition(
     })
 
     await prisma.$transaction(async (tx) => {
+      if (action === 'RETURN') {
+        await detachFromOrder(tx, payroll.id, reason?.trim() || 'devuelta a aprobación')
+      }
+
       await tx.workerPayroll.update({
         where: { id: payroll.id },
         data: {

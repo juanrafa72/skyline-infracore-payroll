@@ -52,6 +52,8 @@ model Company {
   vendors      Vendor[]
   payrollWeeks PayrollWeek[]
   settings     CompanySetting[]
+  paymentRecipients  PaymentRecipient[]
+  disbursementOrders DisbursementOrder[]
 
   @@map("company")
 }
@@ -602,6 +604,7 @@ model PayrollWeek {
   payments    Payment[]
   members     PayrollWeekMember[]
   production  Production[]
+  disbursementOrders DisbursementOrder[]
 
   @@unique([companyId, year, weekNumber])
   @@index([companyId, startDate])
@@ -757,6 +760,17 @@ model WorkerPayroll {
   rejectedAt                DateTime?
   rejectionReason           String?
   paymentId                 String?   @unique
+
+  /// A qué empresa se le manda el dinero para cubrir a esta persona.
+  ///
+  /// NO es la compañía que origina la nómina (esa es `companyId`). Son cosas
+  /// distintas: Skyline puede pagarle a su gente enviando fondos a un
+  /// subcontratista, a una agencia o a la persona directamente.
+  /// Sin esto asignado no se puede aprobar — BR-180.
+  paymentRecipientId        String?
+  recipientAssignedById     String?
+  recipientAssignedAt       DateTime?
+
   notes                     String?
   createdAt                 DateTime  @default(now())
   updatedAt                 DateTime  @updatedAt
@@ -764,6 +778,8 @@ model WorkerPayroll {
   payrollWeek PayrollWeek @relation(fields: [payrollWeekId], references: [id])
   worker      Worker      @relation(fields: [workerId], references: [id])
   payment     Payment?    @relation(fields: [paymentId], references: [id])
+  paymentRecipient PaymentRecipient? @relation(fields: [paymentRecipientId], references: [id])
+  disbursementItem DisbursementOrderItem?
   lines       PayrollLine[]
   additions   Addition[]
   deductions  Deduction[]
@@ -1157,9 +1173,12 @@ model Payment {
   reversedById   String?
   reversedAt     DateTime?
   reversalReason String?
+  /// Orden de desembolso que ordenó este pago, si vino de una.
+  disbursementOrderId String?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
+  disbursementOrder DisbursementOrder? @relation(fields: [disbursementOrderId], references: [id])
   payrollWeek PayrollWeek?  @relation(fields: [payrollWeekId], references: [id])
   worker      Worker?       @relation(fields: [workerId], references: [id])
   contractor  Contractor?   @relation(fields: [contractorId], references: [id])
@@ -1172,6 +1191,7 @@ model Payment {
 
   @@unique([companyId, paymentNumber])
   @@index([companyId, status, paymentDate])
+  @@index([disbursementOrderId])
   @@map("payment")
 }
 
@@ -1262,6 +1282,202 @@ enum AdjustmentType {
   REVERSAL
   ADDITIONAL_PAYMENT
   CREDIT
+}
+
+// ─────────────────────────────────────────────────────────────
+// DESEMBOLSOS — a quién se le manda el dinero
+// ─────────────────────────────────────────────────────────────
+
+/// Empresa o entidad a la que se le transfiere el dinero para cubrir el pago
+/// de uno o varios trabajadores.
+///
+/// NO confundir con `Company`. `Company` es de quién es la nómina (Skyline,
+/// Infracore). Esto es a dónde va la plata: puede ser un subcontratista, una
+/// agencia, o la persona misma. Un trabajador de Skyline puede pagarse con
+/// fondos enviados a un tercero, y eso hay que poder decirlo.
+model PaymentRecipient {
+  id           String  @id @default(uuid(7))
+  companyId    String
+  /// Con lo que se le conoce. Es lo único obligatorio.
+  name         String
+  /// Nombre normalizado (sin tildes, sin dobles espacios, en minúsculas).
+  /// Solo existe para detectar duplicados; no se muestra.
+  normalizedName String
+  legalName    String?
+  taxId        String?
+  contactName  String?
+  email        String?
+  phone        String?
+  paymentMethodDefault PaymentMethod?
+  bankName     String?
+  bankAccountLast4 String?
+  paymentDetails String?
+  notes        String?
+  /// Una receptora con historial NO se borra: se desactiva. Borrarla dejaría
+  /// órdenes históricas apuntando a nada.
+  active       Boolean  @default(true)
+  createdById  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  company  Company             @relation(fields: [companyId], references: [id])
+  payrolls WorkerPayroll[]
+  orders   DisbursementOrder[]
+
+  @@unique([companyId, normalizedName])
+  @@index([companyId, active])
+  @@map("payment_recipient")
+}
+
+/// Una instrucción de desembolso: cuánto dinero sale, hacia qué empresa
+/// receptora, por qué trabajadores y de qué semana.
+///
+/// Se crea sola al aprobar, agrupando por (nómina + semana + empresa
+/// receptora). Es el documento que ve tesorería para transferir y el que va a
+/// contabilidad como soporte de la salida de dinero.
+model DisbursementOrder {
+  id            String  @id @default(uuid(7))
+  companyId     String
+  payrollWeekId String
+  recipientId   String
+  /// Consecutivo único. Con él se rastrea el movimiento después.
+  orderNumber   String
+
+  status DisbursementOrderStatus @default(PENDING_PAYMENT)
+
+  workerCount Int     @default(0)
+  totalAmount Decimal @default(0) @db.Decimal(18, 2)
+  amountPaid  Decimal @default(0) @db.Decimal(18, 2)
+
+  /*
+   * SNAPSHOTS.
+   *
+   * Si mañana cambia el nombre de la empresa receptora, de la compañía o del
+   * trabajador, el documento ya emitido NO puede cambiar. Por eso el nombre
+   * se copia aquí al momento de aprobar, además de quedar la relación.
+   */
+  companyNameSnapshot   String
+  recipientNameSnapshot String
+  recipientTaxIdSnapshot String?
+  weekLabelSnapshot     String
+  periodStart           DateTime @db.Date
+  periodEnd             DateTime @db.Date
+
+  preparedByName String?
+  approvedById   String?
+  approvedByName String?
+  approvedAt     DateTime?
+
+  paidById   String?
+  paidByName String?
+  paidAt     DateTime?
+  paymentDate DateTime?     @db.Date
+  method      PaymentMethod?
+  bankName    String?
+  reference   String?
+  paymentNotes String?
+
+  /// Si se pagó distinto a lo aprobado, aquí queda por qué. No se acepta una
+  /// diferencia sin explicación.
+  differenceReason String?
+
+  cancelledById   String?
+  cancelledAt     DateTime?
+  cancellationReason String?
+
+  sentToAccountingAt   DateTime?
+  sentToAccountingById String?
+  sentToAccountingTo   String?
+
+  notes     String?
+  createdById String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company     Company           @relation(fields: [companyId], references: [id])
+  payrollWeek PayrollWeek       @relation(fields: [payrollWeekId], references: [id])
+  recipient   PaymentRecipient  @relation(fields: [recipientId], references: [id])
+  items       DisbursementOrderItem[]
+  payments    Payment[]
+  documents   DisbursementDocument[]
+
+  @@unique([companyId, orderNumber])
+  @@index([companyId, status])
+  @@index([companyId, payrollWeekId])
+  @@map("disbursement_order")
+}
+
+enum DisbursementOrderStatus {
+  PENDING_PAYMENT
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+}
+
+/// Un trabajador dentro de una orden de desembolso, con su monto.
+///
+/// El nombre y el monto se congelan aquí: el PDF tiene que coincidir
+/// exactamente con lo que se aprobó, pase lo que pase después.
+model DisbursementOrderItem {
+  id                  String  @id @default(uuid(7))
+  companyId           String
+  disbursementOrderId String
+  workerPayrollId     String  @unique
+  workerId            String
+  workerNameSnapshot  String
+  amount              Decimal @db.Decimal(18, 2)
+  createdAt           DateTime @default(now())
+
+  order         DisbursementOrder @relation(fields: [disbursementOrderId], references: [id], onDelete: Cascade)
+  workerPayroll WorkerPayroll     @relation(fields: [workerPayrollId], references: [id])
+
+  @@index([disbursementOrderId])
+  @@map("disbursement_order_item")
+}
+
+/// Evidencia de una orden: el comprobante bancario o el PDF emitido.
+///
+/// El archivo vive en SharePoint. Aquí solo queda la referencia, igual que con
+/// el resto de documentos del sistema — ver CLAUDE.md, fronteras de proveedores.
+model DisbursementDocument {
+  id                  String   @id @default(uuid(7))
+  companyId           String
+  disbursementOrderId String
+  kind                DisbursementDocumentKind
+  fileName            String
+  /// Enlace en SharePoint, o la referencia con la que se ubica el archivo.
+  fileRef             String
+  notes               String?
+  uploadedById        String?
+  uploadedByName      String?
+  uploadedAt          DateTime @default(now())
+
+  order DisbursementOrder @relation(fields: [disbursementOrderId], references: [id], onDelete: Cascade)
+
+  @@index([disbursementOrderId])
+  @@map("disbursement_document")
+}
+
+enum DisbursementDocumentKind {
+  PAYMENT_PROOF // comprobante bancario
+  ORDER_PDF     // el desprendible emitido
+  OTHER
+}
+
+/// Consecutivos por compañía y año.
+///
+/// Se incrementa con una sola instrucción atómica, no leyendo y sumando: dos
+/// personas aprobando al mismo tiempo no pueden sacar el mismo número.
+model DocumentSequence {
+  id         String   @id @default(uuid(7))
+  companyId  String
+  kind       String
+  year       Int
+  lastNumber Int      @default(0)
+  updatedAt  DateTime @updatedAt
+
+  @@unique([companyId, kind, year])
+  @@map("document_sequence")
 }
 
 // ─────────────────────────────────────────────────────────────

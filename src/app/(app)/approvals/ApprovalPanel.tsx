@@ -1,12 +1,17 @@
 'use client'
 
-import { useActionState, useState } from 'react'
+import { useActionState, useMemo, useState } from 'react'
+import { checkBalance, groupByRecipient } from '@/lib/disbursement/grouping'
+import { ZERO, add, toCents, toDecimalString } from '@/lib/payroll/engine/money'
+import { AssignRecipient, type RecipientOption } from './AssignRecipient'
 import { approvePayrolls, rejectPayrolls } from './actions'
 
 export interface ApprovalRow {
   id: string
+  workerId: string
   workerName: string
   weekLabel: string
+  weekId: string
   period: string
   daysFull: number
   daysHalf: number
@@ -25,24 +30,32 @@ export interface ApprovalRow {
   preparedByMe: boolean
   exceptions: Array<{ level: string; title: string; detail: string | null }>
   wasInvalidated: boolean
+  recipientId: string | null
+  recipientName: string | null
 }
 
 function currency(value: string): string {
-  return Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return Number(value).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
 }
 
 export function ApprovalPanel({
   rows,
   threshold,
+  recipients,
 }: {
   rows: readonly ApprovalRow[]
   threshold: number
+  recipients: readonly RecipientOption[]
 }) {
   const approvable = rows.filter((row) => !row.preparedByMe)
   const [selected, setSelected] = useState<ReadonlySet<string>>(
     () => new Set(approvable.map((row) => row.id)),
   )
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [reviewing, setReviewing] = useState(false)
   const [approveResult, approveAction] = useActionState(approvePayrolls, null)
   const [rejectResult, rejectAction] = useActionState(rejectPayrolls, null)
 
@@ -59,7 +72,48 @@ export function ApprovalPanel({
   }
 
   const selectedRows = rows.filter((row) => selected.has(row.id))
-  const selectedNet = selectedRows.reduce((sum, row) => sum + Number(row.net), 0)
+  const selectedIds = selectedRows.map((row) => row.id)
+
+  /*
+   * El resumen se calcula con la misma función que usa el servidor al generar
+   * las órdenes, y en centavos enteros. Si la pantalla sumara por su cuenta en
+   * coma flotante, podría mostrar un total y guardarse otro.
+   */
+  const summary = useMemo(() => {
+    const grouped = groupByRecipient(
+      selectedRows.map((row) => ({
+        workerPayrollId: row.id,
+        workerId: row.workerId,
+        workerName: row.workerName,
+        payrollWeekId: row.weekId,
+        netPay: row.net,
+        recipientId: row.recipientId,
+        recipientName: row.recipientName,
+      })),
+    )
+
+    const approvedTotal = selectedRows.reduce(
+      (accumulator, row) => add(accumulator, toCents(row.net)),
+      ZERO,
+    )
+    const balance = checkBalance(approvedTotal, grouped.groups)
+    const weekByRow = new Map(rows.map((row) => [row.weekId, row]))
+
+    return {
+      groups: grouped.groups.map((group) => ({
+        ...group,
+        weekLabel: weekByRow.get(group.payrollWeekId)?.weekLabel ?? '',
+        period: weekByRow.get(group.payrollWeekId)?.period ?? '',
+      })),
+      unassigned: grouped.unassigned,
+      grandTotal: toDecimalString(grouped.grandTotal),
+      approvedTotal: toDecimalString(approvedTotal),
+      balanced: balance.balanced && grouped.unassigned.length === 0,
+      balanceMessage: balance.message,
+    }
+  }, [rows, selectedRows])
+
+  const blocked = summary.unassigned.length > 0 || !summary.balanced
 
   return (
     <>
@@ -75,6 +129,14 @@ export function ApprovalPanel({
         </p>
       ) : null}
 
+      <div className="mb-4">
+        <AssignRecipient
+          recipients={recipients}
+          selectedIds={selectedIds}
+          selectedCount={selectedIds.length}
+        />
+      </div>
+
       <form>
         <div className="space-y-2">
           {rows.map((row) => {
@@ -82,6 +144,7 @@ export function ApprovalPanel({
             const attention = row.exceptions.length > 0 || row.isNew || row.wasInvalidated || varied
             const critical = row.exceptions.some((item) => item.level === 'CRITICAL')
             const isOpen = expanded === row.id
+            const isSelected = selected.has(row.id)
 
             return (
               <div
@@ -89,9 +152,11 @@ export function ApprovalPanel({
                 className={`rounded-lg border bg-[var(--surface)] ${
                   critical
                     ? 'border-red-300'
-                    : attention
-                      ? 'border-amber-300'
-                      : 'border-[var(--border)]'
+                    : !row.recipientId && isSelected
+                      ? 'border-sky-300'
+                      : attention
+                        ? 'border-amber-300'
+                        : 'border-[var(--border)]'
                 }`}
               >
                 <div className="flex flex-wrap items-center gap-3 p-3">
@@ -99,7 +164,7 @@ export function ApprovalPanel({
                     type="checkbox"
                     name="payrollId"
                     value={row.id}
-                    checked={selected.has(row.id)}
+                    checked={isSelected}
                     onChange={() => toggle(row.id)}
                     disabled={row.preparedByMe}
                     className="h-4 w-4 shrink-0"
@@ -117,6 +182,20 @@ export function ApprovalPanel({
                       {row.daysHalf > 0 ? ` + ${row.daysHalf} medio(s)` : ''}
                       {row.rate ? ` · $${currency(row.rate)}/día` : ''}
                     </p>
+                  </div>
+
+                  {/* A dónde va el dinero de esta persona */}
+                  <div className="min-w-[150px]">
+                    {row.recipientName ? (
+                      <>
+                        <p className="text-xs text-[var(--muted)]">se le paga a</p>
+                        <p className="text-sm font-medium">{row.recipientName}</p>
+                      </>
+                    ) : (
+                      <span className="inline-block rounded border border-sky-300 bg-sky-50 px-2 py-1 text-xs font-medium text-sky-900">
+                        falta empresa receptora
+                      </span>
+                    )}
                   </div>
 
                   <div className="text-right">
@@ -212,6 +291,7 @@ export function ApprovalPanel({
                           : 'sin semana anterior'
                       }
                     />
+                    <Row label="Se le paga a" value={row.recipientName ?? 'sin asignar'} />
                   </dl>
                 ) : null}
               </div>
@@ -219,13 +299,97 @@ export function ApprovalPanel({
           })}
         </div>
 
+        {/* ── Resumen antes de confirmar ─────────────────────── */}
+        {reviewing ? (
+          <section className="mt-5 rounded-lg border-2 border-[var(--accent)] bg-[var(--surface)] p-4">
+            <h2 className="text-base font-semibold">Esto es lo que vas a ordenar desembolsar</h2>
+            <p className="mt-0.5 text-sm text-[var(--muted)]">
+              Una orden por empresa receptora. Revisa que cada persona esté donde debe.
+            </p>
+
+            {summary.unassigned.length > 0 ? (
+              <p className="mt-3 rounded-md border border-sky-300 bg-sky-50 p-3 text-sm text-sky-900">
+                <strong>
+                  {summary.unassigned.length} persona(s) sin empresa receptora:
+                </strong>{' '}
+                {summary.unassigned.map((item) => item.workerName).join(', ')}. Asígnalas arriba
+                antes de aprobar.
+              </p>
+            ) : null}
+
+            {!summary.balanced && summary.balanceMessage ? (
+              <p className="mt-3 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+                {summary.balanceMessage}
+              </p>
+            ) : null}
+
+            <div className="mt-4 grid gap-3 lg:grid-cols-2">
+              {summary.groups.map((group) => (
+                <div
+                  key={`${group.payrollWeekId}:${group.recipientId}`}
+                  className="rounded-lg border border-[var(--border)] p-3"
+                >
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-semibold">{group.recipientName}</p>
+                      <p className="text-xs text-[var(--muted)]">
+                        {group.weekLabel} · {group.items.length} trabajador(es)
+                      </p>
+                    </div>
+                    <p className="text-lg font-semibold tabular-nums">
+                      ${currency(toDecimalString(group.total))}
+                    </p>
+                  </div>
+
+                  <ul className="mt-2.5 space-y-1 border-t border-[var(--border)] pt-2.5">
+                    {group.items.map((item) => (
+                      <li
+                        key={item.workerPayrollId}
+                        className="flex justify-between gap-3 text-sm"
+                      >
+                        <span>{item.workerName}</span>
+                        <span className="tabular-nums text-[var(--muted)]">
+                          ${currency(toDecimalString(item.amount))}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  <div className="mt-2.5 flex justify-between border-t border-[var(--border)] pt-2.5 text-sm font-semibold">
+                    <span>TOTAL A DESEMBOLSAR</span>
+                    <span className="tabular-nums">
+                      ${currency(toDecimalString(group.total))}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-baseline justify-between gap-2 border-t-2 border-[var(--border)] pt-3">
+              <span className="text-sm font-semibold uppercase tracking-wide">
+                Total general de la nómina
+              </span>
+              <span className="text-2xl font-semibold tabular-nums">
+                ${currency(summary.approvedTotal)}
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              {summary.groups.length} orden(es) de desembolso · suman ${currency(summary.grandTotal)}
+              {summary.balanced ? ' · cuadra con lo aprobado' : ''}
+            </p>
+          </section>
+        ) : null}
+
         <div className="sticky bottom-0 mt-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm">
               <strong>{selected.size}</strong> marcada(s) ·{' '}
-              <strong className="tabular-nums">
-                ${selectedNet.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-              </strong>
+              <strong className="tabular-nums">${currency(summary.approvedTotal)}</strong>
+              {summary.unassigned.length > 0 ? (
+                <span className="ml-2 text-sky-800">
+                  · {summary.unassigned.length} sin empresa receptora
+                </span>
+              ) : null}
             </p>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -242,14 +406,40 @@ export function ApprovalPanel({
               >
                 Rechazar
               </button>
-              <button
-                type="submit"
-                formAction={approveAction}
-                disabled={selected.size === 0}
-                className="h-9 rounded-md bg-[var(--accent)] px-4 text-sm font-medium text-white hover:opacity-90 disabled:opacity-45"
-              >
-                Aprobar {selected.size > 0 ? `(${selected.size})` : ''}
-              </button>
+
+              {reviewing ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setReviewing(false)}
+                    className="h-9 rounded-md border border-[var(--border)] px-3 text-sm hover:bg-[var(--hover)]"
+                  >
+                    Seguir revisando
+                  </button>
+                  <button
+                    type="submit"
+                    formAction={approveAction}
+                    disabled={selected.size === 0 || blocked}
+                    title={
+                      blocked
+                        ? 'Falta asignar la empresa receptora de todas las personas marcadas'
+                        : undefined
+                    }
+                    className="h-9 rounded-md bg-[var(--accent)] px-4 text-sm font-medium text-white hover:opacity-90 disabled:opacity-45"
+                  >
+                    Confirmar y generar {summary.groups.length} orden(es)
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setReviewing(true)}
+                  disabled={selected.size === 0}
+                  className="h-9 rounded-md bg-[var(--accent)] px-4 text-sm font-medium text-white hover:opacity-90 disabled:opacity-45"
+                >
+                  Revisar y aprobar {selected.size > 0 ? `(${selected.size})` : ''}
+                </button>
+              )}
             </div>
           </div>
         </div>

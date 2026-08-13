@@ -24,17 +24,25 @@ export default async function ApprovalsPage() {
   })
   const selfApprovalOn = selfApprovalSetting?.value === 'true'
 
-  const pending = await prisma.workerPayroll.findMany({
-    where: { companyId: company.id, status: 'PENDING_APPROVAL' },
-    include: {
-      worker: true,
-      payrollWeek: true,
-      additions: true,
-      deductions: true,
-      lines: { take: 1, orderBy: { appliedRate: 'desc' } },
-    },
-    orderBy: [{ payrollWeek: { startDate: 'desc' } }, { worker: { displayName: 'asc' } }],
-  })
+  const [pending, recipients] = await Promise.all([
+    prisma.workerPayroll.findMany({
+      where: { companyId: company.id, status: 'PENDING_APPROVAL' },
+      include: {
+        worker: true,
+        payrollWeek: true,
+        additions: true,
+        deductions: true,
+        paymentRecipient: true,
+        lines: { take: 1, orderBy: { appliedRate: 'desc' } },
+      },
+      orderBy: [{ payrollWeek: { startDate: 'desc' } }, { worker: { displayName: 'asc' } }],
+    }),
+    prisma.paymentRecipient.findMany({
+      where: { companyId: company.id, active: true },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true, taxId: true },
+    }),
+  ])
 
   if (pending.length === 0) {
     return (
@@ -98,7 +106,11 @@ export default async function ApprovalsPage() {
 
     return {
       id: payroll.id,
+      workerId: payroll.workerId,
       workerName: payroll.worker.displayName,
+      weekId: payroll.payrollWeekId,
+      recipientId: payroll.paymentRecipientId,
+      recipientName: payroll.paymentRecipient?.name ?? null,
       weekLabel: `${payroll.payrollWeek.label} · ${payroll.payrollWeek.year}`,
       period: `${toIso(payroll.payrollWeek.startDate)} → ${toIso(payroll.payrollWeek.endDate)}`,
       daysFull: payroll.daysFull,
@@ -252,7 +264,17 @@ export default async function ApprovalsPage() {
         </div>
       ) : null}
 
-      <ApprovalPanel rows={rows} threshold={VARIANCE_THRESHOLD} />
+      {recipients.length === 0 ? (
+        <div className="mb-5 rounded-lg border border-sky-300 bg-sky-50 p-3.5 text-sm text-sky-900">
+          <p>
+            <strong>Todavía no hay empresas receptoras.</strong> Antes de aprobar hay que decir a
+            qué empresa se le transfiere el dinero de cada persona. Créala abajo con «Crear nueva
+            empresa receptora»: puede ser un subcontratista, una agencia, o la persona misma.
+          </p>
+        </div>
+      ) : null}
+
+      <ApprovalPanel rows={rows} threshold={VARIANCE_THRESHOLD} recipients={recipients} />
 
       <p className="mt-5 text-xs text-[var(--muted)]">
         Al aprobar se congela una huella de todo lo que afecta el pago. Si después alguien

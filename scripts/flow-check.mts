@@ -18,6 +18,14 @@ import { databaseUrl } from '../src/lib/db/url'
 import { currentRoster, removeFromRoster, setRoster } from '../src/lib/payroll/roster'
 import { applyTransition, invalidateIfStale } from '../src/lib/payroll/workflow/service'
 import { calculateWorkerPayroll } from '../src/lib/payroll/engine/index'
+import {
+  assignRecipient,
+  generateOrders,
+  payOrder,
+  previewApproval,
+} from '../src/lib/disbursement/orders'
+import { createRecipient } from '../src/lib/disbursement/recipients'
+import { renderDisbursementPdf } from '../src/lib/pdf/disbursement'
 import { toCents, toDecimalString } from '../src/lib/payroll/engine/money'
 import { DEFAULT_SETTINGS } from '../src/lib/payroll/engine/types'
 import { periodOf } from '../src/lib/payroll/period'
@@ -49,8 +57,16 @@ async function cleanup() {
   await prisma.$executeRawUnsafe('ALTER TABLE worker_payroll DISABLE TRIGGER worker_payroll_immutable')
   await prisma.$executeRawUnsafe('ALTER TABLE payroll_line DISABLE TRIGGER payroll_line_immutable')
   await prisma.$executeRawUnsafe('ALTER TABLE audit_log DISABLE TRIGGER audit_log_no_delete')
+  await prisma.$executeRawUnsafe('ALTER TABLE disbursement_order DISABLE TRIGGER disbursement_order_immutable')
+  await prisma.$executeRawUnsafe('ALTER TABLE disbursement_order_item DISABLE TRIGGER disbursement_item_immutable')
+  await prisma.$executeRawUnsafe('ALTER TABLE payment_recipient DISABLE TRIGGER payment_recipient_keep_history')
   try {
     await prisma.auditLog.deleteMany({ where: { companyId: PREFIX } })
+    await prisma.disbursementDocument.deleteMany({ where: { companyId: PREFIX } })
+    await prisma.disbursementOrderItem.deleteMany({ where: { companyId: PREFIX } })
+    await prisma.disbursementOrder.deleteMany({ where: { companyId: PREFIX } })
+    await prisma.paymentRecipient.deleteMany({ where: { companyId: PREFIX } })
+    await prisma.$executeRawUnsafe('DELETE FROM document_sequence WHERE "companyId" = $1', PREFIX)
     await prisma.workEntry.deleteMany({ where: { companyId: PREFIX } })
   await prisma.payrollLine.deleteMany({ where: { workerPayroll: { companyId: PREFIX } } })
   await prisma.exception.deleteMany({ where: { companyId: PREFIX } })
@@ -74,12 +90,16 @@ async function cleanup() {
     await prisma.$executeRawUnsafe('ALTER TABLE worker_payroll ENABLE TRIGGER worker_payroll_immutable')
     await prisma.$executeRawUnsafe('ALTER TABLE payroll_line ENABLE TRIGGER payroll_line_immutable')
     await prisma.$executeRawUnsafe('ALTER TABLE audit_log ENABLE TRIGGER audit_log_no_delete')
+    await prisma.$executeRawUnsafe('ALTER TABLE disbursement_order ENABLE TRIGGER disbursement_order_immutable')
+    await prisma.$executeRawUnsafe('ALTER TABLE disbursement_order_item ENABLE TRIGGER disbursement_item_immutable')
+    await prisma.$executeRawUnsafe('ALTER TABLE payment_recipient ENABLE TRIGGER payment_recipient_keep_history')
   }
 }
 
 const ALL = [
   'payroll:view', 'payroll:create', 'payroll:edit', 'payroll:submit',
   'payroll:approve', 'payroll:reject', 'payroll:return', 'payment:execute',
+  'payment:view', 'payment:proof:upload',
 ]
 
 function actor(id: string, email: string): CurrentUser {
@@ -236,6 +256,24 @@ async function main() {
   const selfApprove = await applyTransition(leo, [payroll.id], 'APPROVE')
   check('Leo NO puede aprobar lo suyo', selfApprove.moved === 0, selfApprove.skipped[0]?.reason)
 
+  // Sin decir a qué empresa se le transfiere el dinero no se puede aprobar.
+  const noRecipient = await applyTransition(rafael, [payroll.id], 'APPROVE')
+  check('NO se aprueba sin empresa receptora', noRecipient.moved === 0,
+    noRecipient.skipped[0]?.reason)
+
+  const recipient = await createRecipient(rafael, {
+    name: 'Receptora de la prueba',
+    taxId: '00-1111111',
+  })
+  check('se crea la empresa receptora', recipient.ok, recipient.message)
+
+  const assigned = await assignRecipient(rafael, [payroll.id], recipient.recipientId!)
+  check('se le asigna a la persona', assigned.assigned === 1, assigned.message)
+
+  const preview = await previewApproval(PREFIX, [payroll.id])
+  check('el resumen cuadra con lo aprobado', preview.balanced && preview.grandTotal === '1000.00',
+    `${preview.grandTotal} · ${preview.balanceMessage ?? ''}`)
+
   await applyTransition(rafael, [payroll.id], 'APPROVE')
   const approved = await prisma.workerPayroll.findUniqueOrThrow({ where: { id: payroll.id } })
   check('Rafael la aprueba', approved.status === 'APPROVED')
@@ -267,28 +305,84 @@ async function main() {
   check('tras resolverlo, sí aprueba', reApproved.moved === 1,
     reApproved.skipped[0]?.reason)
 
-  // ── 6. Pagar
-  console.log('\n6. Pagar')
-  const selfPay = await applyTransition(rafael, [payroll.id], 'START_PAYMENT')
-  check('quien aprobó NO puede pagar', selfPay.moved === 0, selfPay.skipped[0]?.reason)
+  // ── 6. Orden de desembolso
+  console.log('\n6. Orden de desembolso')
+  const generated = await generateOrders(rafael, [payroll.id])
+  check('se genera la orden al aprobar', generated.ok, generated.message)
 
-  const started = await applyTransition(tesoreria, [payroll.id], 'START_PAYMENT')
-  check('tesorería inicia el pago', started.moved === 1)
-
-  await prisma.payment.create({
-    data: {
-      companyId: PREFIX, paymentNumber: 'FLOW-1', payeeType: 'WORKER', workerId: worker.id,
-      payrollWeekId: week.id, approvedAmount: '1000.00', amountPaid: '1000.00',
-      paymentDate: new Date('2026-07-26T00:00:00Z'), method: 'ZELLE',
-      reference: 'FLOW-REF-1', status: 'PAID', paidById: tesoreria.id, paidAt: new Date(),
-    },
+  const order = await prisma.disbursementOrder.findFirst({
+    where: { companyId: PREFIX },
+    include: { items: true },
   })
-  await applyTransition(tesoreria, [payroll.id], 'CONFIRM_PAYMENT')
+  check('tiene consecutivo', /^OD-FLOW_CHECK-\d{4}-\d{4}$/.test(order?.orderNumber ?? ''),
+    order?.orderNumber)
+  check('el total de la orden es el neto aprobado', order?.totalAmount.toFixed(2) === '1000.00',
+    order?.totalAmount.toFixed(2))
+  check('trae a la persona con su monto',
+    order?.items.length === 1 && order.items[0]!.amount.toFixed(2) === '1000.00')
+  check('congela los nombres para el documento',
+    order?.recipientNameSnapshot === 'Receptora de la prueba' &&
+      order.weekLabelSnapshot.includes('Semana 30'))
+
+  // El PDF que va a contabilidad tiene que traer el detalle, no solo el total.
+  const pdf = renderDisbursementPdf({
+    orderNumber: order!.orderNumber, status: 'Pendiente de pago',
+    companyName: order!.companyNameSnapshot, recipientName: order!.recipientNameSnapshot,
+    recipientTaxId: order!.recipientTaxIdSnapshot, weekLabel: order!.weekLabelSnapshot,
+    periodStart: '2026-07-19', periodEnd: '2026-07-25', createdAt: '2026-07-26',
+    workers: order!.items.map((item) => ({
+      name: item.workerNameSnapshot, amount: item.amount.toFixed(2), paid: false,
+    })),
+    total: order!.totalAmount.toFixed(2), amountPaid: '0.00',
+    preparedBy: order!.preparedByName, approvedBy: order!.approvedByName,
+    approvedAt: '2026-07-26', paidBy: null, paidAt: null, paymentDate: null,
+    method: null, bankName: null, reference: null, notes: null,
+    differenceReason: null, cancellationReason: null,
+  }).toString('latin1')
+  check('el PDF trae el nombre y el monto de la persona',
+    pdf.includes('Federico Quintero') && pdf.includes('1,000.00'))
+
+  // ── 7. Pagar
+  console.log('\n7. Pagar')
+  const selfPay = await payOrder(rafael, {
+    orderId: order!.id, paymentDate: '2026-07-26', method: 'ZELLE',
+    reference: 'FLOW-REF-0', amountPaid: '1000.00',
+  })
+  check('quien aprobó NO puede pagar', !selfPay.ok, selfPay.message)
+
+  const wrongAmount = await payOrder(tesoreria, {
+    orderId: order!.id, paymentDate: '2026-07-26', method: 'ZELLE',
+    reference: 'FLOW-REF-X', amountPaid: '900.00',
+  })
+  check('un monto que no cuadra con nadie se rechaza', !wrongAmount.ok, wrongAmount.message)
+
+  const payment = await payOrder(tesoreria, {
+    orderId: order!.id, paymentDate: '2026-07-26', method: 'ZELLE',
+    bankName: 'Banco de la prueba', reference: 'FLOW-REF-1', amountPaid: '1000.00',
+  })
+  check('tesorería registra la transferencia', payment.ok, payment.message)
+
   const paid = await prisma.workerPayroll.findUniqueOrThrow({ where: { id: payroll.id } })
   check('queda pagada', paid.status === 'PAID')
+  const settledOrder = await prisma.disbursementOrder.findUniqueOrThrow({
+    where: { id: order!.id },
+  })
+  check('la orden queda pagada', settledOrder.status === 'PAID')
+  check('quedó quién pagó y con qué referencia',
+    settledOrder.paidById === tesoreria.id && settledOrder.reference === 'FLOW-REF-1')
 
-  // ── 7. Lo que ya no se puede tocar
-  console.log('\n7. Lo que ya no se puede tocar')
+  let orderImmutable = false
+  try {
+    await prisma.disbursementOrder.update({
+      where: { id: order!.id }, data: { totalAmount: '5000.00' },
+    })
+  } catch {
+    orderImmutable = true
+  }
+  check('una orden pagada ya no se modifica', orderImmutable)
+
+  // ── 8. Lo que ya no se puede tocar
+  console.log('\n8. Lo que ya no se puede tocar')
   let immutable = false
   try {
     await prisma.workerPayroll.update({
@@ -313,7 +407,7 @@ async function main() {
   check('quedó rastro de todo el proceso', trail >= 5, `${trail} anotaciones`)
 
   // ── 8. Períodos
-  console.log('\n8. Períodos de pago')
+  console.log('\n9. Períodos de pago')
   check('semanal: 19–25 jul es la semana 30', periodOf('2026-07-22', 'WEEKLY').periodNumber === 30)
   check('quincenal: del 16 al fin de mes',
     periodOf('2026-07-20', 'SEMI_MONTHLY').endDate === '2026-07-31')

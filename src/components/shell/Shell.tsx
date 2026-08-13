@@ -14,6 +14,7 @@ const NAV: ReadonlyArray<{
       { href: '/inicio', label: 'Inicio' },
       { href: '/payroll', label: 'Nómina' },
       { href: '/approvals', label: 'Aprobar', permission: 'payroll:approve' },
+      { href: '/disbursements', label: 'Desembolsos', permission: 'payment:view' },
       { href: '/payments', label: 'Pagar', permission: 'payment:execute' },
     ],
   },
@@ -21,6 +22,7 @@ const NAV: ReadonlyArray<{
     group: 'Mis listas',
     items: [
       { href: '/workers', label: 'Mi gente', permission: 'worker:view' },
+      { href: '/recipients', label: 'Empresas receptoras', permission: 'payroll:approve' },
       { href: '/crews', label: 'Cuadrillas', permission: 'crew:manage' },
       { href: '/contractors', label: 'Contratistas', permission: 'contractor:manage' },
       { href: '/projects', label: 'Proyectos', permission: 'project:manage' },

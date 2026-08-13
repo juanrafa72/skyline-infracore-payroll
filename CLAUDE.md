@@ -1,45 +1,202 @@
-# CLAUDE.md — Memoria operativa del proyecto
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 Sistema central de **payroll, contractor settlements y control financiero** de
 **Skyline Advance Tech** e **Infracore Systems LLC**.
 
-Este archivo es corto a propósito. Las especificaciones largas viven en `/docs`.
+Código y comentarios en español: el negocio los lee. Las especificaciones largas
+viven en `/docs`; este archivo es corto a propósito.
 
 ---
 
 ## Reglas que NUNCA se rompen
 
-1. **Dinero jamás en `float`.** Se almacena en `Decimal(18,2)` (Postgres/Prisma) y se
-   calcula en **enteros de centavos** dentro del `PayrollEngine`. Redondeo explícito
-   `ROUND_HALF_UP` a 2 decimales, una sola vez, al final de cada concepto.
-2. **Toda la matemática de dinero vive en `src/lib/payroll/engine/`.** Ningún componente,
-   endpoint, reporte ni migración puede recalcular montos por su cuenta.
-3. **Aislamiento por compañía.** Cada tabla transaccional lleva `companyId` y toda query
-   pasa por el helper de scope. Nunca un `findMany` sin `companyId` sobre datos de negocio.
-4. **Segregación de funciones.** Quien prepara no aprueba. Quien aprueba no paga.
-   Se valida en el backend, no en la UI.
-5. **Cambio después de aprobar → invalida la aprobación.** Ver `docs/PAYROLL_FLOW.md` §
-   "Campos materiales". La nómina vuelve a `PENDING_APPROVAL` automáticamente.
+1. **Dinero jamás en `float`.** Se almacena en `Decimal(18,2)` y se calcula en
+   **enteros de centavos** (`bigint`) dentro del motor. Redondeo `ROUND_HALF_UP`
+   una sola vez por concepto, nunca en cadena.
+2. **Toda la matemática de dinero vive en `src/lib/payroll/engine/`.** Ningún
+   componente, acción, reporte ni migración recalcula montos por su cuenta.
+3. **Aislamiento por compañía.** Toda tabla transaccional lleva `companyId` y
+   toda consulta lo filtra. La compañía activa sale de la sesión del servidor,
+   nunca de algo que mande el navegador.
+4. **Segregación de funciones por PERSONA, no por rol.** Quien prepara no
+   aprueba; quien aprueba no paga. Tener el permiso no basta si uno hizo el paso
+   anterior. Se puede levantar con el modo de una sola persona, pero entonces
+   queda marcado (`selfApproved`) y anotado en la auditoría.
+5. **Cambio después de aprobar invalida la aprobación.** La huella
+   (`calculationHash`) se calcula sobre las ENTRADAS, no sobre el resultado: si
+   alguien cambia un día y el neto queda igual, la aprobación se cae igual.
 6. **Nómina pagada es inmutable.** Corrección = `Adjustment` / `Reversal` /
    `AdditionalPayment` / `Credit`. Nunca se edita ni se borra el pago original.
-7. **Audit log append-only.** Sin `UPDATE`, sin `DELETE`. Se escribe dentro de la misma
-   transacción que el cambio que registra.
-8. **Snapshot de tarifas.** Cada línea de nómina guarda la tarifa aplicada. Cambiar una
-   tarifa hoy nunca puede alterar una nómina histórica.
-9. **Persona ≠ equipo.** `Worker` y `Equipment` son entidades distintas. Nunca se mezclan.
-10. **Diferencias nunca desaparecen.** Si dos fuentes discrepan se registra `Variance`
-    y se muestra. Prohibido "cuadrar" silenciosamente.
+7. **Audit log append-only.** Sin `UPDATE`, sin `DELETE`, impuesto por trigger.
+   Se escribe en la misma transacción que el cambio que registra.
+8. **Snapshot de tarifas.** Cada línea guarda la tarifa aplicada. Cambiar una
+   tarifa hoy no puede alterar una nómina histórica.
+9. **Persona ≠ equipo ≠ cuadrilla.** `Worker`, `Equipment` y `Crew` son
+   entidades distintas. Los Excel los mezclaban; aquí no.
+10. **Las diferencias nunca desaparecen.** Si dos fuentes discrepan se registra
+    `Variance` y se muestra. Prohibido "cuadrar" en silencio.
 11. **Importar dos veces el mismo archivo no duplica.** Idempotencia por
-    `(companyId, sourceHash, naturalKey)`.
-12. **No adivinar reglas de dinero.** Si una regla no se puede verificar en los Excel o
-    con el negocio: documentarla en `docs/BUSINESS_RULES.md` con la etiqueta
-    `NEEDS BUSINESS CONFIRMATION` y hacerla configurable.
+    `(companyId, fileHash, naturalKey)`.
+12. **No adivinar reglas de dinero.** Si no se puede verificar: documentarla en
+    `docs/BUSINESS_RULES.md` como `NEEDS BUSINESS CONFIRMATION`, hacerla
+    configurable en `CompanySetting`, y usar el valor más conservador.
+
+---
+
+## Comandos
+
+```bash
+npm run dev                  # http://localhost:3100 (puerto fijo: el 3000 lo usa otro proyecto)
+npm run check                # typecheck + lint + test + build — antes de cerrar cualquier módulo
+npm run smoke                # abre TODAS las pantallas en las dos compañías (requiere dev corriendo)
+npm run flow                 # recorre el proceso completo contra la base real
+
+npm run test                 # Vitest
+npx vitest run tests/engine/money.test.ts          # un archivo
+npx vitest run -t "medio día paga exactamente"     # una prueba por nombre
+npm run test:watch
+
+npm run db:migrate           # prisma migrate dev
+npm run db:seed              # compañías, roles, permisos, reglas sin confirmar
+npm run user:create "Nombre" correo@x.com PAYROLL_PREPARER SKYLINE,INFRACORE
+npm run clean                # borra los duplicados que crea iCloud ("archivo 2.ts")
+```
+
+Contra producción: anteponer `DATABASE_URL=...` (Neon) a cualquier script, y
+`SMOKE_BASE=https://... SESSION_SECRET=...` para `smoke`.
+
+### Los tres niveles de verificación, y para qué sirve cada uno
+
+Los errores que llegaron al negocio pasaron `check` sin problema. Por eso hay tres:
+
+| | Qué atrapa | Qué NO atrapa |
+|---|---|---|
+| `check` | tipos, lint, lógica pura | consultas mal escritas, botones que no hacen nada |
+| `smoke` | pantallas que revientan al consultar la base, formularios anidados, códigos en inglés visibles | que los botones hagan lo correcto |
+| `flow` | el proceso de punta a punta y lo que NO debe poder hacerse | lo visual |
+
+`smoke` prueba a propósito **una semana con gente**: una vacía muestra el paso 1
+y deja sin revisar la rejilla, el botón de quitar y el de enviar a aprobación —
+justo donde estuvieron los errores.
+
+---
+
+## Arquitectura
+
+### Capas, de adentro hacia afuera
+
+```
+src/lib/payroll/engine/     PURO. Sin Prisma, sin React, sin reloj, sin azar.
+                            Recibe datos planos, devuelve datos planos.
+src/lib/payroll/*.ts        Servicios con base de datos (roster, dashboard, period).
+                            Devuelven resultados; NO lanzan por errores de uso.
+src/app/(app)/*/actions.ts  Server Actions: validan con Zod, llaman al servicio,
+                            devuelven un mensaje para la pantalla.
+src/app/(app)/*/page.tsx    Server Components. Consultan y muestran.
+```
+
+**Por qué importa:** lo que decide reglas vive en el nivel puro y se prueba
+exhaustivamente sin base de datos. `workflow/index.ts` (puro, 46 pruebas) decide
+si una transición es válida; `workflow/service.ts` solo la ejecuta y deja rastro.
+Al agregar una regla, va en el nivel puro.
+
+### Piezas centrales
+
+- **`engine/money.ts`** — tipo `Cents` marcado para que el compilador impida
+  mezclarlo con cantidades. Todo importe pasa por aquí.
+- **`engine/rates.ts`** — resuelve la tarifa vigente. Precedencia: proyecto+turno
+  → proyecto → turno → operación → general. Si el día no trae operación ni
+  proyecto y queda **una sola** tarifa vigente, la usa; si quedan varias, **no
+  adivina** y reporta. Nunca paga cero en silencio.
+- **`engine/index.ts`** — `calculateWorkerPayroll`. Orden fijo:
+  `basePay → additions → gross → deductions(prioridad) → net`.
+- **`payroll/workflow/`** — máquina de estados + huella de campos materiales.
+- **`disbursement/`** — a dónde va el dinero. `grouping.ts` (puro) agrupa por
+  semana y empresa receptora y exige que las órdenes sumen **exactamente** lo
+  aprobado; `orders.ts` genera las órdenes al aprobar y registra el pago;
+  `detach.ts` saca a alguien de una orden sin pagar cuando se devuelve su
+  nómina, y lo impide si el dinero ya salió.
+- **`pdf/`** — generador de PDF propio, sin dependencias. El desprendible de
+  contabilidad lleva el detalle por trabajador, nunca solo el total.
+- **`payroll/period.ts`** — diario, semanal, catorcenal, quincenal, mensual, y
+  cortes fuera de calendario para liquidar a quien se retira.
+- **`payroll/week.ts`** — la semana va domingo a sábado y se numera como
+  `WEEKNUM` de Excel, para que los números coincidan con los que el equipo usa.
+
+### Protecciones en la base, no en el código
+
+`prisma/migrations/*_guardrails/` instala triggers y restricciones: audit log
+append-only, nómina pagada inmutable, tarifas sin solape, condonación con
+aprobador obligatorio, adicional sin nota rechazado, pago mayor al aprobado
+imposible. `tests/security/db-guardrails.test.ts` las verifica con SQL crudo,
+saltándose la aplicación.
+
+### Fronteras entre proveedores — no cruzarlas
+
+- **Netlify** = solo hosting. Nunca datos ni archivos.
+- **Neon** = todos los datos. Nunca archivos.
+- **SharePoint** = todos los archivos (comprobantes, evidencias). La base guarda
+  solo la referencia.
+
+---
+
+## Trampas que ya costaron errores en producción
+
+- **`<form>` dentro de `<form>`** es HTML inválido: el navegador descarta el de
+  adentro y su botón envía el de afuera. Compila, la página abre, y el botón no
+  hace nada. `smoke` lo detecta sobre el HTML servido.
+- **`include: { relacion: false }` en Prisma** no es válido: compila, pasa el
+  typecheck y revienta al abrir la página. Hay regla de lint.
+- **Trigger `BEFORE ... FOR EACH ROW` en Postgres**: en un `DELETE` hay que
+  `RETURN OLD`. Devolver `NEW` (que es `NULL`) cancela el borrado **sin avisar**.
+- **`<Link>` precarga por defecto.** Con páginas dinámicas, cada enlace visible
+  renderiza una página entera en el servidor. Una lista de 150 filas disparaba
+  150 renders. Todos los enlaces llevan `prefetch={false}`.
+- **Un día sin operación no encuentra una tarifa amarrada a una operación.** Los
+  días heredan operación, proyecto y cuadrilla de la persona al capturarse.
+- **iCloud** sincroniza esta carpeta y crea copias `archivo 2.ts` que rompen la
+  compilación. `npm run clean` corre antes de cada `typecheck`. `node_modules`
+  vive fuera (enlace a `~/.local/`); `.next` **no** puede moverse: rompe la
+  resolución de módulos de Turbopack.
+- **Errores de uso NO se lanzan**, se devuelven como mensaje. Una excepción en
+  una Server Action se ve como una pantalla de error del sistema, no como un
+  aviso entendible.
+- **`lower()` no acepta un tipo enumerado en Postgres.** Un trigger que arma su
+  mensaje de error con `lower(OLD.status)` bloquea la operación —correcto— pero
+  falla al explicarla, y quien la intentó ve un error del motor. Hay que
+  convertirlo: `lower(OLD.status::text)`.
+- **Un cambio de estado puede dejar huérfano un documento.** Devolver una nómina
+  que ya estaba dentro de una orden de desembolso dejaba la orden con el monto
+  viejo, y tesorería habría transferido de más. Todo lo que saque a alguien de
+  APPROVED tiene que pasar por `disbursement/detach.ts`.
+
+---
+
+## Vocabulario (evita confusiones caras)
+
+| En la app | Significado | En los Excel |
+|---|---|---|
+| `Company` | Entidad legal: Skyline / Infracore. De quién es la nómina | columna `UNIDAD DE NEGOCIO` — **NO** `EMPRESA` |
+| `Customer` | Cliente que nos paga (Bigham, Precision Fiber, GTS) | columna `EMPRESA` / `EMPRESA2` |
+| `PaymentRecipient` | Empresa receptora: a quién se le **transfiere** el dinero | no existía |
+| `Operation` | Aerial, Underground, BlowFiber, Admin, Data Center | columna `Tipo` |
+| `Crew` | Cuadrilla (MISSILES, AMPARO, CHATO…) | columna `EQUIPO` |
+| `Worker` | Persona | columna `Nombre` |
+| `Equipment` | Máquina o vehículo (CAPSTAN, PLOW, INTERNACIONAL 2014) | también en `Nombre` |
+| `Contractor` | Subcontratista que factura (FORZO, FELIPE, JAIRO) | hojas `week NN` de FORMATO COMIS |
+
+En los Excel *EMPRESA* significa **cliente**, no compañía propia. Confundirlas
+rompe la contabilidad. Y `Company` ≠ `PaymentRecipient`: la primera es de quién
+es la nómina, la segunda a dónde va la plata. Un trabajador de Skyline puede
+pagarse enviando fondos a un subcontratista.
 
 ---
 
 ## Los tres Excel de referencia — NO MODIFICAR
 
-Se leen. Nunca se escriben. Ubicación actual:
+Se leen, nunca se escriben.
 
 ```
 .../SKYLINE ADVANCE TECH/03 - RECURSOS HUMANOS/SEGUIMIENTO LABORAL/2026 Laboral/
@@ -49,149 +206,52 @@ Se leen. Nunca se escriben. Ubicación actual:
 ~/Downloads/FORMATO COMIS.xlsx
 ```
 
-Análisis completo en `docs/EXCEL_ANALYSIS.md`. Mapeo en `docs/EXCEL_MAPPING.md`.
+Análisis en `docs/EXCEL_ANALYSIS.md` (14 errores críticos encontrados, 15
+ambigüedades abiertas A1–A15). Mapeo en `docs/EXCEL_MAPPING.md`. Scripts de
+lectura en `tools/excel-analysis/`. Importación en `prisma/import-historical.ts`
+(idempotente, no une nombres parecidos, retiene duplicados).
 
 ---
 
-## Vocabulario (evita confusiones caras)
+## Entorno
 
-| Término en la app | Significado | Cómo aparecía en Excel |
-|---|---|---|
-| `Company` | Entidad legal: Skyline Advance Tech / Infracore Systems LLC | columna `UNIDAD DE NEGOCIO`; **NO** la columna `EMPRESA` |
-| `Customer` | Cliente / general contractor que nos paga | columna `EMPRESA` / `EMPRESA2` (Bigham, Precision Fiber, GTS…) |
-| `Operation` | Línea de negocio: Aerial, Underground, BlowFiber, Admin, Data Center | columna `Tipo` |
-| `Crew` | Cuadrilla (MISSILES, AMPARO, CHATO, CUBO…) | columna `EQUIPO` |
-| `Worker` | Persona | columna `Nombre` |
-| `Equipment` | Máquina/vehículo (CAPSTAN, PLOW, COMPRESOR, INTERNACIONAL 2014) | también en `Nombre` — **hay que separarlos** |
-| `Contractor` | Subcontratista que factura (FORZO, FELIPE, JESUS, JAIRO…) | hoja `week NN` de FORMATO COMIS |
+**Local:** PostgreSQL 16 por Homebrew (`brew services start postgresql@16`), base
+`payroll_dev`. Variables en `.env`: `DATABASE_URL`, `SESSION_SECRET` (mínimo 32
+caracteres).
 
-**Advertencia:** en los Excel la palabra *EMPRESA* significa **cliente**, no compañía propia.
-Confundirlas rompe la contabilidad.
-
----
-
-## Stack
-
-Next.js 15 (App Router) · TypeScript strict · Tailwind v4 · PostgreSQL 16 · Prisma ·
-Auth.js v5 (Credentials hoy, Microsoft Entra ID después) · Zod · Vitest ·
-`@react-pdf/renderer` para comprobantes · **archivos en SharePoint** vía Microsoft Graph.
-
-**Fronteras entre proveedores — no cruzarlas:**
-- **Netlify** = solo hosting. Nunca guardar datos ni archivos ahí.
-- **Neon** = todos los datos. Nunca archivos.
-- **SharePoint** = todos los archivos. La base guarda solo la referencia.
-
-Justificación y alternativas descartadas: `docs/ARCHITECTURE.md`.
-
----
-
-## Comandos
+**Publicado:** https://skyline-infracore-payroll.netlify.app · repositorio
+privado `juanrafa72/skyline-infracore-payroll` · base en Neon. Cada despliegue
+aplica migraciones y vuelve a sembrar catálogos (el seed usa upsert).
 
 ```bash
-npm run dev          # desarrollo
-npm run typecheck    # tsc --noEmit
-npm run lint
-npm run test         # Vitest (incluye tests financieros)
-npm run build
-npm run db:migrate   # prisma migrate dev
-npm run db:seed
-npm run check        # typecheck + lint + test + build  ← correr antes de cerrar un módulo
-npm run smoke        # abre TODAS las pantallas en las dos compañías (requiere `npm run dev`)
-npm run clean        # borra los duplicados que crea iCloud ("archivo 2.ts")
+netlify deploy --prod
 ```
-
-**Regla de trabajo:** no se avanza al siguiente módulo con `npm run check` en rojo,
-y **`npm run smoke` es obligatorio** antes de dar una pantalla por terminada.
-`tsc` no detecta errores que solo aparecen al consultar la base — una relación mal
-escrita compila bien y revienta al abrir la página. Ya pasó una vez.
-
-**iCloud:** esta carpeta se sincroniza y iCloud crea copias `archivo 2.ts` que rompen la
-compilación. `npm run clean` corre solo antes de cada `typecheck`. `node_modules` vive
-fuera (enlace a `~/.local/`); `.next` **no puede** moverse fuera: rompe la resolución de
-módulos de Turbopack.
 
 ---
 
-## Estado actual
+## Estado
 
-- [x] Análisis de los 3 Excel (`docs/EXCEL_ANALYSIS.md`, scripts en `tools/excel-analysis/`)
-- [x] Documentación base (`/docs`)
-- [x] Modelo de datos inicial (`docs/DATA_MODEL.md`)
-- [x] **M0** — Fundación técnica: Next.js 15 + TS strict + Tailwind v4 + Vitest + Prisma
-      instalado, `npm run check` en verde
-- [x] **M1** — `schema.prisma` (36 tablas), migraciones aplicadas, triggers y
-      restricciones verificados con pruebas contra la base real, seed de compañías,
-      roles, permisos y las 16 reglas sin confirmar
-- [x] **M2** — `PayrollEngine` completo: money, tarifas con vigencia, pago base
-      (día/medio día/hora/semanal fijo), adicionales, descuentos, recuperación de
-      anticipos y deudas, neto negativo, semanas domingo–sábado con la numeración de Excel
-- [x] **M4–M5 (parcial)** — aplicación navegable: dashboard, trabajadores con historial de
-      tarifas, cuadrillas, proyectos, clientes, rejilla semanal de días, cálculo y reportes
-- [x] **Períodos de pago** — diario, semanal, catorcenal (14 días), quincenal
-      (1–15 y 16–fin de mes) y mensual, por compañía y con excepción por trabajador.
-      Cortes fuera de calendario para liquidar a quien se retira.
-- [x] **Publicado** en Netlify con base en Neon, detrás de contraseña compartida
-- [x] **M3** — login por persona con roles y permisos reales
-- [x] **M9 — Approval Center** — revisar, comparar contra la semana anterior, aprobar,
-      rechazar o devolver. Segregación por persona: quien preparó no aprueba, ni siendo
-      administrador. Al aprobar se congela la huella; cualquier cambio material posterior
-      la invalida sola y la devuelve a aprobación.
-- [x] **M10 — Payment Center** — pagar solo lo aprobado, con fecha, método, monto y
-      referencia. Los campos financieros no se pueden tocar desde ahí. Pagar de más está
-      bloqueado; pagar de menos deja una diferencia abierta. Referencia repetida se
-      rechaza. Quien aprobó no puede pagar.
-- [ ] **Comprobante de pago en PDF** y subida del soporte bancario a SharePoint
-- [ ] Anticipos y deudas de trabajadores (pantallas; el modelo ya existe)
-- [ ] Margen por cuadrilla y proyecto · SharePoint · importación de FORMATO COMIS
+**252 pruebas · 50 tablas · 9 migraciones** · `check`, `smoke` y `flow` en verde.
 
-**110 tests pasando** · `npm run check` en verde.
+El proceso completo: preparar → revisar → asignar empresa receptora → aprobar →
+órdenes de desembolso → pagar → comprobante → historial.
 
-### Verificación contra el Excel
+Hecho: análisis de los Excel y documentación · motor de cálculo · protecciones en
+la base · login por persona con roles · aplicación navegable (inicio guiado,
+nómina en dos pasos, trabajadores, cuadrillas con negociación por unidad,
+contratistas con préstamos, proyectos, clientes, producción, reportes,
+indicadores) · Approval Center con asignación de empresa receptora y resumen
+previo · órdenes de desembolso con consecutivo, PDF y registro de pago ·
+catálogo de empresas receptoras · períodos de pago y cortes · importación del
+histórico.
 
-Federico Quintero, Underground, semana 30 de 2026 (19–25 jul), 7 días a $200
-→ el sistema calcula **$1.400,00**, el mismo número de la hoja `DH UG` del Excel.
+Falta: descuentos y adicionales de la semana (**bloquea correr una nómina real**)
+· anticipos y deudas de trabajadores · comprobante de pago por trabajador ·
+subida real de archivos a SharePoint (hoy se guarda el enlace) · envío de correo
+a contabilidad (hoy se registra el hecho) · liquidación de contratistas (todo
+`FORMATO COMIS`) · margen por cuadrilla y proyecto.
 
-Fases 2–4 no se empiezan hasta que Phase 1 esté verde y validada por el negocio.
-
-### Publicado
-
-- **Sitio:** https://skyline-infracore-payroll.netlify.app
-- **Acceso:** contraseña compartida en la variable `SITE_PASSWORD` de Netlify.
-  Es un candado temporal (`src/middleware.ts`), **no** el login por persona.
-- **Base de datos:** PostgreSQL administrado en Neon. La dirección vive en la
-  variable `DATABASE_URL` de Netlify, nunca en el repositorio.
-- **Repositorio:** `juanrafa72/skyline-infracore-payroll` (privado).
-- Cada despliegue aplica migraciones y vuelve a sembrar catálogos (el seed usa
-  upsert, no duplica).
-
-```bash
-netlify deploy --build --prod    # publicar
-SMOKE_BASE=https://skyline-infracore-payroll.netlify.app \
-  SMOKE_PASSWORD=... npm run smoke   # verificar lo publicado
-```
-
-### Base de datos local
-
-PostgreSQL 16 vía Homebrew, servicio `postgresql@16`, base `payroll_dev`.
-
-```bash
-brew services start postgresql@16     # si no está corriendo
-npm run db:migrate                    # aplicar migraciones
-npm run db:seed                       # datos iniciales
-npm run dev                           # http://localhost:3100
-```
-
-Puerto **3100** fijo, para no chocar con el proyecto Gallo de Oro que usa el 3000.
-
-Las pruebas de `tests/security/db-guardrails.test.ts` corren contra esta base real:
-verifican que el audit log no se pueda alterar y que una nómina pagada no se pueda
-editar **aunque alguien entre directo a la base saltándose la aplicación**.
-
-### Nota de entorno
-
-`node_modules` es un enlace a `~/.local/payroll-system-node_modules` porque esta carpeta
-se sincroniza con iCloud y cientos de miles de archivos la saturarían. Si se clona el
-proyecto en otro equipo, basta con `npm install` normal.
+Ver `docs/IMPLEMENTATION_PLAN.md`.
 
 <!-- BEGIN:nextjs-agent-rules -->
 
