@@ -19,6 +19,7 @@ import {
 import { offCyclePeriod, periodOf, type PayPeriodType } from '@/lib/payroll/period'
 import { toIso } from '@/lib/payroll/week'
 import { invalidateIfStale } from '@/lib/payroll/workflow/service'
+import { removeFromRoster, setRoster } from '@/lib/payroll/roster'
 
 /**
  * Abre un período de pago.
@@ -462,127 +463,40 @@ export async function addWorkerToPeriod(formData: FormData) {
   revalidatePath(`/payroll/${weekId}`)
 }
 
-/**
- * Saca a alguien del período.
- *
- * No borra sus días: si ya tiene marcas, se conservan y se avisa. Quitar a
- * alguien de la lista nunca puede hacer desaparecer trabajo ya registrado.
- */
-export async function removeWorkerFromPeriod(formData: FormData) {
-  const company = await getActiveCompany()
-  const weekId = String(formData.get('weekId') ?? '')
-  const workerId = String(formData.get('workerId') ?? '')
-
-  const week = await prisma.payrollWeek.findFirst({ where: { id: weekId, companyId: company.id } })
-  if (!week) throw new Error('Período no encontrado')
-
-  const marked = await prisma.workEntry.count({
-    where: { companyId: company.id, payrollWeekId: week.id, workerId },
-  })
-  if (marked > 0) {
-    throw new Error(
-      `Esta persona ya tiene ${marked} día(s) marcado(s) en el período. ` +
-        'Bórralos primero (déjalos en "—" y guarda) si de verdad no trabajó.',
-    )
-  }
-
-  await prisma.payrollWeekMember.upsert({
-    where: { payrollWeekId_workerId: { payrollWeekId: week.id, workerId } },
-    update: { removedAt: new Date(), removalReason: 'No trabajó este período' },
-    create: {
-      companyId: company.id,
-      payrollWeekId: week.id,
-      workerId,
-      removedAt: new Date(),
-      removalReason: 'No trabajó este período',
-    },
-  })
-
-  await prisma.auditLog.create({
-    data: {
-      companyId: company.id,
-      action: 'PERIOD_MEMBER_REMOVED',
-      entityType: 'PayrollWeek',
-      entityId: week.id,
-      payrollWeekId: week.id,
-      newValueJson: { workerId },
-      changedFields: ['members'],
-    },
-  })
-
-  revalidatePath(`/payroll/${weekId}`)
-}
 
 /**
  * Fija quiénes trabajaron en el período.
  *
- * Reemplaza la lista completa: lo que se marque queda, lo que no se marque
- * sale. Sacar a alguien que ya tiene días marcados se rechaza; primero hay que
- * borrarle los días, para que quitar de una lista nunca borre trabajo real.
+ * Devuelve un mensaje en vez de lanzar: un error de uso tiene que verse como
+ * un aviso en la pantalla, no como un error del sistema.
  */
-export async function setPeriodRoster(formData: FormData) {
+export async function setPeriodRoster(
+  _previous: string | null,
+  formData: FormData,
+): Promise<string> {
   const company = await getActiveCompany()
   const weekId = String(formData.get('weekId') ?? '')
-  const chosen = new Set(formData.getAll('workerId').map(String).filter(Boolean))
+  const workerIds = formData.getAll('workerId').map(String).filter(Boolean)
 
-  const week = await prisma.payrollWeek.findFirst({ where: { id: weekId, companyId: company.id } })
-  if (!week) throw new Error('Período no encontrado')
-
-  const withDays = await prisma.workEntry.findMany({
-    where: { companyId: company.id, payrollWeekId: week.id },
-    select: { workerId: true },
-    distinct: ['workerId'],
-  })
-  const protectedIds = new Set(withDays.map((row) => row.workerId))
-
-  const removedWithDays = [...protectedIds].filter((id) => !chosen.has(id))
-  if (removedWithDays.length > 0) {
-    const people = await prisma.worker.findMany({
-      where: { id: { in: removedWithDays } },
-      select: { displayName: true },
-    })
-    throw new Error(
-      `No puedes sacar a ${people.map((p) => p.displayName).join(', ')}: ya tiene(n) días ` +
-        'marcados en esta semana. Déjalos en "—" y guarda primero.',
-    )
-  }
-
-  const existing = await prisma.payrollWeekMember.findMany({
-    where: { companyId: company.id, payrollWeekId: week.id },
-  })
-  const known = new Map(existing.map((row) => [row.workerId, row]))
-
-  await prisma.$transaction(async (tx) => {
-    for (const workerId of chosen) {
-      await tx.payrollWeekMember.upsert({
-        where: { payrollWeekId_workerId: { payrollWeekId: week.id, workerId } },
-        update: { removedAt: null, removedById: null, removalReason: null },
-        create: { companyId: company.id, payrollWeekId: week.id, workerId },
-      })
-    }
-    for (const [workerId, row] of known) {
-      if (!chosen.has(workerId) && !row.removedAt) {
-        await tx.payrollWeekMember.update({
-          where: { id: row.id },
-          data: { removedAt: new Date(), removalReason: 'No trabajó este período' },
-        })
-      }
-    }
-    await tx.auditLog.create({
-      data: {
-        companyId: company.id,
-        action: 'PERIOD_ROSTER_SET',
-        entityType: 'PayrollWeek',
-        entityId: week.id,
-        payrollWeekId: week.id,
-        newValueJson: { count: chosen.size },
-        changedFields: ['members'],
-      },
-    })
-  })
-
+  const result = await setRoster(company.id, weekId, workerIds)
   revalidatePath(`/payroll/${weekId}`)
+
+  if (!result.ok) return result.message
   redirect(`/payroll/${weekId}`)
+}
+
+/** Saca a una persona del período. Devuelve mensaje, no lanza. */
+export async function removeWorkerFromPeriod(
+  _previous: string | null,
+  formData: FormData,
+): Promise<string> {
+  const company = await getActiveCompany()
+  const weekId = String(formData.get('weekId') ?? '')
+  const workerId = String(formData.get('workerId') ?? '')
+
+  const result = await removeFromRoster(company.id, weekId, workerId)
+  revalidatePath(`/payroll/${weekId}`)
+  return result.ok ? `LISTO|${result.message}` : result.message
 }
 
 /**

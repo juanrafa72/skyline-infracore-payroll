@@ -37,6 +37,7 @@ export function ChooseWorkers({
   /** Cuántas personas quedaron fuera de la lista por no tener tarifa. */
   hiddenWithoutRate: number
 }) {
+  const [message, action] = useActionState(setPeriodRoster, null)
   const [search, setSearch] = useState('')
   const [operation, setOperation] = useState('')
   const [selected, setSelected] = useState<ReadonlySet<string>>(
@@ -59,7 +60,7 @@ export function ChooseWorkers({
   }
 
   return (
-    <form action={setPeriodRoster}>
+    <form action={action}>
       <input type="hidden" name="weekId" value={weekId} />
 
       <div className="rounded-xl border-2 border-[var(--accent)] bg-[var(--surface)] p-5">
@@ -148,6 +149,12 @@ export function ChooseWorkers({
             <Link prefetch={false} href="/workers" className="text-[var(--accent)] underline">
               Ponerles tarifa
             </Link>
+          </p>
+        ) : null}
+
+        {message ? (
+          <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+            {message}
           </p>
         ) : null}
 

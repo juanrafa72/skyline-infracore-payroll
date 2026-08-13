@@ -4,7 +4,8 @@ import { Badge, Button, EmptyState, LinkButton, PageHeader, Stat, money } from '
 import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
 import { shortDay, toIso } from '@/lib/payroll/week'
-import { calculateWeek, removeWorkerFromPeriod, saveWorkEntries } from '../actions'
+import { calculateWeek, saveWorkEntries } from '../actions'
+import { RemoveWorker } from './RemoveWorker'
 import { SubmitWeek } from './SubmitWeek'
 import { AddWorkerInline, ChooseWorkers } from './ChooseWorkers'
 import { ESTADO_NOMINA, TIPO_TARIFA, label } from '@/lib/payroll/labels'
@@ -316,17 +317,8 @@ export default async function WeekPage({
                       })}
                     </div>
 
-                    <div className="mt-2 flex items-center justify-end gap-2 md:mt-0">
-                      <button
-                        type="submit"
-                        formAction={removeWorkerFromPeriod}
-                        name="workerId"
-                        value={worker.id}
-                        title="Quitar del período (no borra su historia)"
-                        className="rounded border border-[var(--border)] px-1.5 py-0.5 text-xs text-[var(--muted)] hover:border-red-300 hover:text-red-700"
-                      >
-                        quitar
-                      </button>
+                    <div className="mt-2 md:mt-0">
+                      <RemoveWorker weekId={week.id} workerId={worker.id} />
                     </div>
                   </div>
                 ))}
