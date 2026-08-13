@@ -20,6 +20,23 @@ export default async function DisbursementsPage() {
   const user = await assertCan('payment:view')
   const company = await getActiveCompany()
 
+  /*
+   * Nóminas aprobadas que NO están en ninguna orden.
+   *
+   * Pasa con las que se aprobaron antes de que existieran las órdenes, y
+   * pasaría si alguna se colara sin agrupar. Es plata aprobada que no aparece
+   * en esta pantalla: callarlo sería esconder dinero pendiente.
+   */
+  const orphans = await prisma.workerPayroll.findMany({
+    where: {
+      companyId: company.id,
+      status: { in: ['APPROVED', 'READY_TO_PAY'] },
+      disbursementItem: null,
+    },
+    include: { worker: true, payrollWeek: true, paymentRecipient: true },
+    orderBy: [{ payrollWeek: { startDate: 'desc' } }, { worker: { displayName: 'asc' } }],
+  })
+
   const orders = await prisma.disbursementOrder.findMany({
     where: { companyId: company.id },
     include: {
@@ -107,7 +124,39 @@ export default async function DisbursementsPage() {
         </p>
       </div>
 
-      {open.length === 0 && closed.length === 0 ? (
+      {orphans.length > 0 ? (
+        <section className="mb-5 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          <p className="font-semibold">
+            {orphans.length} nómina(s) aprobada(s) sin orden de desembolso · $
+            {money(orphans.reduce((sum, row) => sum + Number(row.netPay), 0))}
+          </p>
+          <p className="mt-1">
+            Son de antes de que existieran las órdenes, o quedaron sin agrupar. No están perdidas
+            —siguen en la pantalla de <strong>Pagar</strong>— pero aquí no se ven, así que se
+            avisan para que nadie las dé por pagadas.
+          </p>
+          <ul className="mt-2 space-y-0.5 text-xs">
+            {orphans.slice(0, 12).map((row) => (
+              <li key={row.id} className="flex flex-wrap justify-between gap-2">
+                <span>
+                  {row.worker.displayName} · {row.payrollWeek.label} ·{' '}
+                  {row.paymentRecipient?.name ?? 'sin empresa receptora'}
+                </span>
+                <span className="tabular-nums">${money(row.netPay)}</span>
+              </li>
+            ))}
+          </ul>
+          {orphans.length > 12 ? (
+            <p className="mt-1 text-xs">y {orphans.length - 12} más.</p>
+          ) : null}
+          <p className="mt-2 text-xs">
+            Para que entren aquí: devuélvelas a aprobación, asígnales empresa receptora y
+            apruébalas de nuevo. Todo queda registrado.
+          </p>
+        </section>
+      ) : null}
+
+      {open.length === 0 && closed.length === 0 && orphans.length === 0 ? (
         <EmptyState
           title="No hay órdenes de desembolso"
           hint="Se generan solas cuando quien aprueba confirma una nómina y dice a qué empresa se le transfiere el dinero de cada persona."
