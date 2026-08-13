@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
+import { databaseUrl } from './url'
 
 /**
  * Cliente Prisma. En desarrollo se reutiliza entre recargas para no abrir
@@ -12,7 +13,7 @@ import { PrismaPg } from '@prisma/adapter-pg'
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient }
 
 function createClient(): PrismaClient {
-  const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL })
+  const adapter = new PrismaPg({ connectionString: databaseUrl() })
   return new PrismaClient({ adapter })
 }
 
