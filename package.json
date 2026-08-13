@@ -16,7 +16,8 @@
     "check": "npm run typecheck && npm run lint && npm run test && npm run build",
     "smoke": "tsx scripts/smoke.mts",
     "clean": "node scripts/clean-icloud-dupes.mjs",
-    "user:create": "tsx scripts/create-user.mts"
+    "user:create": "tsx scripts/create-user.mts",
+    "flow": "tsx scripts/flow-check.mts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.9.1",

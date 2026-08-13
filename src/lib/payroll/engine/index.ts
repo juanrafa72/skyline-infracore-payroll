@@ -26,6 +26,7 @@ import { resolveRate } from './rates'
 import type {
   AdditionInput,
   AdvanceInput,
+  RateInput,
   CalculatedDeduction,
   CalculatedLine,
   CalculationInput,
@@ -160,12 +161,14 @@ export function calculateBasePay(
     })
 
     if (rate === null) {
-      // BR-033: nunca se paga cero en silencio.
+      // BR-033: nunca se paga cero en silencio. Y el aviso tiene que decir por
+      // qué no aplicó: "no hay tarifa" y "tiene tarifa pero no le sirve a este
+      // día" se arreglan de formas distintas.
       exceptions.push({
         code: 'MISSING_RATE',
         level: 'CRITICAL',
-        title: 'Sin tarifa vigente',
-        detail: `No hay tarifa ${isHourly ? 'por hora' : 'diaria'} vigente el ${entry.workDate}.`,
+        title: 'Sin tarifa para este día',
+        detail: explainMissingRate(input.rates, entry, isHourly),
         workDate: entry.workDate,
       })
       continue
@@ -195,6 +198,63 @@ export function calculateBasePay(
     daysNoWork,
     hoursTotal: hundredthsToString(hoursHundredths),
   }
+}
+
+/** Explica en cristiano por qué ninguna tarifa aplicó a este día. */
+function explainMissingRate(
+  rates: readonly RateInput[],
+  entry: WorkEntryInput,
+  isHourly: boolean,
+): string {
+  const kind = isHourly ? 'por hora' : 'diaria'
+
+  if (rates.length === 0) {
+    return `No tiene ninguna tarifa registrada. Hay que ponerle una antes de calcular el ${entry.workDate}.`
+  }
+
+  const ofKind = rates.filter((rate) => rate.rateType === (isHourly ? 'HOURLY' : 'DAILY'))
+  if (ofKind.length === 0) {
+    return `Tiene tarifa, pero no ${kind}. El día está marcado como ${isHourly ? 'por horas' : 'día completo o medio'}.`
+  }
+
+  const vigentes = ofKind.filter(
+    (rate) =>
+      rate.effectiveFrom <= entry.workDate &&
+      (rate.effectiveTo === null || rate.effectiveTo > entry.workDate),
+  )
+  if (vigentes.length === 0) {
+    const fechas = ofKind
+      .map((rate) => `${rate.effectiveFrom}${rate.effectiveTo ? ` a ${rate.effectiveTo}` : ' en adelante'}`)
+      .join(', ')
+    return `Su tarifa ${kind} no estaba vigente el ${entry.workDate}. Vigencias: ${fechas}.`
+  }
+
+  const porOperacion = vigentes.filter(
+    (rate) => rate.operationId !== null && rate.operationId !== entry.operationId,
+  )
+  if (porOperacion.length === vigentes.length) {
+    if (entry.operationId !== null) return 'Su tarifa es de otra operación distinta a la de este día.'
+    return (
+      `Tiene ${vigentes.length} tarifas de operaciones distintas y este día no dice a cuál ` +
+      'corresponde. Asígnale la operación a la persona para que no quede a la interpretación.'
+    )
+  }
+
+  const porProyecto = vigentes.filter(
+    (rate) => rate.projectId !== null && rate.projectId !== entry.projectId,
+  )
+  if (porProyecto.length === vigentes.length) {
+    return `Su tarifa está amarrada a otro proyecto distinto al de este día.`
+  }
+
+  const porTurno = vigentes.filter(
+    (rate) => rate.shift !== 'ANY' && rate.shift !== entry.shift,
+  )
+  if (porTurno.length === vigentes.length) {
+    return `Su tarifa es de otro turno. Este día está marcado como ${entry.shift === 'NIGHT' ? 'noche' : 'día'}.`
+  }
+
+  return `Ninguna de sus tarifas aplica al ${entry.workDate}.`
 }
 
 function countDay(

@@ -124,6 +124,28 @@ export async function saveWorkEntries(formData: FormData) {
     operations.set(key, { workerId, date, value })
   }
 
+  /*
+   * Cada día hereda la operación, el proyecto y la cuadrilla de la persona.
+   *
+   * Sin esto, el día queda "sin operación" y una tarifa atada a una operación
+   * —como las que vinieron del Excel— no le aplica: la persona tiene tarifa
+   * pero el sistema dice que no la tiene. Fue exactamente el error reportado.
+   */
+  const workerIds = [...new Set([...operations.values()].map((row) => row.workerId))]
+  const workerDefaults = new Map(
+    (
+      await prisma.worker.findMany({
+        where: { id: { in: workerIds } },
+        select: {
+          id: true,
+          defaultOperationId: true,
+          defaultProjectId: true,
+          defaultCrewId: true,
+        },
+      })
+    ).map((worker) => [worker.id, worker]),
+  )
+
   let saved = 0
   let cleared = 0
 
@@ -152,6 +174,8 @@ export async function saveWorkEntries(formData: FormData) {
         )
       }
 
+      const defaults = workerDefaults.get(workerId)
+
       await tx.workEntry.upsert({
         where: {
           companyId_workerId_workDate: { companyId: company.id, workerId, workDate },
@@ -171,6 +195,9 @@ export async function saveWorkEntries(formData: FormData) {
           status: dayType === 'NO_WORK' ? 'NO_WORK' : 'WORKED',
           additionalAmount: amount,
           additionalNote: amount === null ? null : note,
+          operationId: defaults?.defaultOperationId ?? null,
+          projectId: defaults?.defaultProjectId ?? null,
+          crewId: defaults?.defaultCrewId ?? null,
         },
       })
       saved += 1

@@ -589,3 +589,108 @@ describe('adicional marcado día por día', () => {
     expect(result.additions).toHaveLength(2)
   })
 })
+
+describe('por qué no aplicó la tarifa — el error reportado por el negocio', () => {
+  it('con UNA tarifa amarrada a operación y un día sin operación, paga igual', () => {
+    // Este era el error reportado: la tarifa vino del Excel amarrada a
+    // Underground y el día se capturó sin operación, así que decía
+    // "sin tarifa" teniéndola. Con una sola tarifa posible no hay nada
+    // que adivinar.
+    const result = calculateWorkerPayroll(
+      input({
+        rates: [rate({ operationId: 'op-underground', amount: toCents('200.00') })],
+        entries: [entry(WEEK[0]!, { operationId: null })],
+      }),
+    )
+    expect(result.exceptions).toHaveLength(0)
+    expect(toDecimalString(result.netPay)).toBe('200.00')
+  })
+
+  it('cuando el día SÍ trae la operación, la tarifa aplica', () => {
+    const result = calculateWorkerPayroll(
+      input({
+        rates: [rate({ operationId: 'op-underground', amount: toCents('200.00') })],
+        entries: [entry(WEEK[0]!, { operationId: 'op-underground' })],
+      }),
+    )
+    expect(result.exceptions).toHaveLength(0)
+    expect(toDecimalString(result.netPay)).toBe('200.00')
+  })
+
+  it('avisa cuando no tiene ninguna tarifa', () => {
+    const result = calculateWorkerPayroll(input({ rates: [], entries: [entry(WEEK[0]!)] }))
+    expect(result.exceptions[0]!.detail).toMatch(/No tiene ninguna tarifa registrada/)
+  })
+
+  it('avisa cuando la tarifa no estaba vigente ese día', () => {
+    const result = calculateWorkerPayroll(
+      input({
+        rates: [rate({ effectiveFrom: '2026-09-01' })],
+        entries: [entry(WEEK[0]!)],
+      }),
+    )
+    expect(result.exceptions[0]!.detail).toMatch(/no estaba vigente/)
+    expect(result.exceptions[0]!.detail).toContain('2026-09-01')
+  })
+
+  it('avisa cuando la tarifa es de otro turno', () => {
+    const result = calculateWorkerPayroll(
+      input({
+        rates: [rate({ shift: 'NIGHT' })],
+        entries: [entry(WEEK[0]!, { shift: 'DAY' })],
+      }),
+    )
+    expect(result.exceptions[0]!.detail).toMatch(/otro turno/)
+  })
+
+  it('avisa cuando solo tiene tarifa por hora y el día es completo', () => {
+    const result = calculateWorkerPayroll(
+      input({
+        rates: [rate({ rateType: 'HOURLY' })],
+        entries: [entry(WEEK[0]!, { dayType: 'FULL_DAY' })],
+      }),
+    )
+    expect(result.exceptions[0]!.detail).toMatch(/no diaria/)
+  })
+})
+
+describe('día sin operación: una sola tarifa vigente', () => {
+  it('si solo hay UNA tarifa posible, se usa aunque el día no traiga operación', () => {
+    const result = calculateWorkerPayroll(
+      input({
+        rates: [rate({ operationId: 'op-underground', amount: toCents('200.00') })],
+        entries: [entry(WEEK[0]!, { operationId: null })],
+      }),
+    )
+    expect(result.exceptions).toHaveLength(0)
+    expect(toDecimalString(result.netPay)).toBe('200.00')
+  })
+
+  it('si hay VARIAS, no adivina: reporta el caso', () => {
+    const result = calculateWorkerPayroll(
+      input({
+        rates: [
+          rate({ id: 'r-aereo', operationId: 'op-aereo', amount: toCents('130.00') }),
+          rate({ id: 'r-ug', operationId: 'op-ug', amount: toCents('190.00') }),
+        ],
+        entries: [entry(WEEK[0]!, { operationId: null })],
+      }),
+    )
+    expect(toDecimalString(result.netPay)).toBe('0.00')
+    const missing = result.exceptions.find((e) => e.code === 'MISSING_RATE')
+    expect(missing!.detail).toMatch(/2 tarifas de operaciones distintas/)
+  })
+
+  it('con operación en el día, elige la correcta entre varias', () => {
+    const result = calculateWorkerPayroll(
+      input({
+        rates: [
+          rate({ id: 'r-aereo', operationId: 'op-aereo', amount: toCents('130.00') }),
+          rate({ id: 'r-ug', operationId: 'op-ug', amount: toCents('190.00') }),
+        ],
+        entries: [entry(WEEK[0]!, { operationId: 'op-ug' })],
+      }),
+    )
+    expect(toDecimalString(result.netPay)).toBe('190.00')
+  })
+})
