@@ -6,6 +6,7 @@ import {
   approvalIsStale,
   assertTransition,
   calculationHash,
+  isSelfApproval,
   type MaterialFields,
   type PayrollStatus,
   type WorkflowAction,
@@ -158,6 +159,18 @@ export async function applyTransition(
 ): Promise<TransitionResult> {
   const result: TransitionResult = { moved: 0, skipped: [] }
 
+  /*
+   * Modo de una sola persona.
+   *
+   * Cuando está activo, quien preparó puede aprobar y quien aprobó puede pagar.
+   * Se guarda por compañía y cada uso queda marcado, para que después se pueda
+   * revisar qué pasó sin un segundo par de ojos.
+   */
+  const setting = await prisma.companySetting.findUnique({
+    where: { companyId_key: { companyId: user.companyId, key: 'workflow.allow_self_approval' } },
+  })
+  const allowSelfApproval = setting?.value === 'true'
+
   for (const id of workerPayrollIds) {
     const payroll = await prisma.workerPayroll.findFirst({
       where: { id, companyId: user.companyId },
@@ -175,6 +188,7 @@ export async function applyTransition(
         preparedById: payroll.preparedById,
         approvedById: payroll.approvedById,
         reason: reason ?? null,
+        allowSelfApproval,
       })
     } catch (error) {
       result.skipped.push({
@@ -204,6 +218,14 @@ export async function applyTransition(
     }
 
     const hash = await currentHash(payroll.id)
+    const withoutSecondPair = isSelfApproval({
+      action,
+      current: payroll.status as PayrollStatus,
+      actorId: user.id,
+      permissions: user.permissions,
+      preparedById: payroll.preparedById,
+      approvedById: payroll.approvedById,
+    })
 
     await prisma.$transaction(async (tx) => {
       await tx.workerPayroll.update({
@@ -221,6 +243,7 @@ export async function applyTransition(
                 approvalInvalidatedAt: null,
                 approvalInvalidatedReason: null,
                 rejectionReason: null,
+                selfApproved: withoutSecondPair,
               }
             : {}),
           ...(action === 'REJECT'
@@ -249,7 +272,9 @@ export async function applyTransition(
           oldValueJson: { status: payroll.status, net: payroll.netPay.toFixed(2) },
           newValueJson: { status: next, net: payroll.netPay.toFixed(2) },
           changedFields: ['status'],
-          reason: reason ?? null,
+          reason: withoutSecondPair
+            ? `${reason ?? ''} · SIN SEGUNDO PAR DE OJOS: la misma persona hizo el paso anterior`.trim()
+            : (reason ?? null),
         },
       })
     })

@@ -750,6 +750,9 @@ model WorkerPayroll {
   approvedAt                DateTime?
   approvalInvalidatedAt     DateTime?
   approvalInvalidatedReason String?
+  /// Se aprobó (o se pagó) sin un segundo par de ojos, con el modo de una sola
+  /// persona activado. Queda marcado para poder revisarlas después.
+  selfApproved              Boolean   @default(false)
   rejectedById              String?
   rejectedAt                DateTime?
   rejectionReason           String?

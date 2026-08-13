@@ -59,7 +59,8 @@ async function cleanup() {
   await pool.query('DELETE FROM debt WHERE id = $1', [ids.debt])
   await pool.query('DELETE FROM work_entry WHERE "companyId" = $1', [ids.company])
   await pool.query('DELETE FROM worker_rate WHERE "companyId" = $1', [ids.company])
-  await pool.query('DELETE FROM worker WHERE id = $1', [ids.worker])
+  await pool.query(`DELETE FROM worker_payroll WHERE "companyId" = $1 AND status <> 'CLOSED'`, [ids.company])
+  await pool.query(`DELETE FROM worker WHERE "companyId" = $1`, [ids.company])
   await pool.query('DELETE FROM payroll_week WHERE id = $1', [ids.week])
   await pool.query('DELETE FROM company WHERE id = $1', [ids.company])
 }
@@ -237,5 +238,31 @@ describe('coherencia de datos', () => {
         [ids.company],
       ),
     ).rejects.toThrow(/deduction_description_required/)
+  })
+})
+
+describe('borrar una nómina en borrador — el error del trigger', () => {
+  it('SÍ se puede borrar una nómina que no está pagada', async () => {
+    const id = 'test-draft-payroll'
+    const otherWorker = 'test-worker-draft'
+    await pool.query(
+      `INSERT INTO worker (id, "companyId", code, "firstName", "lastName", "displayName", "updatedAt")
+       VALUES ($1, $2, 'TESTD', 'Otro', 'Worker', 'Otro Worker', now())
+       ON CONFLICT (id) DO NOTHING`,
+      [otherWorker, ids.company],
+    )
+    await pool.query(
+      `INSERT INTO worker_payroll (id, "companyId", "payrollWeekId", "workerId", status, "updatedAt")
+       VALUES ($1, $2, $3, $4, 'PREPARED', now())`,
+      [id, ids.company, ids.week, otherWorker],
+    )
+    const deleted = await pool.query('DELETE FROM worker_payroll WHERE id = $1', [id])
+    // Un trigger BEFORE que devuelve NULL cancela el borrado sin avisar:
+    // la fila seguía ahí y nadie se enteraba.
+    expect(deleted.rowCount).toBe(1)
+
+    const { rows } = await pool.query('SELECT count(*)::int AS n FROM worker_payroll WHERE id = $1', [id])
+    expect(rows[0].n).toBe(0)
+    await pool.query('DELETE FROM worker WHERE id = $1', [otherWorker])
   })
 })

@@ -105,6 +105,14 @@ export const TRANSITIONS: Record<WorkflowAction, Transition> = {
   },
 }
 
+/** ¿Esta acción se hizo saltándose la segregación de funciones? */
+export function isSelfApproval(check: TransitionCheck): boolean {
+  const rule = TRANSITIONS[check.action]
+  if (rule.segregation === 'preparer') return check.preparedById === check.actorId
+  if (rule.segregation === 'approver') return check.approvedById === check.actorId
+  return false
+}
+
 /** Estados en los que la nómina todavía se puede editar. */
 export const EDITABLE: readonly PayrollStatus[] = ['DRAFT', 'PREPARED', 'REJECTED']
 
@@ -119,6 +127,17 @@ export interface TransitionCheck {
   preparedById?: string | null
   approvedById?: string | null
   reason?: string | null
+  /**
+   * Permite saltarse la segregación de funciones.
+   *
+   * Existe para cuando una sola persona hace todo el proceso: una empresa
+   * pequeña, o una prueba. **No es gratis**: cada vez que se usa queda marcado
+   * en la nómina y en el registro de auditoría, para que después se pueda
+   * saber cuáles pasaron sin un segundo par de ojos.
+   *
+   * Apagado por defecto. Ver docs/PERMISSIONS.md §4.
+   */
+  allowSelfApproval?: boolean
 }
 
 export class WorkflowError extends Error {}
@@ -146,16 +165,18 @@ export function assertTransition(check: TransitionCheck): PayrollStatus {
     )
   }
 
-  if (rule.segregation === 'preparer' && check.preparedById === check.actorId) {
-    throw new WorkflowError(
-      `No puedes ${rule.verb} una nómina que tú mismo preparaste. Debe hacerlo otra persona.`,
-    )
-  }
+  if (!check.allowSelfApproval) {
+    if (rule.segregation === 'preparer' && check.preparedById === check.actorId) {
+      throw new WorkflowError(
+        `No puedes ${rule.verb} una nómina que tú mismo preparaste. Debe hacerlo otra persona.`,
+      )
+    }
 
-  if (rule.segregation === 'approver' && check.approvedById === check.actorId) {
-    throw new WorkflowError(
-      `No puedes ${rule.verb} una nómina que tú mismo aprobaste. Debe hacerlo otra persona.`,
-    )
+    if (rule.segregation === 'approver' && check.approvedById === check.actorId) {
+      throw new WorkflowError(
+        `No puedes ${rule.verb} una nómina que tú mismo aprobaste. Debe hacerlo otra persona.`,
+      )
+    }
   }
 
   if (rule.reasonRequired && !check.reason?.trim()) {

@@ -326,7 +326,14 @@ export default async function WeekPage({
                     </div>
 
                     <div className="mt-2 md:mt-0">
-                      <RemoveWorker weekId={week.id} workerId={worker.id} />
+                      <RemoveWorker
+                        weekId={week.id}
+                        workerId={worker.id}
+                        name={worker.displayName}
+                        markedDays={
+                          entries.filter((entry) => entry.workerId === worker.id).length
+                        }
+                      />
                     </div>
                   </div>
                 ))}

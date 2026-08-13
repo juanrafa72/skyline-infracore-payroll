@@ -21,6 +21,8 @@ const PEOPLE = ['test-roster-w1', 'test-roster-w2', 'test-roster-w3']
 
 async function cleanup() {
   await prisma.workEntry.deleteMany({ where: { companyId: COMPANY } })
+  await prisma.workerPayroll.deleteMany({ where: { companyId: COMPANY } })
+  // El registro de auditoría NO se borra: es append-only a propósito.
   await prisma.payrollWeekMember.deleteMany({ where: { companyId: COMPANY } })
   await prisma.payrollWeek.deleteMany({ where: { companyId: COMPANY } })
   await prisma.worker.deleteMany({ where: { companyId: COMPANY } })
@@ -141,20 +143,60 @@ describe('quitar a alguien de la semana', () => {
     expect(await currentRoster(COMPANY, WEEK)).toEqual([PEOPLE[1]!])
   })
 
-  it('NO revienta cuando tiene días: devuelve un aviso — el error reportado', async () => {
+  it('quita a alguien con días en un solo paso, y lo dice', async () => {
     await setRoster(COMPANY, WEEK, [PEOPLE[0]!])
     await markDay(PEOPLE[0]!)
 
     const result = await removeFromRoster(COMPANY, WEEK, PEOPLE[0]!)
 
-    expect(result.ok).toBe(false)
+    expect(result.ok).toBe(true)
     expect(result.message).toContain('Persona 0')
-    expect(result.message).toMatch(/día/i)
-    // Y sobre todo: la persona sigue ahí, con sus días intactos.
-    expect(await currentRoster(COMPANY, WEEK)).toContain(PEOPLE[0]!)
+    expect(result.message).toMatch(/1 día/)
+    expect(await currentRoster(COMPANY, WEEK)).toHaveLength(0)
+    expect(
+      await prisma.workEntry.count({ where: { companyId: COMPANY, workerId: PEOPLE[0]! } }),
+    ).toBe(0)
+  })
+
+  it('queda registrado cuántos días se borraron', async () => {
+    await setRoster(COMPANY, WEEK, [PEOPLE[0]!])
+    await markDay(PEOPLE[0]!)
+    await removeFromRoster(COMPANY, WEEK, PEOPLE[0]!)
+
+    const log = await prisma.auditLog.findFirst({
+      where: { companyId: COMPANY, action: 'PERIOD_MEMBER_REMOVED', reason: { not: null } },
+      orderBy: { createdAt: 'desc' },
+    })
+    expect(log?.reason).toMatch(/1 día/)
+  })
+
+  it('NO toca una nómina que ya salió de borrador', async () => {
+    await setRoster(COMPANY, WEEK, [PEOPLE[0]!])
+    await markDay(PEOPLE[0]!)
+    await prisma.workerPayroll.create({
+      data: {
+        companyId: COMPANY,
+        payrollWeekId: WEEK,
+        workerId: PEOPLE[0]!,
+        status: 'PENDING_APPROVAL',
+      },
+    })
+
+    const result = await removeFromRoster(COMPANY, WEEK, PEOPLE[0]!)
+
+    expect(result.ok).toBe(false)
+    expect(result.message).toMatch(/aprobación/)
     expect(
       await prisma.workEntry.count({ where: { companyId: COMPANY, workerId: PEOPLE[0]! } }),
     ).toBe(1)
+  })
+
+  it('no toca una semana cerrada', async () => {
+    await setRoster(COMPANY, WEEK, [PEOPLE[0]!])
+    await prisma.payrollWeek.update({ where: { id: WEEK }, data: { status: 'CLOSED' } })
+    const result = await removeFromRoster(COMPANY, WEEK, PEOPLE[0]!)
+    expect(result.ok).toBe(false)
+    expect(result.message).toMatch(/cerrada/i)
   })
 
   it('quitar a alguien que nunca estuvo no rompe nada', async () => {

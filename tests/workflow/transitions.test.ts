@@ -6,6 +6,7 @@ import {
   approvalIsStale,
   assertTransition,
   calculationHash,
+  isSelfApproval,
   type MaterialFields,
 
   type WorkflowAction,
@@ -303,5 +304,70 @@ describe('huella de campos materiales — qué invalida una aprobación', () => 
       }),
     )
     expect(after).not.toBe(before)
+  })
+})
+
+describe('modo de una sola persona (allowSelfApproval)', () => {
+  it('apagado, sigue bloqueando aprobar lo propio', () => {
+    expect(() =>
+      check({ actorId: LEO, preparedById: LEO, allowSelfApproval: false }),
+    ).toThrow(/tú mismo preparaste/)
+  })
+
+  it('encendido, deja aprobar lo propio', () => {
+    expect(check({ actorId: LEO, preparedById: LEO, allowSelfApproval: true })).toBe('APPROVED')
+  })
+
+  it('encendido, deja pagar lo que uno aprobó', () => {
+    expect(
+      check({
+        action: 'START_PAYMENT',
+        current: 'APPROVED',
+        actorId: RAFAEL,
+        approvedById: RAFAEL,
+        allowSelfApproval: true,
+      }),
+    ).toBe('PAYMENT_IN_PROCESS')
+  })
+
+  it('la acción queda identificada como sin segundo par de ojos', () => {
+    expect(
+      isSelfApproval({
+        action: 'APPROVE',
+        current: 'PENDING_APPROVAL',
+        actorId: LEO,
+        permissions: ALL_PERMISSIONS,
+        preparedById: LEO,
+      }),
+    ).toBe(true)
+  })
+
+  it('cuando sí hubo dos personas, no se marca', () => {
+    expect(
+      isSelfApproval({
+        action: 'APPROVE',
+        current: 'PENDING_APPROVAL',
+        actorId: RAFAEL,
+        permissions: ALL_PERMISSIONS,
+        preparedById: LEO,
+      }),
+    ).toBe(false)
+  })
+
+  it('encendido NO deja saltarse los permisos', () => {
+    expect(() =>
+      check({
+        actorId: LEO,
+        preparedById: LEO,
+        allowSelfApproval: true,
+        permissions: new Set(['payroll:edit']),
+      }),
+    ).toThrow(/No tienes permiso/)
+  })
+
+  it('encendido NO deja aprobar desde un estado inválido', () => {
+    expect(() =>
+      check({ current: 'PAID', actorId: LEO, preparedById: LEO, allowSelfApproval: true }),
+    ).toThrow(/No se puede aprobar/)
   })
 })

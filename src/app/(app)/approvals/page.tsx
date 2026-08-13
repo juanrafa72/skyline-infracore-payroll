@@ -6,6 +6,7 @@ import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
 import { toIso } from '@/lib/payroll/week'
 import { ApprovalPanel } from './ApprovalPanel'
+import { toggleSelfApproval } from './actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,6 +16,13 @@ const VARIANCE_THRESHOLD = 25
 export default async function ApprovalsPage() {
   const user = await assertCan('payroll:view')
   const company = await getActiveCompany()
+
+  const selfApprovalSetting = await prisma.companySetting.findUnique({
+    where: {
+      companyId_key: { companyId: company.id, key: 'workflow.allow_self_approval' },
+    },
+  })
+  const selfApprovalOn = selfApprovalSetting?.value === 'true'
 
   const pending = await prisma.workerPayroll.findMany({
     where: { companyId: company.id, status: 'PENDING_APPROVAL' },
@@ -111,7 +119,7 @@ export default async function ApprovalsPage() {
       previousDays: previous?.daysFull ?? null,
       changePct,
       isNew: previous === undefined,
-      preparedByMe: payroll.preparedById === user.id,
+      preparedByMe: payroll.preparedById === user.id && !selfApprovalOn,
       exceptions: own.map((row) => ({ level: row.level, title: row.title, detail: row.detail })),
       wasInvalidated: payroll.approvalInvalidatedAt !== null,
     }
@@ -136,12 +144,54 @@ export default async function ApprovalsPage() {
 
   const ownPrepared = rows.filter((row) => row.preparedByMe).length
 
+  // Las semanas presentes, con su total, para dejar claro qué se está aprobando.
+  const byWeek = new Map<string, { label: string; period: string; net: number; count: number }>()
+  for (const row of rows) {
+    const current = byWeek.get(row.weekLabel) ?? {
+      label: row.weekLabel,
+      period: row.period,
+      net: 0,
+      count: 0,
+    }
+    current.net += Number(row.net)
+    current.count += 1
+    byWeek.set(row.weekLabel, current)
+  }
+  const weeksInView = [...byWeek.values()]
+
   return (
     <>
       <PageHeader
         title="Aprobaciones"
         subtitle={`${rows.length} nómina(s) esperando · ${company.displayName}`}
       />
+
+      {/* Qué semana se está aprobando, bien visible */}
+      <div className="mb-5 rounded-xl border-2 border-[var(--accent)] bg-[var(--surface)] p-4">
+        {weeksInView.map((week) => (
+          <div key={week.label} className="flex flex-wrap items-baseline justify-between gap-2">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--accent)]">
+                Estás aprobando
+              </p>
+              <p className="mt-0.5 text-xl font-semibold">{week.label}</p>
+              <p className="text-sm text-[var(--muted)]">{week.period}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xl font-semibold tabular-nums">${money(week.net)}</p>
+              <p className="text-sm text-[var(--muted)]">
+                {week.count} persona{week.count === 1 ? '' : 's'}
+              </p>
+            </div>
+          </div>
+        ))}
+        {weeksInView.length > 1 ? (
+          <p className="mt-2 text-xs text-[var(--muted)]">
+            Hay {weeksInView.length} semanas distintas esperando. Revisa cuál estás aprobando en
+            cada línea.
+          </p>
+        ) : null}
+      </div>
 
       <section className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Kpi label="Personas" value={String(rows.length)} />
@@ -158,10 +208,47 @@ export default async function ApprovalsPage() {
         </div>
       ) : null}
 
-      {ownPrepared > 0 ? (
+      {ownPrepared > 0 && !selfApprovalOn ? (
         <div className="mb-5 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3.5 text-sm">
-          <strong>{ownPrepared} las preparaste tú.</strong> No las puedes aprobar: debe hacerlo
-          otra persona. Aparecen bloqueadas.
+          <p>
+            <strong>{ownPrepared} las preparaste tú.</strong> No las puedes aprobar: debe hacerlo
+            otra persona. Aparecen bloqueadas.
+          </p>
+          {user.permissions.has('settings:manage') ? (
+            <form action={toggleSelfApproval} className="mt-2">
+              <input type="hidden" name="enable" value="1" />
+              <button
+                type="submit"
+                className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--hover)]"
+              >
+                Permitir que yo mismo apruebe lo que preparo
+              </button>
+              <span className="ml-2 text-xs text-[var(--muted)]">
+                Quedará marcado en cada nómina que pase así.
+              </span>
+            </form>
+          ) : null}
+        </div>
+      ) : null}
+
+      {selfApprovalOn ? (
+        <div className="mb-5 rounded-lg border border-amber-400 bg-amber-50 p-3.5 text-sm text-amber-900">
+          <p>
+            <strong>Modo de una sola persona activado.</strong> Puedes aprobar lo que tú mismo
+            preparaste. Cada nómina que pase así queda marcada, y el registro de auditoría lo
+            anota.
+          </p>
+          {user.permissions.has('settings:manage') ? (
+            <form action={toggleSelfApproval} className="mt-2">
+              <input type="hidden" name="enable" value="0" />
+              <button
+                type="submit"
+                className="rounded-md border border-amber-400 bg-white px-3 py-1.5 text-xs font-medium hover:bg-amber-100"
+              >
+                Volver a exigir dos personas
+              </button>
+            </form>
+          ) : null}
         </div>
       ) : null}
 

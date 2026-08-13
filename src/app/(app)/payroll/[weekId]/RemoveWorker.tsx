@@ -11,7 +11,17 @@ import { removeWorkerFromPeriod } from '../actions'
  * descarta el de adentro y el botón termina enviando el formulario equivocado.
  * Fue exactamente el error que llegó a producción. La acción se llama directo.
  */
-export function RemoveWorker({ weekId, workerId }: { weekId: string; workerId: string }) {
+export function RemoveWorker({
+  weekId,
+  workerId,
+  name,
+  markedDays,
+}: {
+  weekId: string
+  workerId: string
+  name: string
+  markedDays: number
+}) {
   const [pending, startTransition] = useTransition()
   const [message, setMessage] = useState<string | null>(null)
 
@@ -21,6 +31,15 @@ export function RemoveWorker({ weekId, workerId }: { weekId: string; workerId: s
         type="button"
         disabled={pending}
         onClick={() => {
+          // Si va a borrar días ya marcados, se pregunta primero.
+          if (
+            markedDays > 0 &&
+            !window.confirm(
+              `¿Sacar a ${name} de esta semana?\n\nSe borrarán sus ${markedDays} día(s) marcado(s).`,
+            )
+          ) {
+            return
+          }
           setMessage(null)
           const data = new FormData()
           data.set('weekId', weekId)
@@ -30,7 +49,7 @@ export function RemoveWorker({ weekId, workerId }: { weekId: string; workerId: s
             if (!result.startsWith('LISTO|')) setMessage(result)
           })
         }}
-        title="Quitar de esta semana"
+        title={markedDays > 0 ? `Sacar de la semana y borrar sus ${markedDays} día(s)` : 'Sacar de la semana'}
         className="rounded border border-[var(--border)] px-2 py-0.5 text-xs text-[var(--muted)] transition hover:border-red-300 hover:text-red-700 disabled:opacity-50"
       >
         {pending ? '…' : 'quitar'}

@@ -89,7 +89,15 @@ export async function setRoster(
   }
 }
 
-/** Saca a una persona del período. No borra sus días si los tiene: avisa. */
+/**
+ * Saca a una persona de la semana, con sus días.
+ *
+ * En un solo paso: obligar a borrar los días a mano antes era tedioso y no
+ * protegía nada, porque igual se podían borrar. Lo que sí se protege es la
+ * nómina ya aprobada o pagada: ahí no se toca nada, y se dice por qué.
+ *
+ * Todo queda en el registro de auditoría, con cuántos días se borraron.
+ */
 export async function removeFromRoster(
   companyId: string,
   weekId: string,
@@ -97,26 +105,45 @@ export async function removeFromRoster(
 ): Promise<RosterResult> {
   const week = await prisma.payrollWeek.findFirst({ where: { id: weekId, companyId } })
   if (!week) return { ok: false, message: 'No se encontró el período.', added: 0, removed: 0 }
+  if (week.status === 'CLOSED') {
+    return { ok: false, message: 'Esta semana ya está cerrada.', added: 0, removed: 0 }
+  }
 
-  const marked = await prisma.workEntry.count({
-    where: { companyId, payrollWeekId: week.id, workerId },
+  const worker = await prisma.worker.findUnique({
+    where: { id: workerId },
+    select: { displayName: true },
   })
-  if (marked > 0) {
-    const worker = await prisma.worker.findUnique({
-      where: { id: workerId },
-      select: { displayName: true },
-    })
+  const name = worker?.displayName ?? 'Esa persona'
+
+  // Si su nómina ya salió de borrador, no se toca desde aquí.
+  const payroll = await prisma.workerPayroll.findUnique({
+    where: {
+      companyId_payrollWeekId_workerId: { companyId, payrollWeekId: week.id, workerId },
+    },
+  })
+  if (payroll && !['DRAFT', 'PREPARED', 'REJECTED'].includes(payroll.status)) {
     return {
       ok: false,
       added: 0,
       removed: 0,
       message:
-        `${worker?.displayName ?? 'Esa persona'} tiene ${marked} día(s) marcado(s) esta semana. ` +
-        'Déjalos en «—» y guarda antes de sacarla.',
+        `La nómina de ${name} ya está ${payroll.status === 'PAID' ? 'pagada' : 'en aprobación'}. ` +
+        'Para cambiarla hay que devolverla primero.',
     }
   }
 
+  const marked = await prisma.workEntry.count({
+    where: { companyId, payrollWeekId: week.id, workerId },
+  })
+
   await prisma.$transaction(async (tx) => {
+    if (marked > 0) {
+      await tx.workEntry.deleteMany({ where: { companyId, payrollWeekId: week.id, workerId } })
+    }
+    if (payroll) {
+      await tx.payrollLine.deleteMany({ where: { workerPayrollId: payroll.id } })
+      await tx.workerPayroll.delete({ where: { id: payroll.id } })
+    }
     await tx.payrollWeekMember.upsert({
       where: { payrollWeekId_workerId: { payrollWeekId: week.id, workerId } },
       update: { removedAt: new Date(), removalReason: 'No trabajó este período' },
@@ -135,13 +162,19 @@ export async function removeFromRoster(
         entityType: 'PayrollWeek',
         entityId: week.id,
         payrollWeekId: week.id,
-        newValueJson: { workerId },
-        changedFields: ['members'],
+        newValueJson: { workerId, name, diasBorrados: marked },
+        changedFields: ['members', ...(marked > 0 ? ['workEntries'] : [])],
+        reason: marked > 0 ? `Se sacó a ${name} y se borraron sus ${marked} día(s)` : null,
       },
     })
   })
 
-  return { ok: true, added: 0, removed: 1, message: 'Sacada del período.' }
+  return {
+    ok: true,
+    added: 0,
+    removed: 1,
+    message: marked > 0 ? `${name} salió de la semana (${marked} día(s) borrados).` : `${name} salió de la semana.`,
+  }
 }
 
 /** Quiénes están hoy en el período (los que salen en la rejilla). */
