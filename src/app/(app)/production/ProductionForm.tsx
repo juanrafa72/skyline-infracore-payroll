@@ -21,9 +21,26 @@ export function ProductionForm({
       </p>
 
       {done ? (
-        <p className="mt-3 rounded-md border border-emerald-300 bg-emerald-50 p-2.5 text-sm text-emerald-900">
-          Registrado: {done[2]} de {done[1]} = ${done[3]}
-        </p>
+        <div className="mt-3 rounded-md border border-emerald-300 bg-emerald-50 p-2.5 text-sm text-emerald-900">
+          <p>
+            Registrado: {done[2]} de {done[1]}
+          </p>
+          <p className="mt-0.5">
+            Costo <strong>${done[3]}</strong>
+            {done[4] ? (
+              <>
+                {' '}
+                · venta <strong>${done[4]}</strong> · deja{' '}
+                <strong>${(Number(done[4]) - Number(done[3] ?? 0)).toFixed(2)}</strong>
+              </>
+            ) : (
+              <span className="text-emerald-800">
+                {' '}
+                · sin precio de venta, así que esto todavía no suma margen
+              </span>
+            )}
+          </p>
+        </div>
       ) : null}
 
       {result && !done ? (

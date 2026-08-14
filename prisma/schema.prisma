@@ -197,6 +197,7 @@ model Customer {
   company      Company       @relation(fields: [companyId], references: [id])
   projects     Project[]
   billingRates BillingRate[]
+  crewPricing  CrewPricing[]
 
   @@unique([companyId, name])
   @@map("customer")
@@ -445,7 +446,24 @@ model CrewPricing {
   unitLabel     String
   /// Unidad de medida: pie, metro, unidad, lote.
   unitOfMeasure String    @default("FOOT")
+
+  /// COSTO: lo que le pagamos a la cuadrilla por cada unidad.
   pricePerUnit  Decimal   @db.Decimal(18, 4)
+
+  /*
+   * VENTA: lo que el cliente nos paga por esa misma unidad.
+   *
+   * Ejemplo real: nos pagan $1.00 por pie construido y a la cuadrilla le
+   * pagamos $0.50. Las dos cifras viven juntas porque son una sola
+   * negociación, y separarlas obligaría a buscar en dos pantallas para saber
+   * si un pie de fibra deja plata.
+   *
+   * NULL = todavía no se sabe cuánto se cobra. NO es cero — BR-210.
+   */
+  salePricePerUnit Decimal? @db.Decimal(18, 4)
+  /// A quién se le factura esa venta. Sin cliente no hay a quién cobrarle.
+  customerId    String?
+
   effectiveFrom DateTime  @db.Date
   effectiveTo   DateTime? @db.Date
   notes         String?
@@ -455,6 +473,7 @@ model CrewPricing {
 
   crew       Crew         @relation(fields: [crewId], references: [id], onDelete: Cascade)
   project    Project?     @relation(fields: [projectId], references: [id])
+  customer   Customer?    @relation(fields: [customerId], references: [id])
   production Production[]
 
   @@index([crewId, effectiveFrom])
@@ -1583,7 +1602,13 @@ model Production {
   /// SNAPSHOT del precio pactado en el momento del registro.
   appliedPrice  Decimal  @db.Decimal(18, 4)
   pricingId     String?
+  /// COSTO: cantidad × precio pactado.
   amount        Decimal  @db.Decimal(18, 2)
+
+  /// SNAPSHOT de la VENTA, congelado igual que el costo — BR-200.
+  /// NULL cuando no hay precio de venta configurado: no se sabe, no es cero.
+  appliedSalePrice Decimal? @db.Decimal(18, 4)
+  revenue          Decimal? @db.Decimal(18, 2)
   sourceType    SourceType @default(MANUAL)
   externalRef   String?
   notes         String?

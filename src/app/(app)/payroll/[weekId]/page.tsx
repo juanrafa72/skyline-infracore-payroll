@@ -90,6 +90,23 @@ export default async function WeekPage({
   const workersWithDays = new Set(entries.map((entry) => entry.workerId))
 
   // Paso 1 cuando no hay nadie elegido todavía, o cuando se pide agregar.
+  /*
+   * Producción de esta misma semana.
+   *
+   * Un corte puede tener días pagados por jornal Y producción pagada por pie
+   * construido, incluso de la misma cuadrilla. Mostrarlos por separado obliga a
+   * sumar de cabeza para saber cuánto se debe esa semana, así que van juntos.
+   */
+  const production = await prisma.production.findMany({
+    where: { companyId: company.id, payrollWeekId: week.id },
+    include: { crew: { select: { name: true } }, project: { select: { name: true } } },
+    orderBy: [{ productionDate: 'asc' }],
+  })
+
+  const productionCost = production.reduce((sum, row) => sum + Number(row.amount), 0)
+  const productionRevenue = production.reduce((sum, row) => sum + Number(row.revenue ?? 0), 0)
+  const productionWithoutSale = production.filter((row) => row.revenue === null).length
+
   const showChooser = workers.length === 0 || filters.paso === 'personas'
 
   /*
@@ -185,6 +202,74 @@ export default async function WeekPage({
           hint={critical.length > 0 ? 'Bloquean el envío a aprobación' : 'Ninguno'}
         />
       </div>
+
+      {production.length > 0 ? (
+        <section className="mb-6 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+          <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-[var(--border)] p-3.5">
+            <div>
+              <h2 className="text-sm font-semibold">Producción de esta misma semana</h2>
+              <p className="mt-0.5 text-xs text-[var(--muted)]">
+                Trabajo pagado por lo construido, no por día. Se suma a lo de arriba: en el mismo
+                corte puede haber días por jornal y días por producción.
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-lg font-semibold tabular-nums">${money(productionCost)}</p>
+              <p className="text-xs text-[var(--muted)]">
+                {production.length} registro(s) · costo
+              </p>
+            </div>
+          </div>
+
+          <ul className="divide-y divide-[var(--border)]">
+            {production.map((row) => {
+              const margin = row.revenue === null ? null : Number(row.revenue) - Number(row.amount)
+              return (
+                <li key={row.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3.5 py-2 text-sm">
+                  <span className="min-w-[150px] flex-1">
+                    <strong>{row.crew?.name ?? 'sin cuadrilla'}</strong> · {row.unitLabel}
+                    <span className="text-[var(--muted)]">
+                      {' '}
+                      · {Number(row.quantity).toLocaleString('en-US')} {row.unitOfMeasure.toLowerCase()}
+                      {row.project ? ` · ${row.project.name}` : ''}
+                    </span>
+                  </span>
+                  <span className="tabular-nums text-[var(--muted)]">
+                    {row.revenue === null ? 'sin venta' : `venta $${money(row.revenue)}`}
+                  </span>
+                  <span className="tabular-nums">costo ${money(row.amount)}</span>
+                  <span
+                    className={`min-w-[90px] text-right font-semibold tabular-nums ${
+                      margin !== null && margin < 0 ? 'text-red-700' : ''
+                    }`}
+                  >
+                    {margin === null ? '—' : `$${money(margin)}`}
+                  </span>
+                </li>
+              )
+            })}
+          </ul>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t-2 border-[var(--border)] px-3.5 py-2.5 text-sm">
+            <span className="font-semibold uppercase tracking-wide">Total producción</span>
+            <span className="tabular-nums">
+              {productionWithoutSale === 0 ? (
+                <>
+                  venta ${money(productionRevenue)} · costo ${money(productionCost)} ·{' '}
+                  <strong>deja ${money(productionRevenue - productionCost)}</strong>
+                </>
+              ) : (
+                <>
+                  costo ${money(productionCost)} ·{' '}
+                  <span className="text-amber-700">
+                    {productionWithoutSale} sin precio de venta
+                  </span>
+                </>
+              )}
+            </span>
+          </div>
+        </section>
+      ) : null}
 
       {showChooser ? (
         <>

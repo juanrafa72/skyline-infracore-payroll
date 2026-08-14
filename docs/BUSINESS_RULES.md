@@ -252,3 +252,14 @@ cliente nos paga, y la diferencia entre ambos.
 **Valores vigentes** (configurables, con fecha de vigencia — no están en código):
 Infracore → SOUTHER FIBER SOLUTIONS: día $600, noche $660. Costo Infracore →
 Novasite: día $400, noche $440, que vive en `WorkerRate` como siempre.
+
+## 21. Producción: los dos precios
+
+| ID | Regla | Estado |
+|---|---|---|
+| BR-210 | Una negociación por unidad lleva **dos** precios: `pricePerUnit` (lo que le pagamos a la cuadrilla) y `salePricePerUnit` (lo que el cliente nos paga). Viven juntos porque son una sola negociación. | CONFIRMED |
+| BR-211 | Un precio de venta sin cliente no se le puede cobrar a nadie: si se pone venta, el cliente es obligatorio. Lo impide también la base. | CONFIRMED |
+| BR-212 | El precio de venta es **opcional**: muchas veces se pacta el costo antes de cerrar la venta. Sin él la unidad se paga igual, pero no suma margen — y se dice. | CONFIRMED |
+| BR-213 | Al registrar producción se congelan los dos precios (`appliedPrice`, `appliedSalePrice`). Renegociar después no altera lo ya registrado. | CONFIRMED |
+| BR-214 | Una negociación que deja pérdida **no se bloquea** —a veces se hace a propósito— pero se avisa con el monto exacto por unidad antes y después de guardar. | CONFIRMED |
+| BR-215 | Un mismo corte semanal puede tener días pagados por jornal **y** producción pagada por unidad, incluso de la misma cuadrilla. El margen los suma juntos; mostrarlos por separado daría una cifra que no existe. | CONFIRMED |

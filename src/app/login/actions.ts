@@ -12,7 +12,7 @@ const LOCK_MINUTES = 15
 export async function login(_previous: string | null, formData: FormData): Promise<string> {
   const email = String(formData.get('email') ?? '').trim().toLowerCase()
   const password = String(formData.get('password') ?? '')
-  const back = String(formData.get('volver') ?? '/inicio')
+  const back = String(formData.get('volver') ?? '/dashboard')
 
   if (!email || !password) return 'Escribe tu correo y tu contraseña.'
 
@@ -79,7 +79,7 @@ export async function login(_previous: string | null, formData: FormData): Promi
     },
   })
 
-  redirect(back.startsWith('/') ? back : '/inicio')
+  redirect(back.startsWith('/') ? back : '/dashboard')
 }
 
 export async function logout() {

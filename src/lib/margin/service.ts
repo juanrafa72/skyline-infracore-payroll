@@ -234,6 +234,28 @@ export interface MarginReport {
 }
 
 /**
+ * Una fila del margen, venga de un día trabajado o de producción.
+ *
+ * Las dos cosas conviven en la misma semana —hay cortes donde a la misma
+ * cuadrilla le pagan unos días por jornal y otros por pie construido— así que
+ * el margen tiene que sumarlas juntas o daría una cifra que no existe.
+ */
+interface MarginSource {
+  revenue: Prisma.Decimal | null
+  amount: Prisma.Decimal
+  crewId: string | null
+  crewName: string | null
+  projectId: string | null
+  projectName: string | null
+  payrollWeekId: string | null
+  weekLabel: string | null
+  weekStart: Date | null
+  /** Trabajador, o la cuadrilla cuando la fila viene de producción. */
+  actorId: string
+  origin: 'DAY' | 'PRODUCTION'
+}
+
+/**
  * Rentabilidad por semana, cuadrilla y proyecto.
  *
  * El costo sale de las líneas de nómina (`amount`), no del neto: descontar un
@@ -276,8 +298,65 @@ export async function marginReport(
     },
   })
 
+  // Producción: el otro origen de venta y costo de la misma semana.
+  const production = await prisma.production.findMany({
+    where: {
+      companyId,
+      ...(options.from || options.to
+        ? {
+            productionDate: {
+              ...(options.from ? { gte: options.from } : {}),
+              ...(options.to ? { lte: options.to } : {}),
+            },
+          }
+        : {}),
+    },
+    select: {
+      revenue: true,
+      amount: true,
+      crewId: true,
+      projectId: true,
+      crew: { select: { name: true } },
+      project: { select: { name: true } },
+      payrollWeekId: true,
+      payrollWeek: { select: { label: true, year: true, startDate: true } },
+    },
+  })
+
+  const rows: MarginSource[] = [
+    ...lines.map((line) => ({
+      revenue: line.revenue,
+      amount: line.amount,
+      crewId: line.crewId,
+      crewName: line.crew?.name ?? null,
+      projectId: line.projectId,
+      projectName: line.project?.name ?? null,
+      payrollWeekId: line.workerPayroll.payrollWeekId,
+      weekLabel: `${line.workerPayroll.payrollWeek.label} · ${line.workerPayroll.payrollWeek.year}`,
+      weekStart: line.workerPayroll.payrollWeek.startDate,
+      actorId: line.workerPayroll.workerId,
+      origin: 'DAY' as const,
+    })),
+    ...production.map((row) => ({
+      revenue: row.revenue,
+      amount: row.amount,
+      crewId: row.crewId,
+      crewName: row.crew?.name ?? null,
+      projectId: row.projectId,
+      projectName: row.project?.name ?? null,
+      payrollWeekId: row.payrollWeekId,
+      weekLabel: row.payrollWeek
+        ? `${row.payrollWeek.label} · ${row.payrollWeek.year}`
+        : null,
+      weekStart: row.payrollWeek?.startDate ?? null,
+      // La producción la hace la cuadrilla, no una persona.
+      actorId: row.crewId ?? 'sin-cuadrilla',
+      origin: 'PRODUCTION' as const,
+    })),
+  ]
+
   function group(
-    keyOf: (line: (typeof lines)[number]) => { key: string; label: string } | null,
+    keyOf: (row: MarginSource) => { key: string; label: string } | null,
     sort?: (a: MarginBreakdown, b: MarginBreakdown) => number,
   ): MarginBreakdown[] {
     const buckets = new Map<
@@ -285,12 +364,12 @@ export async function marginReport(
       { label: string; rows: LineRow[]; workers: Set<string> }
     >()
 
-    for (const line of lines) {
+    for (const line of rows) {
       const at = keyOf(line)
       if (!at) continue
       const bucket = buckets.get(at.key) ?? { label: at.label, rows: [], workers: new Set() }
       bucket.rows.push(line)
-      bucket.workers.add(line.workerPayroll.workerId)
+      bucket.workers.add(line.actorId)
       buckets.set(at.key, bucket)
     }
 
@@ -305,17 +384,17 @@ export async function marginReport(
   }
 
   const weekStart = new Map<string, Date>()
-  for (const line of lines) {
-    weekStart.set(line.workerPayroll.payrollWeekId, line.workerPayroll.payrollWeek.startDate)
+  for (const line of rows) {
+    if (line.payrollWeekId && line.weekStart) weekStart.set(line.payrollWeekId, line.weekStart)
   }
 
   return {
-    total: toView(marginOf(lines)),
+    total: toView(marginOf(rows)),
     byWeek: group(
-      (line) => ({
-        key: line.workerPayroll.payrollWeekId,
-        label: `${line.workerPayroll.payrollWeek.label} · ${line.workerPayroll.payrollWeek.year}`,
-      }),
+      (line) =>
+        line.payrollWeekId && line.weekLabel
+          ? { key: line.payrollWeekId, label: line.weekLabel }
+          : null,
       (a, b) => {
         const left = weekStart.get(a.key)?.getTime() ?? 0
         const right = weekStart.get(b.key)?.getTime() ?? 0
@@ -323,12 +402,10 @@ export async function marginReport(
       },
     ),
     byCrew: group((line) =>
-      line.crewId ? { key: line.crewId, label: line.crew?.name ?? 'sin nombre' } : null,
+      line.crewId ? { key: line.crewId, label: line.crewName ?? 'sin nombre' } : null,
     ),
     byProject: group((line) =>
-      line.projectId
-        ? { key: line.projectId, label: line.project?.name ?? 'sin nombre' }
-        : null,
+      line.projectId ? { key: line.projectId, label: line.projectName ?? 'sin nombre' } : null,
     ),
   }
 }

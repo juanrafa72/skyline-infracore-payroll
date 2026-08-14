@@ -3,10 +3,10 @@ import Link from 'next/link'
 import { Badge, Button, Card, EmptyState, Field, PageHeader, money } from '@/components/ui'
 import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
+import { PricingForm } from './PricingForm'
 import { toIso } from '@/lib/payroll/week'
 import {
   addCrewMember,
-  createCrewPricing,
   endCrewMembership,
   setCrewShare,
   toggleInternalAccounting,
@@ -37,12 +37,17 @@ export default async function CrewPage({ params }: { params: Promise<{ id: strin
   })
   if (!crew) notFound()
 
-  const [projects, workers] = await Promise.all([
+  const [projects, workers, customers] = await Promise.all([
     prisma.project.findMany({ where: { companyId: company.id, active: true }, orderBy: { name: 'asc' } }),
     prisma.worker.findMany({
       where: { companyId: company.id, status: 'ACTIVE' },
       orderBy: { displayName: 'asc' },
       select: { id: true, displayName: true },
+    }),
+    prisma.customer.findMany({
+      where: { companyId: company.id, active: true },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true },
     }),
   ])
 
@@ -88,7 +93,7 @@ export default async function CrewPage({ params }: { params: Promise<{ id: strin
               <table className="w-full border-collapse text-sm">
                 <thead className="bg-[var(--hover)]">
                   <tr>
-                    {['Concepto', 'Precio', 'Medida', 'Proyecto', 'Desde', 'Hasta', 'Nota'].map(
+                    {['Concepto', 'Nos pagan', 'Le pagamos', 'Deja', 'Medida', 'Proyecto', 'Desde', 'Hasta'].map(
                       (header) => (
                         <th
                           key={header}
@@ -104,14 +109,34 @@ export default async function CrewPage({ params }: { params: Promise<{ id: strin
                   {crew.pricing.map((price) => (
                     <tr key={price.id} className="border-t border-[var(--border)]">
                       <td className="px-3 py-2 font-medium">{price.unitLabel}</td>
-                      <td className="px-3 py-2 tabular-nums">${Number(price.pricePerUnit).toFixed(4)}</td>
+                      <td className="px-3 py-2 tabular-nums">
+                        {price.salePricePerUnit
+                          ? `$${Number(price.salePricePerUnit).toFixed(4)}`
+                          : '—'}
+                      </td>
+                      <td className="px-3 py-2 tabular-nums">
+                        ${Number(price.pricePerUnit).toFixed(4)}
+                      </td>
+                      <td
+                        className={`px-3 py-2 font-semibold tabular-nums ${
+                          price.salePricePerUnit &&
+                          Number(price.salePricePerUnit) < Number(price.pricePerUnit)
+                            ? 'text-red-700'
+                            : ''
+                        }`}
+                      >
+                        {price.salePricePerUnit
+                          ? `$${(
+                              Number(price.salePricePerUnit) - Number(price.pricePerUnit)
+                            ).toFixed(4)}`
+                          : 'sin venta'}
+                      </td>
                       <td className="px-3 py-2 text-[var(--muted)]">{price.unitOfMeasure}</td>
                       <td className="px-3 py-2">{price.project?.name ?? 'todos'}</td>
                       <td className="px-3 py-2 tabular-nums">{toIso(price.effectiveFrom)}</td>
                       <td className="px-3 py-2 tabular-nums">
                         {price.effectiveTo ? toIso(price.effectiveTo) : 'sin fin'}
                       </td>
-                      <td className="px-3 py-2 text-[var(--muted)]">{price.notes ?? '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -119,36 +144,15 @@ export default async function CrewPage({ params }: { params: Promise<{ id: strin
             </div>
           )}
 
-          <form action={createCrewPricing} className="mt-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            <input type="hidden" name="crewId" value={crew.id} />
-            <Field label="Concepto" name="unitLabel" required placeholder="Strand" />
-            <Field label="Código" name="unitCode" required placeholder="STRAND" />
-            <Field label="Precio por unidad" name="pricePerUnit" required placeholder="0.15" />
-            <Field
-              label="Medida"
-              name="unitOfMeasure"
-              options={[
-                { value: 'FOOT', label: 'Pie' },
-                { value: 'METER', label: 'Metro' },
-                { value: 'EACH', label: 'Unidad' },
-                { value: 'LOT', label: 'Lote' },
-              ]}
-            />
-            <Field
-              label="Proyecto"
-              name="projectId"
-              options={[
-                { value: '', label: '— todos —' },
-                ...projects.map((project) => ({ value: project.id, label: project.name })),
-              ]}
-            />
-            <Field label="Desde" name="effectiveFrom" type="date" required defaultValue={today} />
-            <Field label="Hasta" name="effectiveTo" type="date" hint="Vacío = sin fin" />
-            <Field label="Nota" name="notes" placeholder="Acordado con el encargado" />
-            <div className="sm:col-span-3 lg:col-span-4">
-              <Button>Agregar precio</Button>
-            </div>
-          </form>
+          <PricingForm
+            crewId={crew.id}
+            projects={projects.map((project) => ({ value: project.id, label: project.name }))}
+            customers={customers.map((customer) => ({
+              value: customer.id,
+              label: customer.name,
+            }))}
+            today={today}
+          />
         </Card>
 
         {/* ── Integrantes ── */}

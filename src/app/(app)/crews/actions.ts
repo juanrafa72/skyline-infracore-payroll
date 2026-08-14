@@ -7,8 +7,22 @@ import { prisma } from '@/lib/db/client'
 
 const MONEY4 = /^\d+(\.\d{1,4})?$/
 
-/** Precio pactado por unidad: strand $0.15, fibra $0.20, etc. */
-export async function createCrewPricing(formData: FormData) {
+/**
+ * Negociación por unidad de una cuadrilla: los DOS precios.
+ *
+ * `pricePerUnit` es lo que le pagamos a la cuadrilla; `salePricePerUnit` lo que
+ * el cliente nos paga por esa misma unidad. Ejemplo real: nos pagan $1.00 por
+ * pie construido y a la cuadrilla le pagamos $0.50.
+ *
+ * El precio de venta es opcional — muchas veces se pacta el costo antes de
+ * cerrar la venta — pero si se pone, hay que decir quién paga: un precio de
+ * venta sin cliente no se le puede cobrar a nadie (BR-211, y la base también
+ * lo impide).
+ */
+export async function createCrewPricing(
+  _previous: string | null,
+  formData: FormData,
+): Promise<string> {
   const company = await getActiveCompany()
   const parsed = z
     .object({
@@ -16,26 +30,45 @@ export async function createCrewPricing(formData: FormData) {
       unitCode: z.string().trim().min(1),
       unitLabel: z.string().trim().min(1),
       unitOfMeasure: z.string().trim().min(1),
-      pricePerUnit: z.string().regex(MONEY4, 'Precio con máximo 4 decimales'),
+      pricePerUnit: z.string().regex(MONEY4, 'El precio de costo va con máximo 4 decimales'),
+      salePricePerUnit: z.string().trim().optional(),
+      customerId: z.string().trim().optional(),
       projectId: z.string().trim().optional(),
       effectiveFrom: z.string().min(1),
       effectiveTo: z.string().trim().optional(),
       notes: z.string().trim().optional(),
     })
-    .parse(Object.fromEntries(formData))
+    .safeParse(Object.fromEntries(formData))
+
+  if (!parsed.success) return parsed.error.issues[0]?.message ?? 'Faltan datos.'
+  const data = parsed.data
+
+  const sale = data.salePricePerUnit?.trim() || null
+  if (sale && !MONEY4.test(sale)) {
+    return 'El precio de venta va con máximo 4 decimales.'
+  }
+  if (sale && !data.customerId) {
+    return 'Si pones precio de venta, di quién lo paga: sin cliente no hay a quién cobrárselo.'
+  }
+
+  // Avisar cuando la negociación deja pérdida. No se bloquea —a veces se hace
+  // a propósito— pero nadie debería guardarla sin darse cuenta.
+  const losing = sale !== null && Number(sale) < Number(data.pricePerUnit)
 
   await prisma.crewPricing.create({
     data: {
       companyId: company.id,
-      crewId: parsed.crewId,
-      unitCode: parsed.unitCode.toUpperCase(),
-      unitLabel: parsed.unitLabel,
-      unitOfMeasure: parsed.unitOfMeasure,
-      pricePerUnit: parsed.pricePerUnit,
-      projectId: parsed.projectId || null,
-      effectiveFrom: new Date(`${parsed.effectiveFrom}T00:00:00Z`),
-      effectiveTo: parsed.effectiveTo ? new Date(`${parsed.effectiveTo}T00:00:00Z`) : null,
-      notes: parsed.notes || null,
+      crewId: data.crewId,
+      unitCode: data.unitCode.toUpperCase(),
+      unitLabel: data.unitLabel,
+      unitOfMeasure: data.unitOfMeasure,
+      pricePerUnit: data.pricePerUnit,
+      salePricePerUnit: sale,
+      customerId: sale ? data.customerId! : null,
+      projectId: data.projectId || null,
+      effectiveFrom: new Date(`${data.effectiveFrom}T00:00:00Z`),
+      effectiveTo: data.effectiveTo ? new Date(`${data.effectiveTo}T00:00:00Z`) : null,
+      notes: data.notes || null,
     },
   })
 
@@ -44,13 +77,22 @@ export async function createCrewPricing(formData: FormData) {
       companyId: company.id,
       action: 'CREW_PRICING_CREATED',
       entityType: 'Crew',
-      entityId: parsed.crewId,
-      newValueJson: { unit: parsed.unitLabel, price: parsed.pricePerUnit },
+      entityId: data.crewId,
+      newValueJson: { unit: data.unitLabel, cost: data.pricePerUnit, sale },
       changedFields: ['pricing'],
     },
   })
 
-  revalidatePath(`/crews/${parsed.crewId}`)
+  revalidatePath(`/crews/${data.crewId}`)
+  revalidatePath('/margin')
+
+  if (!sale) {
+    return `LISTO|${data.unitLabel}: costo $${data.pricePerUnit} por ${data.unitOfMeasure.toLowerCase()}. Sin precio de venta todavía, así que esta unidad no suma margen.`
+  }
+  const margin = (Number(sale) - Number(data.pricePerUnit)).toFixed(4)
+  return losing
+    ? `LISTO|OJO: ${data.unitLabel} deja PÉRDIDA de $${Math.abs(Number(margin)).toFixed(4)} por unidad — se paga $${data.pricePerUnit} y se cobra $${sale}. Quedó guardado.`
+    : `LISTO|${data.unitLabel}: se cobra $${sale} y se paga $${data.pricePerUnit} · deja $${margin} por ${data.unitOfMeasure.toLowerCase()}.`
 }
 
 export async function addCrewMember(formData: FormData) {

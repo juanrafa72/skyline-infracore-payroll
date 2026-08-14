@@ -48,6 +48,17 @@ export async function recordProduction(_previous: string | null, formData: FormD
   // El importe se calcula con el motor de dinero, en centavos, nunca con floats.
   const amount = multiplyQuantity(toCents(pricing.pricePerUnit.toString()), parsed.data.quantity)
 
+  /*
+   * La VENTA de esta producción, congelada igual que el costo — BR-200.
+   *
+   * Si la negociación no tiene precio de venta, queda en NULL: no se sabe
+   * cuánto se cobra, y eso NO es cero. El margen lo dirá en vez de inventarse
+   * una utilidad del 100%.
+   */
+  const revenue = pricing.salePricePerUnit
+    ? multiplyQuantity(toCents(pricing.salePricePerUnit.toString()), parsed.data.quantity)
+    : null
+
   const period = periodOf(date, 'WEEKLY')
   const week = await prisma.payrollWeek.upsert({
     where: {
@@ -85,6 +96,8 @@ export async function recordProduction(_previous: string | null, formData: FormD
       appliedPrice: pricing.pricePerUnit,
       pricingId: pricing.id,
       amount: toDecimalString(amount),
+      appliedSalePrice: pricing.salePricePerUnit,
+      revenue: revenue === null ? null : toDecimalString(revenue),
       notes: parsed.data.notes || null,
       createdById: actor.id,
     },
@@ -104,13 +117,18 @@ export async function recordProduction(_previous: string | null, formData: FormD
         quantity: parsed.data.quantity,
         price: pricing.pricePerUnit.toString(),
         amount: toDecimalString(amount),
+        salePrice: pricing.salePricePerUnit?.toString() ?? null,
+        revenue: revenue === null ? null : toDecimalString(revenue),
       },
       changedFields: ['production'],
     },
   })
 
   revalidatePath('/production')
-  return `LISTO|${pricing.unitLabel}|${parsed.data.quantity}|${toDecimalString(amount)}`
+  revalidatePath('/margin')
+  return `LISTO|${pricing.unitLabel}|${parsed.data.quantity}|${toDecimalString(amount)}|${
+    revenue === null ? '' : toDecimalString(revenue)
+  }`
 }
 
 export async function deleteProduction(formData: FormData) {

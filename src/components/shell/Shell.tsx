@@ -11,7 +11,8 @@ const NAV: ReadonlyArray<{
   {
     group: 'Mi trabajo',
     items: [
-      { href: '/inicio', label: 'Inicio' },
+      { href: '/dashboard', label: 'Dashboard', permission: 'dashboard:view' },
+      { href: '/inicio', label: 'Paso a paso' },
       { href: '/payroll', label: 'Nómina' },
       { href: '/approvals', label: 'Aprobar', permission: 'payroll:approve' },
       { href: '/disbursements', label: 'Desembolsos', permission: 'payment:view' },
@@ -35,7 +36,6 @@ const NAV: ReadonlyArray<{
     items: [
       { href: '/production', label: 'Producción', permission: 'payroll:view' },
       { href: '/margin', label: 'Rentabilidad', permission: 'dashboard:view' },
-      { href: '/dashboard', label: 'Números', permission: 'dashboard:view' },
       { href: '/reports', label: 'Reportes', permission: 'payroll:view' },
       { href: '/users', label: 'Usuarios', permission: 'user:manage' },
     ],
