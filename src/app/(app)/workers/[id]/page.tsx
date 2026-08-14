@@ -118,7 +118,7 @@ export default async function WorkerDetailPage({ params }: { params: Promise<{ i
       </div>
 
       <section className="mt-8">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide">Historial de tarifas</h2>
+        <h2 className="brand-label mb-3 text-[var(--muted)]">Historial de tarifas</h2>
         <DataTable
           rows={worker.rates}
           empty={

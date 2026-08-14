@@ -1,18 +1,58 @@
 @import "tailwindcss";
 
+/*
+ * Los colores por defecto. Cada compañía los sobreescribe con los suyos desde
+ * `src/lib/brand`, sobre el elemento que envuelve la aplicación — ver ahí por
+ * qué la marca es dato y no código.
+ */
 :root {
   --background: #f6f7f9;
   --surface: #ffffff;
   --foreground: #0b1220;
+  --ink: #0b1220;
   --muted: #64708a;
   --border: #e1e6ee;
   --hover: #f2f5f9;
   --accent: #12467b;
+  --accent-deep: #0d3358;
+  --brand-gradient: linear-gradient(135deg, #0d3358, #12467b);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: var(--font-body), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * Titulares: pesados, en mayúscula, ligeramente apretados. Es el gesto más
+ * reconocible de la marca de Infracore.
+ */
+.brand-display {
+  font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+}
+
+/*
+ * Etiquetas: monoespaciada, mayúscula, muy espaciada. Su otro sello, el que
+ * usan en el menú y en los rótulos pequeños.
+ */
+.brand-label {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.68rem;
+  font-weight: 500;
+}
+
+.brand-gradient {
+  background-image: var(--brand-gradient);
+}
+
+/* Los números de dinero, siempre alineados en columna. */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
 }

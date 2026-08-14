@@ -92,7 +92,7 @@ function Breakdown({
 
   return (
     <section className="mb-6">
-      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide">{title}</h2>
+      <h2 className="brand-label mb-3 text-[var(--muted)]">{title}</h2>
       <div className="space-y-2">
         {rows.map((row) => (
           <Row key={row.key} label={row.label} workers={row.workers} unit={unit} view={row.view} />

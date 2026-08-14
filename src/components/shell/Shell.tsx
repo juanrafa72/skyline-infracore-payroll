@@ -1,8 +1,10 @@
 'use client'
 
+import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState } from 'react'
+import { brandVariables, type Brand } from '@/lib/brand'
 
 const NAV: ReadonlyArray<{
   group: string
@@ -48,6 +50,7 @@ export function Shell({
   user,
   canSwitchCompany,
   permissions,
+  brand,
   children,
 }: {
   companies: ReadonlyArray<{ id: string; displayName: string }>
@@ -55,6 +58,7 @@ export function Shell({
   user: { name: string; roles: readonly string[] }
   canSwitchCompany: boolean
   permissions: readonly string[]
+  brand: Brand
   children: React.ReactNode
 }) {
   const allowed = new Set(permissions)
@@ -62,7 +66,10 @@ export function Shell({
   const [open, setOpen] = useState(false)
 
   return (
-    <div className="flex min-h-screen flex-col lg:flex-row">
+    <div
+      className="flex min-h-screen flex-col lg:flex-row"
+      style={brandVariables(brand) as React.CSSProperties}
+    >
       {/* Barra superior móvil */}
       <header className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-4 py-3 lg:hidden">
         <button
@@ -73,15 +80,42 @@ export function Shell({
         >
           {open ? 'Cerrar' : 'Menú'}
         </button>
-        <span className="truncate text-sm font-semibold">{active.displayName}</span>
+        {brand.logo ? (
+          <Image
+            src={brand.logo}
+            alt={brand.logoAlt}
+            width={brand.logoWidth}
+            height={brand.logoHeight}
+            priority
+            className="h-7 w-auto"
+          />
+        ) : (
+          <span className="truncate text-sm font-semibold">{active.displayName}</span>
+        )}
       </header>
 
       <aside
         className={`${open ? 'block' : 'hidden'} shrink-0 border-b border-[var(--border)] bg-[var(--surface)] lg:block lg:w-60 lg:border-b-0 lg:border-r`}
       >
         <div className="hidden px-4 py-5 lg:block">
-          <p className="text-sm font-semibold">Nómina</p>
-          <p className="text-xs text-[var(--muted)]">Skyline · Infracore</p>
+          {brand.logo ? (
+            <>
+              <Image
+                src={brand.logo}
+                alt={brand.logoAlt}
+                width={brand.logoWidth}
+                height={brand.logoHeight}
+                priority
+                className="h-9 w-auto"
+              />
+              <p className="brand-label mt-2.5 text-[var(--muted)]">Nómina y pagos</p>
+            </>
+          ) : (
+            <>
+              <p className="brand-display text-base">Nómina</p>
+              <p className="brand-label mt-1 text-[var(--muted)]">Skyline · Infracore</p>
+            </>
+          )}
         </div>
 
         <div className="px-3 py-3 lg:pt-0">
@@ -89,7 +123,7 @@ export function Shell({
             <CompanySwitcher companies={companies} active={active} />
           ) : (
             <div className="rounded-md border border-[var(--border)] px-2.5 py-1.5">
-              <p className="text-xs text-[var(--muted)]">Compañía</p>
+              <p className="brand-label text-[var(--muted)]">Compañía</p>
               <p className="text-sm font-medium">{active.displayName}</p>
             </div>
           )}
@@ -98,9 +132,7 @@ export function Shell({
         <nav className="px-2 pb-6">
           {NAV.map((section) => (
             <div key={section.group} className="mb-4">
-              <p className="px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-                {section.group}
-              </p>
+              <p className="brand-label px-2 pb-1.5 text-[var(--muted)]">{section.group}</p>
               <ul>
                 {section.items
                   .filter((item) => !item.permission || allowed.has(item.permission))
@@ -114,7 +146,7 @@ export function Shell({
                         onClick={() => setOpen(false)}
                         className={`block rounded-md px-2 py-1.5 text-sm transition ${
                           isActive
-                            ? 'bg-[var(--accent)] font-medium text-white'
+                            ? 'brand-gradient font-medium text-white shadow-sm'
                             : 'hover:bg-[var(--hover)]'
                         }`}
                       >
@@ -166,7 +198,7 @@ function CompanySwitcher({
 }) {
   return (
     <form action="/api/company" method="post">
-      <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Compañía</label>
+      <label className="brand-label mb-1 block text-[var(--muted)]">Compañía</label>
       <select
         name="companyId"
         defaultValue={active.id}

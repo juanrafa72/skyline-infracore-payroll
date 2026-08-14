@@ -338,7 +338,7 @@ export default async function WeekPage({
                   style={gridStyle}
                   className={`hidden ${inlineDays ? 'md:grid' : ''} ${GRID_CLASS} border-b border-[var(--border)] bg-[var(--hover)] px-3 py-2.5`}
                 >
-                  <span className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                  <span className="brand-label text-[var(--muted)]">
                     Trabajador
                   </span>
                   {days.map((day) => (
@@ -439,7 +439,7 @@ export default async function WeekPage({
 
           {exceptions.length > 0 ? (
             <section className="mb-8">
-              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide">
+              <h2 className="brand-label mb-3 text-[var(--muted)]">
                 Errores detectados
               </h2>
               <ul className="space-y-2">
@@ -460,7 +460,7 @@ export default async function WeekPage({
           ) : null}
 
           <section>
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide">Resultado</h2>
+            <h2 className="brand-label mb-3 text-[var(--muted)]">Resultado</h2>
             {payrolls.length === 0 ? (
               <EmptyState
                 title="Sin calcular"

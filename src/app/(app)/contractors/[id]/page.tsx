@@ -51,7 +51,7 @@ export default async function ContractorPage({ params }: { params: Promise<{ id:
       <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
         <div className="space-y-5">
           <section>
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide">
+            <h2 className="brand-label mb-3 text-[var(--muted)]">
               Préstamos y adelantos
             </h2>
             {advances.length === 0 ? (
@@ -126,7 +126,7 @@ export default async function ContractorPage({ params }: { params: Promise<{ id:
 
           {contractor.crews.length > 0 ? (
             <section>
-              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide">Sus cuadrillas</h2>
+              <h2 className="brand-label mb-3 text-[var(--muted)]">Sus cuadrillas</h2>
               <DataTable
                 rows={contractor.crews}
                 href={(crew) => `/crews/${crew.id}`}

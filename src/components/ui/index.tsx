@@ -11,12 +11,18 @@ export function PageHeader({
   action?: ReactNode
 }) {
   return (
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-3 border-b border-[var(--border)] pb-4">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{title}</h1>
-        {subtitle ? <p className="mt-1 text-sm text-[var(--muted)]">{subtitle}</p> : null}
+    <div className="mb-6 border-b border-[var(--border)] pb-4">
+      {/* Filete de la marca: el mismo degradado del sitio, en pequeño. */}
+      <span className="brand-gradient mb-3 block h-1 w-12 rounded-full" />
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="brand-display text-xl leading-tight text-[var(--ink)] sm:text-2xl">
+            {title}
+          </h1>
+          {subtitle ? <p className="mt-1 text-sm text-[var(--muted)]">{subtitle}</p> : null}
+        </div>
+        {action}
       </div>
-      {action}
     </div>
   )
 }
@@ -35,7 +41,7 @@ export function Button({
   title?: string
 }) {
   const styles = {
-    primary: 'bg-[var(--accent)] text-white hover:opacity-90',
+    primary: 'brand-gradient text-white shadow-sm hover:opacity-90',
     secondary: 'border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--hover)]',
     danger: 'border border-red-300 text-red-700 hover:bg-red-50',
   }[variant]
@@ -44,7 +50,7 @@ export function Button({
       type={type}
       disabled={disabled}
       title={title}
-      className={`inline-flex h-9 items-center rounded-md px-3.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-45 ${styles}`}
+      className={`inline-flex h-9 items-center rounded-full px-4 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-45 ${styles}`}
     >
       {children}
     </button>
@@ -62,13 +68,13 @@ export function LinkButton({
 }) {
   const styles =
     variant === 'primary'
-      ? 'bg-[var(--accent)] text-white hover:opacity-90'
+      ? 'brand-gradient text-white shadow-sm hover:opacity-90'
       : 'border border-[var(--border)] hover:bg-[var(--hover)]'
   return (
     <Link
       prefetch={false}
       href={href}
-      className={`inline-flex h-9 items-center rounded-md px-3.5 text-sm font-medium transition ${styles}`}
+      className={`inline-flex h-9 items-center rounded-full px-4 text-sm font-medium transition ${styles}`}
     >
       {children}
     </Link>

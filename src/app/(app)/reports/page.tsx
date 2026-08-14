@@ -56,7 +56,7 @@ export default async function ReportsPage() {
       ) : (
         <>
           <section className="mb-8">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide">Costo por semana</h2>
+            <h2 className="brand-label mb-3 text-[var(--muted)]">Costo por semana</h2>
             <DataTable
               rows={byWeek}
               href={(row) => `/payroll/${row.week!.id}`}
@@ -87,7 +87,7 @@ export default async function ReportsPage() {
           </section>
 
           <section>
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide">
+            <h2 className="brand-label mb-3 text-[var(--muted)]">
               Acumulado por trabajador
             </h2>
             <DataTable

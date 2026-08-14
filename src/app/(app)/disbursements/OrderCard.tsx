@@ -121,7 +121,7 @@ export function OrderCard({ data, canPay }: { data: OrderCardData; canPay: boole
       {/* ── Cabecera: a quién y cuánto ───────────────────────── */}
       <header className="flex flex-wrap items-start justify-between gap-3 p-4 pb-3">
         <div className="min-w-[200px] flex-1">
-          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+          <p className="brand-label text-[var(--muted)]">
             Empresa receptora
           </p>
           <h3 className="mt-0.5 text-xl font-semibold leading-tight">{data.recipientName}</h3>

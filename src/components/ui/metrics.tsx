@@ -21,8 +21,8 @@ export function Kpi({
 }) {
   const body = (
     <>
-      <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">{label}</p>
-      <p className="mt-1.5 text-2xl font-semibold tabular-nums">{value}</p>
+      <p className="brand-label text-[var(--muted)]">{label}</p>
+      <p className="brand-display mt-1.5 text-2xl tabular-nums text-[var(--ink)]">{value}</p>
       <div className="mt-1 flex items-baseline gap-2">
         {changePct === undefined ? null : changePct === null ? (
           <span className="text-xs text-[var(--muted)]">sin base de comparación</span>

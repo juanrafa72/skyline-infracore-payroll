@@ -88,7 +88,7 @@ export default async function PaymentsPage() {
 
       {recent.length > 0 ? (
         <section className="mt-8">
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide">Pagos recientes</h2>
+          <h2 className="brand-label mb-3 text-[var(--muted)]">Pagos recientes</h2>
           <div className="overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--surface)]">
             <table className="w-full border-collapse text-sm">
               <thead className="bg-[var(--hover)]">

@@ -173,7 +173,7 @@ export default async function DisbursementsPage() {
 
       {closed.length > 0 ? (
         <section className="mt-8">
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide">
+          <h2 className="brand-label mb-3 text-[var(--muted)]">
             Historial · {closed.length} orden(es)
           </h2>
           <div className="space-y-4">
