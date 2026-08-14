@@ -54,6 +54,7 @@ model Company {
   settings     CompanySetting[]
   paymentRecipients  PaymentRecipient[]
   disbursementOrders DisbursementOrder[]
+  billingRates       BillingRate[]
 
   @@map("company")
 }
@@ -173,6 +174,7 @@ model Operation {
   workRates  WorkerRate[]
   workEntries WorkEntry[]
   crews      Crew[]
+  billingRates BillingRate[]
 
   @@unique([companyId, code])
   @@map("operation")
@@ -192,8 +194,9 @@ model Customer {
   active                 Boolean  @default(true)
   createdAt              DateTime @default(now())
 
-  company  Company   @relation(fields: [companyId], references: [id])
-  projects Project[]
+  company      Company       @relation(fields: [companyId], references: [id])
+  projects     Project[]
+  billingRates BillingRate[]
 
   @@unique([companyId, name])
   @@map("customer")
@@ -224,6 +227,7 @@ model Project {
   payrollLines PayrollLine[]
   crewPricing CrewPricing[]
   production  Production[]
+  billingRates BillingRate[]
 
   @@unique([companyId, code])
   @@map("project")
@@ -419,6 +423,7 @@ model Crew {
   payrollLines PayrollLine[]
   pricing     CrewPricing[]
   shares      CrewMemberShare[]
+  billingRates BillingRate[]
   production  Production[]
 
   @@unique([companyId, code])
@@ -742,6 +747,20 @@ model WorkerPayroll {
   deductionsTotal Decimal @default(0) @db.Decimal(18, 2)
   netPay          Decimal @default(0) @db.Decimal(18, 2)
 
+  /*
+   * VENTA Y MARGEN de esta persona en esta semana — BR-201.
+   *
+   * `revenueTotal` es lo que le cobramos al cliente por sus días. El costo con
+   * el que se compara es `grossPay`, NO `netPay`: los descuentos por préstamos
+   * no abaratan la mano de obra, solo recuperan plata que ya se había prestado.
+   *
+   * NULL cuando falta tarifa de venta. Un margen que no se puede calcular se
+   * muestra como desconocido, nunca como cero.
+   */
+  revenueTotal    Decimal? @db.Decimal(18, 2)
+  /// Cuántos días quedaron sin tarifa de venta. Si es > 0, la venta está incompleta.
+  daysWithoutBillingRate Int @default(0)
+
   calculationVersion Int    @default(1)
   /// Huella de las ENTRADAS materiales. Si cambia tras aprobar, la aprobación
   /// se invalida automáticamente — ver docs/PAYROLL_FLOW.md §3.
@@ -814,6 +833,18 @@ model PayrollLine {
   appliedRate     Decimal   @db.Decimal(18, 2)
   rateSourceId    String?
   amount          Decimal   @db.Decimal(18, 2)
+
+  /*
+   * El otro lado del mismo día: lo que le cobramos al cliente.
+   *
+   * Se congela aquí igual que el costo, y por lo mismo — BR-200. Queda en NULL
+   * cuando no hay tarifa de venta configurada: eso NO es cero, es "no se sabe",
+   * y el margen tiene que decirlo en vez de inventarse una utilidad.
+   */
+  billedRate        Decimal? @db.Decimal(18, 2)
+  billingRateSourceId String?
+  revenue           Decimal? @db.Decimal(18, 2)
+
   projectId       String?
   crewId          String?
   shift           Shift     @default(DAY)
@@ -822,6 +853,7 @@ model PayrollLine {
   workerPayroll WorkerPayroll @relation(fields: [workerPayrollId], references: [id], onDelete: Cascade)
   workEntry     WorkEntry?    @relation(fields: [workEntryId], references: [id])
   rateSource    WorkerRate?   @relation(fields: [rateSourceId], references: [id])
+  billingRate   BillingRate?  @relation(fields: [billingRateSourceId], references: [id])
   project       Project?      @relation(fields: [projectId], references: [id])
   crew          Crew?         @relation(fields: [crewId], references: [id])
 
@@ -1282,6 +1314,53 @@ enum AdjustmentType {
   REVERSAL
   ADDITIONAL_PAYMENT
   CREDIT
+}
+
+// ─────────────────────────────────────────────────────────────
+// VENTA Y MARGEN — lo que nos pagan, contra lo que nos cuesta
+// ─────────────────────────────────────────────────────────────
+
+/// Tarifa de VENTA: lo que el cliente nos paga por un día trabajado.
+///
+/// No confundir con `WorkerRate`, que es lo que NOSOTROS pagamos. Son los dos
+/// lados del mismo día de trabajo y la diferencia es el margen:
+///
+///     venta (BillingRate)  −  costo (WorkerRate)  =  margen bruto
+///
+/// Lleva vigencia igual que las tarifas de costo, y por la misma razón: subir
+/// la tarifa hoy no puede cambiar lo que se facturó hace tres semanas.
+model BillingRate {
+  id          String   @id @default(uuid(7))
+  companyId   String
+  /// Quién nos paga. Sin cliente no hay venta.
+  customerId  String
+  projectId   String?
+  operationId String?
+  crewId      String?
+  shift       Shift    @default(ANY)
+  rateType    RateType @default(DAILY)
+  amount      Decimal  @db.Decimal(18, 2)
+
+  effectiveFrom DateTime  @db.Date
+  effectiveTo   DateTime? @db.Date
+
+  /// De dónde salió: contrato, orden de compra, correo. Para poder sustentarla.
+  sourceNote  String?
+  active      Boolean  @default(true)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company   Company    @relation(fields: [companyId], references: [id])
+  customer  Customer   @relation(fields: [customerId], references: [id])
+  project   Project?   @relation(fields: [projectId], references: [id])
+  operation Operation? @relation(fields: [operationId], references: [id])
+  crew      Crew?      @relation(fields: [crewId], references: [id])
+  lines     PayrollLine[]
+
+  @@index([companyId, customerId, effectiveFrom])
+  @@index([companyId, active])
+  @@map("billing_rate")
 }
 
 // ─────────────────────────────────────────────────────────────

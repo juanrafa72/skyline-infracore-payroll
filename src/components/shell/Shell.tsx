@@ -27,12 +27,14 @@ const NAV: ReadonlyArray<{
       { href: '/contractors', label: 'Contratistas', permission: 'contractor:manage' },
       { href: '/projects', label: 'Proyectos', permission: 'project:manage' },
       { href: '/customers', label: 'Clientes', permission: 'project:manage' },
+      { href: '/billing-rates', label: 'Tarifas de venta', permission: 'rate:view' },
     ],
   },
   {
     group: 'Consultar',
     items: [
       { href: '/production', label: 'Producción', permission: 'payroll:view' },
+      { href: '/margin', label: 'Rentabilidad', permission: 'dashboard:view' },
       { href: '/dashboard', label: 'Números', permission: 'dashboard:view' },
       { href: '/reports', label: 'Reportes', permission: 'payroll:view' },
       { href: '/users', label: 'Usuarios', permission: 'user:manage' },

@@ -54,6 +54,8 @@ const ROUTES = [
   '/contractors',
   '/projects',
   '/production',
+  '/margin',
+  '/billing-rates',
   '/approvals',
   '/disbursements',
   '/recipients',

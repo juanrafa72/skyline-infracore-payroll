@@ -231,3 +231,24 @@ de Skyline puede pagarse enviando fondos a un subcontratista, a una agencia o a
    (el que menos dinero mueve) y lo indica en el detalle del cálculo.
 4. Al confirmarla queda registrado quién y cuándo, en el audit log.
 5. Confirmar una regla **no recalcula nóminas ya aprobadas o pagadas**.
+
+## 20. Venta y margen
+
+El sistema conocía solo el costo. Estas reglas agregan el otro lado: lo que el
+cliente nos paga, y la diferencia entre ambos.
+
+| ID | Regla | Estado |
+|---|---|---|
+| BR-200 | La tarifa de VENTA (`BillingRate`) se congela en cada línea igual que la de costo. Renegociar el contrato hoy no altera una semana ya calculada. | CONFIRMED |
+| BR-201 | Un día solo se factura si su proyecto tiene cliente. Sin cliente no hay a quién cobrarle, y eso se dice: **no se asigna el cliente más probable**. | CONFIRMED |
+| BR-202 | El costo del margen es el **bruto**, no el neto. Descontar un préstamo no abarata la mano de obra: solo recupera plata ya entregada. Con el neto, prestarle a alguien "subiría" el margen. | CONFIRMED |
+| BR-203 | Una venta desconocida **no es cero**. Los días sin tarifa se cuentan aparte, la venta se muestra como parcial y el porcentaje no se calcula. Un margen sobre información incompleta tiene que decirlo. | CONFIRMED |
+| BR-204 | Precedencia de la tarifa de venta: proyecto+turno → proyecto → cuadrilla → operación → turno → general. Lo que no encaja se descarta; nunca se aproxima. | CONFIRMED |
+| BR-205 | Dos tarifas de venta del mismo alcance no pueden solaparse en el tiempo (`EXCLUDE USING gist`). Si no, un día se facturaría a dos precios según cuál leyera primero la consulta. | CONFIRMED |
+| BR-206 | Cambiar un precio es **cerrar la vigente y abrir una nueva** desde la fecha del cambio. No existe editar una tarifa vigente. | CONFIRMED |
+| BR-207 | Solo las líneas de trabajo se facturan. Adicionales y descuentos son acuerdos internos y no se le cobran al cliente. | CONFIRMED |
+| BR-208 | El margen porcentual se calcula sobre la venta, en enteros, redondeando una sola vez. Venta en cero devuelve "sin respuesta", no 0%. | CONFIRMED |
+
+**Valores vigentes** (configurables, con fecha de vigencia — no están en código):
+Infracore → SOUTHER FIBER SOLUTIONS: día $600, noche $660. Costo Infracore →
+Novasite: día $400, noche $440, que vive en `WorkerRate` como siempre.

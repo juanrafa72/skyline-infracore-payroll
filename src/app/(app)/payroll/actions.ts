@@ -16,6 +16,7 @@ import {
   type RateInput,
   type WorkEntryInput,
 } from '@/lib/payroll/engine'
+import { snapshotRevenue } from '@/lib/margin/service'
 import { offCyclePeriod, periodOf, type PayPeriodType } from '@/lib/payroll/period'
 import { toIso } from '@/lib/payroll/week'
 import { invalidateIfStale } from '@/lib/payroll/workflow/service'
@@ -416,6 +417,16 @@ export async function calculateWeek(formData: FormData) {
           description: line.description,
         })),
       })
+
+      /*
+       * Congelar la VENTA, no solo el costo.
+       *
+       * Se hace aquí, en la misma transacción que el cálculo, para que la
+       * tarifa que el cliente nos paga quede fija igual que la que nosotros
+       * pagamos — BR-200. Si mañana se renegocia el contrato, esta semana
+       * sigue diciendo lo que decía.
+       */
+      await snapshotRevenue(company.id, payroll.id, tx)
 
       await tx.exception.deleteMany({
         where: { companyId: company.id, payrollWeekId: week.id, workerId, status: 'OPEN' },
