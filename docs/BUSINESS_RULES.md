@@ -277,3 +277,15 @@ Novasite: día $400, noche $440, que vive en `WorkerRate` como siempre.
 | BR-226 | Con método **manual** el sistema NO propone monto: lo decide una persona cada vez, y solo se le avisa el saldo. | CONFIRMED |
 | BR-227 | Un préstamo con abonos aplicados no se anula: la plata ya se movió. | CONFIRMED |
 | BR-228 | El estado se **calcula** del saldo, no se escribe a mano: uno escrito a mano puede decir «pagado» con saldo pendiente. | CONFIRMED |
+
+## 23. Descuentos y adicionales de la semana
+
+| ID | Regla | Estado |
+|---|---|---|
+| BR-230 | Todo descuento y todo adicional lleva explicación escrita. Sin ella no se guarda: meses después nadie recuerda por qué se descontó. | CONFIRMED |
+| BR-231 | Monto siempre mayor que cero. Un descuento de $0 no es un descuento. | CONFIRMED |
+| BR-232 | Las recuperaciones de préstamo (`ADVANCE_RECOVERY`, `DEBT_RECOVERY`) **no se capturan a mano**: las genera el motor desde el préstamo, para que el saldo y el descuento nunca digan cosas distintas. Impuesto por CHECK en la base. | CONFIRMED |
+| BR-233 | Anotar un extra a alguien sin nómina en esa semana le abre una en borrador. Si no, habría que calcular antes de poder anotarle el hotel, y nadie trabaja en ese orden. | CONFIRMED |
+| BR-234 | Agregar o quitar un extra son campos **materiales**: si la nómina estaba aprobada, la aprobación se cae en el acto y se avisa. Permitir agregar pero bloquear quitar sería incoherente. | CONFIRMED |
+| BR-235 | Una nómina **pagada** no admite extras ni quitarlos. Se corrige con un ajuste. | CONFIRMED |
+| BR-236 | Un extra con fecha fuera de la semana se rechaza. | CONFIRMED |

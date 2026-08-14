@@ -3,8 +3,10 @@ import { notFound } from 'next/navigation'
 import { Badge, Button, EmptyState, LinkButton, PageHeader, Stat, money } from '@/components/ui'
 import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
+import { weekExtras } from '@/lib/payroll/extras/service'
 import { shortDay, toIso } from '@/lib/payroll/week'
 import { calculateWeek, saveWorkEntries } from '../actions'
+import { Extras } from './Extras'
 import { RunningTotal } from './RunningTotal'
 import { RemoveWorker } from './RemoveWorker'
 import { SubmitWeek } from './SubmitWeek'
@@ -162,6 +164,9 @@ export default async function WeekPage({
       projectOf.set(entry.workerId, entry.projectId)
     }
   }
+
+  // Lo que no es un día trabajado pero cambia el pago: hotel, equipo, bonos.
+  const extras = await weekExtras(company.id, week.id)
 
   const entryMap = new Map(
     entries.map((entry) => [
@@ -484,6 +489,18 @@ export default async function WeekPage({
                 <Button>Guardar días</Button>
               </div>
             </form>
+
+            <Extras
+              weekId={week.id}
+              workers={workers.map((worker) => ({
+                id: worker.id,
+                name: worker.displayName,
+              }))}
+              rows={extras.rows}
+              additionsTotal={extras.additionsTotal}
+              deductionsTotal={extras.deductionsTotal}
+              days={days}
+            />
 
             <AddWorkerInline weekId={week.id} operations={operations} />
 

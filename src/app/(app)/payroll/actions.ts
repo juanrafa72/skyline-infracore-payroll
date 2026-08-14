@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
+import { assertCan } from '@/lib/auth/rbac'
 import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
 import {
@@ -21,6 +22,7 @@ import { offCyclePeriod, periodOf, type PayPeriodType } from '@/lib/payroll/peri
 import { toIso } from '@/lib/payroll/week'
 import { invalidateIfStale } from '@/lib/payroll/workflow/service'
 import { removeFromRoster, setRoster } from '@/lib/payroll/roster'
+import { addExtra, removeExtra } from '@/lib/payroll/extras/service'
 
 /**
  * Abre un período de pago.
@@ -642,4 +644,47 @@ export async function createWorkerWithRate(
 
   revalidatePath(`/payroll/${weekId}`)
   return `LISTO|${name} agregado con tarifa $${Number(rate).toFixed(2)}`
+}
+
+// ─────────────────────────────────────────────────────────────
+// Descuentos y adicionales de la semana
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Anota un descuento o un adicional de la semana.
+ *
+ * Tras guardarlo hay que volver a calcular para que entre al pago: el mensaje
+ * lo dice, en vez de dejar a alguien creyendo que ya quedó aplicado.
+ */
+export async function addWeekExtra(
+  _previous: string | null,
+  formData: FormData,
+): Promise<string> {
+  const user = await assertCan('payroll:edit')
+  const text = (key: string) => String(formData.get(key) ?? '')
+
+  const result = await addExtra(user, {
+    weekId: text('weekId'),
+    workerId: text('workerId'),
+    kind: text('kind') === 'ADDITION' ? 'ADDITION' : 'DEDUCTION',
+    category: text('category'),
+    amount: text('amount'),
+    description: text('description'),
+    workDate: text('workDate') || null,
+  })
+
+  revalidatePath(`/payroll/${text('weekId')}`)
+  return result.ok ? `LISTO|${result.message}` : result.message
+}
+
+export async function removeWeekExtra(
+  _previous: string | null,
+  formData: FormData,
+): Promise<string> {
+  const user = await assertCan('payroll:edit')
+  const kind = String(formData.get('kind')) === 'ADDITION' ? 'ADDITION' : 'DEDUCTION'
+
+  const result = await removeExtra(user, kind, String(formData.get('extraId') ?? ''))
+  revalidatePath(`/payroll/${String(formData.get('weekId') ?? '')}`)
+  return result.ok ? `LISTO|${result.message}` : result.message
 }
