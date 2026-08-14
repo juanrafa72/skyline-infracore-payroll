@@ -23,8 +23,9 @@ export const dynamic = 'force-dynamic'
  * literalmente en el código.
  */
 function gridTemplate(dayCount: number): string {
-  if (dayCount > 16) return 'minmax(190px,1fr) minmax(0,6fr) minmax(64px,0.5fr)'
-  return `minmax(190px,1.7fr) repeat(${dayCount},minmax(0,1fr)) minmax(64px,0.6fr)`
+  // Trabajador · Proyecto · un día por columna · Quitar
+  if (dayCount > 16) return 'minmax(170px,1fr) minmax(120px,0.8fr) minmax(0,6fr) minmax(64px,0.5fr)'
+  return `minmax(170px,1.5fr) minmax(110px,0.9fr) repeat(${dayCount},minmax(0,1fr)) minmax(64px,0.6fr)`
 }
 
 /** Clase estática que consume la variable. Esta sí la compila Tailwind. */
@@ -141,6 +142,25 @@ export default async function WeekPage({
     cursor.setUTCDate(cursor.getUTCDate() + 1)
   ) {
     days.push(toIso(cursor))
+  }
+
+  /*
+   * Los proyectos donde se puede trabajar, y en cuál está cada persona ya.
+   *
+   * El proyecto se lee de los días que ya tiene marcados; si no tiene ninguno,
+   * se propone el suyo por defecto.
+   */
+  const projects = await prisma.project.findMany({
+    where: { companyId: company.id, active: true },
+    orderBy: { name: 'asc' },
+    select: { id: true, name: true },
+  })
+
+  const projectOf = new Map<string, string>()
+  for (const entry of entries) {
+    if (entry.projectId && !projectOf.has(entry.workerId)) {
+      projectOf.set(entry.workerId, entry.projectId)
+    }
   }
 
   const entryMap = new Map(
@@ -342,6 +362,7 @@ export default async function WeekPage({
                   <span className="brand-label text-[var(--muted)]">
                     Trabajador
                   </span>
+                  <span className="brand-label text-[var(--muted)]">Proyecto</span>
                   {days.map((day) => (
                     <span
                       key={day}
@@ -382,6 +403,31 @@ export default async function WeekPage({
                           sin tarifa — no se podrá calcular
                         </span>
                       )}
+                    </div>
+
+                    {/*
+                      En qué proyecto trabajó esta semana.
+
+                      No es un adorno: de aquí sale el cliente, y sin cliente no
+                      se sabe a quién facturarle el día. Sin esto la venta y el
+                      margen quedaban incompletos.
+                    */}
+                    <div className="mt-2 md:mt-0">
+                      <span className="mb-0.5 block text-[11px] text-[var(--muted)] md:hidden">
+                        Proyecto
+                      </span>
+                      <select
+                        name={`proyecto:${worker.id}`}
+                        defaultValue={projectOf.get(worker.id) ?? worker.defaultProjectId ?? ''}
+                        className="h-8 w-full rounded border border-[var(--border)] bg-[var(--surface)] px-1 text-xs outline-none focus:border-[var(--accent)]"
+                      >
+                        <option value="">— sin proyecto —</option>
+                        {projects.map((project) => (
+                          <option key={project.id} value={project.id}>
+                            {project.name}
+                          </option>
+                        ))}
+                      </select>
                     </div>
 
                     {/* `md:contents` disuelve este envoltorio dentro de la rejilla en escritorio */}

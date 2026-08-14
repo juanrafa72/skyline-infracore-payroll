@@ -112,6 +112,25 @@ export async function saveWorkEntries(formData: FormData) {
     }
   }
 
+  /*
+   * El proyecto que se escogió para cada persona esta semana.
+   *
+   * Va por persona y no por día: en la práctica alguien trabaja la semana en un
+   * proyecto. Si algún día fuera distinto, el modelo lo admite —`WorkEntry`
+   * guarda el proyecto de cada día— y solo faltaría la pantalla.
+   *
+   * Importa más de lo que parece: un día sin proyecto no tiene cliente, y sin
+   * cliente no se sabe a quién facturarlo. Por eso la venta y el margen salían
+   * incompletos.
+   */
+  const projectByWorker = new Map<string, string | null>()
+  for (const [key, raw] of formData.entries()) {
+    if (!key.startsWith('proyecto:')) continue
+    const workerId = key.slice('proyecto:'.length)
+    const value = String(raw).trim()
+    projectByWorker.set(workerId, value === '' ? null : value)
+  }
+
   const operations = new Map<string, { workerId: string; date: string; value: string }>()
   for (const [key, raw] of formData.entries()) {
     if (!key.startsWith('day:')) continue
@@ -177,6 +196,13 @@ export async function saveWorkEntries(formData: FormData) {
 
       const defaults = workerDefaults.get(workerId)
 
+      // Solo se toca el proyecto si el formulario lo trajo: un campo ausente
+      // nunca debe borrar el proyecto que ya tenía el día.
+      const chose = projectByWorker.has(workerId)
+      const projectId = chose
+        ? projectByWorker.get(workerId)!
+        : (defaults?.defaultProjectId ?? null)
+
       await tx.workEntry.upsert({
         where: {
           companyId_workerId_workDate: { companyId: company.id, workerId, workDate },
@@ -186,6 +212,7 @@ export async function saveWorkEntries(formData: FormData) {
           payrollWeekId: week.id,
           additionalAmount: amount,
           additionalNote: amount === null ? null : note,
+          ...(chose ? { projectId } : {}),
         },
         create: {
           companyId: company.id,
@@ -197,7 +224,7 @@ export async function saveWorkEntries(formData: FormData) {
           additionalAmount: amount,
           additionalNote: amount === null ? null : note,
           operationId: defaults?.defaultOperationId ?? null,
-          projectId: defaults?.defaultProjectId ?? null,
+          projectId,
           crewId: defaults?.defaultCrewId ?? null,
         },
       })
