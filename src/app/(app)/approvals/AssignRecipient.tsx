@@ -45,17 +45,24 @@ const EMPTY: NewRecipient = {
  * No usa `<form>`: esta barra vive dentro del formulario de aprobación, y un
  * formulario dentro de otro es HTML inválido — el navegador descarta el de
  * adentro y el botón termina enviando el de afuera.
+ *
+ * La receptora elegida (`choice`) la controla el panel de arriba: así el botón
+ * de "usar sugerencia" puede precargarla. Precargar NO asigna — asignar sigue
+ * siendo el clic explícito de este botón (BR-181).
  */
 export function AssignRecipient({
   recipients,
   selectedIds,
   selectedCount,
+  choice,
+  onChoiceChange,
 }: {
   recipients: readonly RecipientOption[]
   selectedIds: readonly string[]
   selectedCount: number
+  choice: string
+  onChoiceChange: (recipientId: string) => void
 }) {
-  const [choice, setChoice] = useState('')
   const [creating, setCreating] = useState(false)
   const [insist, setInsist] = useState(false)
   const [draft, setDraft] = useState<NewRecipient>(EMPTY)
@@ -86,7 +93,7 @@ export function AssignRecipient({
       <div className="mt-2.5 flex flex-wrap items-center gap-2">
         <select
           value={choice}
-          onChange={(event) => setChoice(event.target.value)}
+          onChange={(event) => onChoiceChange(event.target.value)}
           className="h-9 min-w-[220px] flex-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 text-sm"
         >
           <option value="">Escoge la empresa receptora…</option>

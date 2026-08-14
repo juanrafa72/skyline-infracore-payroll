@@ -21,7 +21,7 @@ import { snapshotRevenue } from '@/lib/margin/service'
 import { offCyclePeriod, periodOf, type PayPeriodType } from '@/lib/payroll/period'
 import { toIso } from '@/lib/payroll/week'
 import { invalidateIfStale } from '@/lib/payroll/workflow/service'
-import { removeFromRoster, setRoster } from '@/lib/payroll/roster'
+import { currentRoster, removeFromRoster, setRoster } from '@/lib/payroll/roster'
 import { addExtra, removeExtra } from '@/lib/payroll/extras/service'
 
 /**
@@ -572,6 +572,39 @@ export async function removeWorkerFromPeriod(
  * Una persona sin tarifa no sirve para nada aquí: por eso la tarifa se pide
  * junto con el nombre y no se puede dejar en blanco.
  */
+/**
+ * Copia QUIÉNES trabajaron la semana pasada — y nada más.
+ *
+ * Los días no se copian jamás: serían trabajo inventado. El proyecto tampoco
+ * se escribe aquí; la rejilla lo propone como sugerencia y solo queda cuando
+ * quien prepara guarda los días. `setRoster` es aditivo, así que copiar no
+ * saca a nadie que ya estuviera.
+ */
+export async function copyPreviousWeek(formData: FormData) {
+  const company = await getActiveCompany()
+  const weekId = String(formData.get('weekId') ?? '')
+
+  const week = await prisma.payrollWeek.findFirst({
+    where: { id: weekId, companyId: company.id },
+  })
+  if (!week) throw new Error('Semana no encontrada')
+
+  const previous = await prisma.payrollWeek.findFirst({
+    where: { companyId: company.id, startDate: { lt: week.startDate }, isOffCycle: false },
+    orderBy: { startDate: 'desc' },
+  })
+
+  if (previous) {
+    const people = await currentRoster(company.id, previous.id)
+    if (people.length > 0) {
+      await setRoster(company.id, week.id, people)
+    }
+  }
+
+  revalidatePath(`/payroll/${weekId}`)
+  redirect(`/payroll/${weekId}`)
+}
+
 export async function createWorkerWithRate(
   _previous: string | null,
   formData: FormData,

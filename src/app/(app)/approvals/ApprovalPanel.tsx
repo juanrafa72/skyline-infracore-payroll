@@ -32,6 +32,9 @@ export interface ApprovalRow {
   wasInvalidated: boolean
   recipientId: string | null
   recipientName: string | null
+  /** Receptora de la semana pasada — solo propuesta, jamás asignación (BR-181). */
+  suggestedRecipientId: string | null
+  suggestedRecipientName: string | null
 }
 
 function currency(value: string): string {
@@ -54,6 +57,7 @@ export function ApprovalPanel({
   const [selected, setSelected] = useState<ReadonlySet<string>>(
     () => new Set(approvable.map((row) => row.id)),
   )
+  const [choice, setChoice] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
   const [reviewing, setReviewing] = useState(false)
   const [approveResult, approveAction] = useActionState(approvePayrolls, null)
@@ -115,6 +119,29 @@ export function ApprovalPanel({
 
   const blocked = summary.unassigned.length > 0 || !summary.balanced
 
+  /*
+   * Sugerencias agrupadas: "estos 12 iban a FORZO la semana pasada". El botón
+   * solo MARCA esas filas y precarga la receptora en la barra; el dinero no se
+   * mueve hasta que el aprobador oprima «Asignar». Reemplaza la selección (no
+   * la suma): sumarla asignaría la sugerencia a gente que ya tiene otra
+   * receptora bien puesta.
+   */
+  const suggestions = useMemo(() => {
+    const groups = new Map<string, { id: string; name: string; rowIds: string[] }>()
+    for (const row of rows) {
+      if (row.preparedByMe || row.recipientId) continue
+      if (!row.suggestedRecipientId || !row.suggestedRecipientName) continue
+      const group = groups.get(row.suggestedRecipientId) ?? {
+        id: row.suggestedRecipientId,
+        name: row.suggestedRecipientName,
+        rowIds: [],
+      }
+      group.rowIds.push(row.id)
+      groups.set(row.suggestedRecipientId, group)
+    }
+    return [...groups.values()]
+  }, [rows])
+
   return (
     <>
       {result ? (
@@ -134,7 +161,31 @@ export function ApprovalPanel({
           recipients={recipients}
           selectedIds={selectedIds}
           selectedCount={selectedIds.length}
+          choice={choice}
+          onChoiceChange={setChoice}
         />
+
+        {suggestions.length > 0 ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900">
+            <span className="font-medium">Como la semana pasada:</span>
+            {suggestions.map((suggestion) => (
+              <button
+                key={suggestion.id}
+                type="button"
+                onClick={() => {
+                  setSelected(new Set(suggestion.rowIds))
+                  setChoice(suggestion.id)
+                }}
+                className="rounded-md border border-sky-300 bg-white px-2.5 py-1 font-medium hover:bg-sky-100"
+              >
+                Marcar {suggestion.rowIds.length} de {suggestion.name}
+              </button>
+            ))}
+            <span className="text-sky-800">
+              — deja marcadas y precargada la receptora; tú confirmas con «Asignar».
+            </span>
+          </div>
+        ) : null}
       </div>
 
       <form>
@@ -192,9 +243,16 @@ export function ApprovalPanel({
                         <p className="text-sm font-medium">{row.recipientName}</p>
                       </>
                     ) : (
-                      <span className="inline-block rounded border border-sky-300 bg-sky-50 px-2 py-1 text-xs font-medium text-sky-900">
-                        falta empresa receptora
-                      </span>
+                      <>
+                        <span className="inline-block rounded border border-sky-300 bg-sky-50 px-2 py-1 text-xs font-medium text-sky-900">
+                          falta empresa receptora
+                        </span>
+                        {row.suggestedRecipientName ? (
+                          <p className="mt-0.5 text-xs text-[var(--muted)]">
+                            semana pasada: {row.suggestedRecipientName}
+                          </p>
+                        ) : null}
+                      </>
                     )}
                   </div>
 

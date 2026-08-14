@@ -74,7 +74,15 @@ export default async function ApprovalsPage() {
       payrollWeekId: { in: [...previousByWeek.values()] },
       workerId: { in: pending.map((row) => row.workerId) },
     },
-    select: { workerId: true, payrollWeekId: true, netPay: true, daysFull: true },
+    select: {
+      workerId: true,
+      payrollWeekId: true,
+      netPay: true,
+      daysFull: true,
+      // La receptora de la semana pasada se PROPONE, jamás se asigna sola (BR-181).
+      paymentRecipientId: true,
+      paymentRecipient: { select: { name: true, active: true } },
+    },
   })
   const previousByKey = new Map(
     previousPayrolls.map((row) => [`${row.payrollWeekId}:${row.workerId}`, row]),
@@ -104,6 +112,16 @@ export default async function ApprovalsPage() {
 
     const own = exceptionsByPayroll.get(payroll.id) ?? []
 
+    /*
+     * Sugerencia de receptora: la de la semana pasada, solo si esta nómina no
+     * tiene una y aquella receptora sigue activa. Es información, no decisión:
+     * asignar sigue siendo un clic del aprobador.
+     */
+    const suggestion =
+      !payroll.paymentRecipientId && previous?.paymentRecipientId && previous.paymentRecipient?.active
+        ? { id: previous.paymentRecipientId, name: previous.paymentRecipient.name }
+        : null
+
     return {
       id: payroll.id,
       workerId: payroll.workerId,
@@ -111,6 +129,8 @@ export default async function ApprovalsPage() {
       weekId: payroll.payrollWeekId,
       recipientId: payroll.paymentRecipientId,
       recipientName: payroll.paymentRecipient?.name ?? null,
+      suggestedRecipientId: suggestion?.id ?? null,
+      suggestedRecipientName: suggestion?.name ?? null,
       weekLabel: `${payroll.payrollWeek.label} · ${payroll.payrollWeek.year}`,
       period: `${toIso(payroll.payrollWeek.startDate)} → ${toIso(payroll.payrollWeek.endDate)}`,
       daysFull: payroll.daysFull,

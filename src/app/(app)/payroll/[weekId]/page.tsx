@@ -6,7 +6,8 @@ import { prisma } from '@/lib/db/client'
 import { weekExtras } from '@/lib/payroll/extras/service'
 import { ratesStatus } from '@/lib/payroll/rates-status/service'
 import { shortDay, toIso } from '@/lib/payroll/week'
-import { calculateWeek, saveWorkEntries } from '../actions'
+import { calculateWeek, copyPreviousWeek, saveWorkEntries } from '../actions'
+import { currentRoster } from '@/lib/payroll/roster'
 import { Extras } from './Extras'
 import { RunningTotal } from './RunningTotal'
 import { RemoveWorker } from './RemoveWorker'
@@ -76,7 +77,6 @@ export default async function WeekPage({
     prisma.worker.findMany({
       where: workerFilter,
       orderBy: { displayName: 'asc' },
-      include: { rates: { where: { active: true } } },
     }),
     prisma.workEntry.findMany({ where: { companyId: company.id, payrollWeekId: week.id } }),
     prisma.workerPayroll.findMany({
@@ -124,25 +124,56 @@ export default async function WeekPage({
    * motor: vigencia al inicio de ESTA semana, con el proyecto y la operación
    * de cada persona. Antes se contaba cualquier tarifa activa sin mirar
    * fechas, y una persona con tarifa vencida entraba al paso 1 para reventar
-   * en el cálculo.
+   * en el cálculo. La rejilla y la suma en vivo usan el mismo dato.
    */
-  const [everyone, crews, rateStatus] = showChooser
+  const rateStatus = await ratesStatus(company.id, toIso(week.startDate))
+  const rateOf = new Map(
+    rateStatus.needsRate
+      .filter((row) => row.resolvedAmount !== null)
+      .map((row) => [row.workerId, { amount: row.resolvedAmount!, rateType: row.rateType }]),
+  )
+
+  /*
+   * La semana anterior alimenta dos comodidades: el botón "copiar semana"
+   * (quiénes) y la sugerencia de proyecto en la rejilla. Solo lectura — nada
+   * de la semana pasada se escribe en esta.
+   */
+  const previousWeek = await prisma.payrollWeek.findFirst({
+    where: { companyId: company.id, startDate: { lt: week.startDate }, isOffCycle: false },
+    orderBy: { startDate: 'desc' },
+  })
+  const previousRosterCount =
+    showChooser && previousWeek ? (await currentRoster(company.id, previousWeek.id)).length : 0
+
+  const prevProjectOf = new Map<string, string>()
+  if (!showChooser && previousWeek) {
+    const previousEntries = await prisma.workEntry.findMany({
+      where: {
+        companyId: company.id,
+        payrollWeekId: previousWeek.id,
+        projectId: { not: null },
+        workerId: { in: workers.map((worker) => worker.id) },
+      },
+      select: { workerId: true, projectId: true },
+    })
+    for (const entry of previousEntries) {
+      if (entry.projectId && !prevProjectOf.has(entry.workerId)) {
+        prevProjectOf.set(entry.workerId, entry.projectId)
+      }
+    }
+  }
+
+  const [everyone, crews] = showChooser
     ? await Promise.all([
         prisma.worker.findMany({
           where: { companyId: company.id, status: 'ACTIVE' },
           orderBy: { displayName: 'asc' },
         }),
         prisma.crew.findMany({ where: { companyId: company.id }, select: { id: true, name: true } }),
-        ratesStatus(company.id, toIso(week.startDate)),
       ])
-    : [[], [], null]
+    : [[], []]
 
   const crewName = new Map(crews.map((crew) => [crew.id, crew.name]))
-  const rateOf = new Map(
-    (rateStatus?.needsRate ?? [])
-      .filter((row) => row.resolvedAmount !== null)
-      .map((row) => [row.workerId, { amount: row.resolvedAmount!, rateType: row.rateType }]),
-  )
   const withRate = everyone.filter((person) => rateOf.has(person.id))
   const hiddenWithoutRate = everyone.length - withRate.length
 
@@ -310,6 +341,24 @@ export default async function WeekPage({
 
       {showChooser ? (
         <>
+          {previousWeek && previousRosterCount > 0 ? (
+            <form
+              action={copyPreviousWeek}
+              className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3.5"
+            >
+              <input type="hidden" name="weekId" value={week.id} />
+              <div>
+                <p className="text-sm font-semibold">¿La misma gente de la semana pasada?</p>
+                <p className="mt-0.5 text-xs text-[var(--muted)]">
+                  Trae a las {previousRosterCount} persona(s) de {previousWeek.label} ·{' '}
+                  {previousWeek.year}. Solo copia quiénes — los días los marcas tú, y el proyecto
+                  queda sugerido. No saca a nadie que ya esté.
+                </p>
+              </div>
+              <Button variant="secondary">Copiar semana anterior</Button>
+            </form>
+          ) : null}
+
           {withRate.length === 0 ? (
             <EmptyState
               title="Nadie tiene tarifa todavía"
@@ -407,16 +456,14 @@ export default async function WeekPage({
                         {worker.displayName}
                       </Link>
                       {/* La tarifa, justo debajo del nombre: es donde se cometen los errores */}
-                      {worker.rates[0] ? (
+                      {rateOf.has(worker.id) ? (
                         <span className="block text-xs tabular-nums text-[var(--muted)]">
-                          ${money(worker.rates[0].amount)} {label(TIPO_TARIFA, worker.rates[0].rateType).toLowerCase()}
-                          {worker.defaultCrewId && crewName.get(worker.defaultCrewId)
-                            ? ` · ${crewName.get(worker.defaultCrewId)}`
-                            : ''}
+                          ${money(rateOf.get(worker.id)!.amount)}{' '}
+                          {label(TIPO_TARIFA, rateOf.get(worker.id)!.rateType).toLowerCase()}
                         </span>
                       ) : (
                         <span className="block text-xs font-medium text-red-600">
-                          sin tarifa — no se podrá calcular
+                          sin tarifa que aplique — no se podrá calcular
                         </span>
                       )}
                     </div>
@@ -432,9 +479,19 @@ export default async function WeekPage({
                       <span className="mb-0.5 block text-[11px] text-[var(--muted)] md:hidden">
                         Proyecto
                       </span>
+                      {/*
+                        Si esta semana aún no dice nada, se propone el proyecto
+                        de la semana pasada (solo sugerencia visual: no se
+                        guarda nada hasta oprimir «Guardar días»).
+                      */}
                       <select
                         name={`proyecto:${worker.id}`}
-                        defaultValue={projectOf.get(worker.id) ?? worker.defaultProjectId ?? ''}
+                        defaultValue={
+                          projectOf.get(worker.id) ??
+                          prevProjectOf.get(worker.id) ??
+                          worker.defaultProjectId ??
+                          ''
+                        }
                         className="h-8 w-full rounded border border-[var(--border)] bg-[var(--surface)] px-1 text-xs outline-none focus:border-[var(--accent)]"
                       >
                         <option value="">— sin proyecto —</option>
@@ -492,7 +549,7 @@ export default async function WeekPage({
                 workers={workers.map((worker) => ({
                   id: worker.id,
                   name: worker.displayName,
-                  rate: worker.rates[0] ? worker.rates[0].amount.toFixed(2) : null,
+                  rate: rateOf.get(worker.id)?.amount ?? null,
                 }))}
               />
 
