@@ -31,15 +31,19 @@ viven en `/docs`; este archivo es corto a propósito.
    `AdditionalPayment` / `Credit`. Nunca se edita ni se borra el pago original.
 7. **Audit log append-only.** Sin `UPDATE`, sin `DELETE`, impuesto por trigger.
    Se escribe en la misma transacción que el cambio que registra.
-8. **Snapshot de tarifas.** Cada línea guarda la tarifa aplicada. Cambiar una
-   tarifa hoy no puede alterar una nómina histórica.
+8. **Snapshot de tarifas, las dos.** Cada línea guarda la tarifa de COSTO
+   aplicada y la de VENTA. Cambiar cualquiera hoy no puede alterar una nómina
+   histórica. Venta − costo = margen; son los dos lados del mismo día.
 9. **Persona ≠ equipo ≠ cuadrilla.** `Worker`, `Equipment` y `Crew` son
    entidades distintas. Los Excel los mezclaban; aquí no.
 10. **Las diferencias nunca desaparecen.** Si dos fuentes discrepan se registra
     `Variance` y se muestra. Prohibido "cuadrar" en silencio.
-11. **Importar dos veces el mismo archivo no duplica.** Idempotencia por
+11. **Lo desconocido NO es cero.** Sin tarifa de venta la venta es «no se sabe»,
+    y el margen sale marcado como incompleto sin porcentaje. Poner cero
+    convertiría una venta desconocida en una pérdida inventada.
+12. **Importar dos veces el mismo archivo no duplica.** Idempotencia por
     `(companyId, fileHash, naturalKey)`.
-12. **No adivinar reglas de dinero.** Si no se puede verificar: documentarla en
+13. **No adivinar reglas de dinero.** Si no se puede verificar: documentarla en
     `docs/BUSINESS_RULES.md` como `NEEDS BUSINESS CONFIRMATION`, hacerla
     configurable en `CompanySetting`, y usar el valor más conservador.
 
@@ -121,6 +125,24 @@ Al agregar una regla, va en el nivel puro.
 - **`engine/index.ts`** — `calculateWorkerPayroll`. Orden fijo:
   `basePay → additions → gross → deductions(prioridad) → net`.
 - **`payroll/workflow/`** — máquina de estados + huella de campos materiales.
+- **`margin/`** — el otro lado del negocio. `rates.ts` resuelve la tarifa de
+  VENTA con la misma precedencia que la de costo; `index.ts` calcula
+  venta − costo = margen, y devuelve `null` en el porcentaje cuando la venta
+  está incompleta. El costo del margen es el **bruto**, no el neto: descontar un
+  préstamo no abarata la mano de obra — BR-202.
+- **`advances/`** — préstamos a persona, cuadrilla, contratista o empresa
+  receptora. El saldo NO es columna: se deriva de los movimientos. Nunca se
+  descuenta más de lo que se debe, aunque el plan diga una cifra mayor.
+- **`payroll/extras/`** — descuentos y adicionales de la semana (hotel, equipo,
+  bonos). `index.ts` es puro y lo importa el navegador; `service.ts` toca la base.
+  Las recuperaciones de préstamo NO se capturan a mano — BR-232.
+- **`payroll/estimate.ts`** — lo que va sumando la rejilla mientras se marca.
+  Puro y en centavos aunque solo alimente una barra: es dinero que alguien mira
+  para decidir.
+- **`brand/`** — la identidad de cada compañía como DATO, no código: colores,
+  logo y **tipografía**. Infracore titula en mayúscula pesada con Saira y rotula
+  en monoespaciada; Skyline titula en minúscula con Inter. Con un estilo fijo,
+  una se vería como la otra. Sale de la compañía de la sesión, nunca de la URL.
 - **`disbursement/`** — a dónde va el dinero. `grouping.ts` (puro) agrupa por
   semana y empresa receptora y exige que las órdenes sumen **exactamente** lo
   aprobado; `orders.ts` genera las órdenes al aprobar y registra el pago;
@@ -183,6 +205,17 @@ un trigger nuevo que falta desactivar ahí.
   mensaje de error con `lower(OLD.status)` bloquea la operación —correcto— pero
   falla al explicarla, y quien la intentó ve un error del motor. Hay que
   convertirlo: `lower(OLD.status::text)`.
+- **Un componente de cliente que importa un servicio arrastra Prisma al
+  navegador** y rompe la compilación con «Can't resolve 'dns'». Lo puro va en
+  `index.ts` y lo que toca la base en `service.ts` — por eso están separados.
+- **Un componente local llamado `Date` tapa al `Date` de JavaScript.** El error
+  sale como «'new' expression whose target lacks a construct signature», que no
+  se parece en nada a la causa.
+- **Un CHECK viejo puede sobrevivir al código que protegía.** Al abrir los
+  préstamos a cuadrillas, `advance_single_beneficiary` —que solo conocía dos
+  clases— los rechazaba aunque la aplicación los diera por válidos. La base tenía
+  razón; el candado estaba desactualizado. Al ampliar un modelo, buscar las
+  restricciones viejas de esa tabla.
 - **Un cambio de estado puede dejar huérfano un documento.** Devolver una nómina
   que ya estaba dentro de una orden de desembolso dejaba la orden con el monto
   viejo, y tesorería habría transferido de más. Todo lo que saque a alguien de
@@ -197,6 +230,8 @@ un trigger nuevo que falta desactivar ahí.
 | `Company` | Entidad legal: Skyline / Infracore. De quién es la nómina | columna `UNIDAD DE NEGOCIO` — **NO** `EMPRESA` |
 | `Customer` | Cliente que nos paga (Bigham, Precision Fiber, GTS) | columna `EMPRESA` / `EMPRESA2` |
 | `PaymentRecipient` | Empresa receptora: a quién se le **transfiere** el dinero | no existía |
+| `WorkerRate` | Tarifa de COSTO: lo que NOSOTROS pagamos por un día | columnas de tarifa |
+| `BillingRate` | Tarifa de VENTA: lo que el cliente NOS paga por ese mismo día | no existía |
 | `Operation` | Aerial, Underground, BlowFiber, Admin, Data Center | columna `Tipo` |
 | `Crew` | Cuadrilla (MISSILES, AMPARO, CHATO…) | columna `EQUIPO` |
 | `Worker` | Persona | columna `Nombre` |
@@ -266,41 +301,65 @@ netlify deploy --prod
 
 ## Estado
 
-**252 pruebas · 50 tablas · 9 migraciones** · `check`, `smoke` y `flow` en verde.
+**315 pruebas · 51 tablas · 14 migraciones · 18 pantallas** · `check`, `smoke` y
+`flow` en verde. 140 reglas de negocio documentadas.
 
-El proceso completo: preparar → revisar → asignar empresa receptora → aprobar →
-órdenes de desembolso → pagar → comprobante → historial.
+El proceso completo, probado de punta a punta: marcar días y proyecto → calcular
+→ revisar → asignar empresa receptora → aprobar → órdenes de desembolso → pagar
+→ comprobante en PDF → histórico.
 
-Hecho: análisis de los Excel y documentación · motor de cálculo · protecciones en
-la base · login por persona con roles · aplicación navegable (inicio guiado,
-nómina en dos pasos, trabajadores, cuadrillas con negociación por unidad,
-contratistas con préstamos, proyectos, clientes, producción, reportes,
-indicadores) · Approval Center con asignación de empresa receptora y resumen
-previo · órdenes de desembolso con consecutivo, PDF y registro de pago ·
-catálogo de empresas receptoras · períodos de pago y cortes · importación del
-histórico.
+**Hecho:** motor de cálculo · protecciones en la base · login por persona con
+roles · venta, costo y margen con tarifas vigentes · producción con sus dos
+precios (lo que nos pagan y lo que pagamos) · préstamos con plan de recuperación
+· descuentos y adicionales de la semana · órdenes de desembolso con consecutivo,
+PDF y pago parcial · empresas receptoras · rentabilidad con filtros · marca
+propia de cada compañía · períodos y cortes · importación del histórico.
 
-Falta: descuentos y adicionales de la semana (**bloquea correr una nómina real**)
-· anticipos y deudas de trabajadores · comprobante de pago por trabajador ·
-subida real de archivos a SharePoint (hoy se guarda el enlace) · envío de correo
-a contabilidad (hoy se registra el hecho) · liquidación de contratistas (todo
-`FORMATO COMIS`) · margen por cuadrilla y proyecto.
+**Falta**, en el orden en que conviene atacarlo:
 
-Ver `docs/IMPLEMENTATION_PLAN.md`. Las reglas de desembolso son BR-180…BR-194 en
-`docs/BUSINESS_RULES.md` §19.
+1. **Equipo rentado** — no hay dónde marcarle días al camión ni a la máquina.
+   `Equipment` existe con `dailyCost`; falta el modelo de días y su pago.
+2. **Cuadrillas que se pagan al contratista** — la producción se ve pero no se
+   convierte en obligación de pago como sí pasa con las personas.
+3. **Despliegue por crew en el centro de pagos** — el negocio lo marcó como
+   crítico. Hoy la orden va empresa receptora → trabajadores, saltándose el crew.
+4. Semana trabajada vs facturada, y si el cliente ya pagó.
+5. Cuentas por pagar y proyección de las próximas semanas.
+6. Dashboard con los KPI pedidos (ventas del año, margen acumulado, pendiente).
+7. Reapertura de semanas cerradas con motivo y aprobación.
+
+**No existe y no bloquea operar:** inventario · disputas · notificaciones ·
+portal de contratistas · solicitud de detalle de descuento · planes de pago con
+cronograma.
+
+**Bloqueado por fuera:** la conciliación con SharePoint —la base está en
+`/sites/Skyline/Documentos compartidos/BASES/` pero Microsoft rechaza extraerla
+(406, etiqueta de confidencialidad)— y el despliegue en Netlify, sin créditos.
+
+Ver `docs/IMPLEMENTATION_PLAN.md`. Reglas por tema en `docs/BUSINESS_RULES.md`:
+desembolsos §19 (BR-180…194), venta y margen §20 (BR-200…208), producción §21
+(BR-210…215), préstamos §22 (BR-220…228), extras de la semana §23 (BR-230…236).
 
 ### Datos que el negocio tiene que resolver
 
 No son errores del sistema; son cosas que los Excel traían así y que hay que
 preguntar antes de correr una nómina de verdad:
 
-- ~63 personas sin tarifa válida. Aparecen calculando en **$0.00** y con **0
-  días**, y así entran a órdenes de desembolso. Se muestran a propósito: no
-  esconderlas.
+- **4.833 días sin proyecto** de 12.542 en Skyline. Sin proyecto no hay cliente,
+  y sin cliente el margen de esa semana sale incompleto — a propósito.
+- ~63 personas sin tarifa válida. Calculan en **$0.00** y así entran a órdenes de
+  desembolso. Se muestran a propósito: no esconderlas.
 - 37 grupos de nombres que podrían ser la misma persona, retenidos sin unir.
+  Ejemplo vivo: `ISAAC CEBALLOS-UG` y `ISSAC CEBALLOS BORRERO`, ocho registros.
 - 15 reglas en `NEEDS BUSINESS CONFIRMATION` (A1–A15).
-- El histórico en Neon quedó a medias (~5.048 de 12.906 días) cuando se pausó la
-  importación por un bloqueo de migración.
+- El histórico en Neon quedó a medias (~5.048 de 12.906 días).
+
+### Cómo se abre
+
+Este archivo **solo se carga si la sesión arranca dentro de esta carpeta**. Si se
+abre desde `~`, Claude Code no lo ve y se empieza sin conocer nada de lo de
+arriba. La memoria automática del usuario (`~/.claude/projects/…/memory/`) sí se
+carga siempre, pero solo tiene el contexto del negocio, no estas reglas.
 
 <!-- BEGIN:nextjs-agent-rules -->
 
