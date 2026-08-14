@@ -261,13 +261,32 @@ interface MarginSource {
  * El costo sale de las líneas de nómina (`amount`), no del neto: descontar un
  * préstamo no abarata la mano de obra — BR-202.
  */
+export interface MarginFilters {
+  from?: Date
+  to?: Date
+  crewId?: string
+  projectId?: string
+  customerId?: string
+  operationId?: string
+}
+
 export async function marginReport(
   companyId: string,
-  options: { from?: Date; to?: Date } = {},
+  options: MarginFilters = {},
 ): Promise<MarginReport> {
   const lines = await prisma.payrollLine.findMany({
     where: {
       lineType: { in: [...BILLABLE] },
+      ...(options.crewId ? { crewId: options.crewId } : {}),
+      ...(options.projectId ? { projectId: options.projectId } : {}),
+      ...(options.customerId || options.operationId
+        ? {
+            project: {
+              ...(options.customerId ? { customerId: options.customerId } : {}),
+              ...(options.operationId ? { operationId: options.operationId } : {}),
+            },
+          }
+        : {}),
       workerPayroll: {
         companyId,
         status: { in: [...COUNTED] },
@@ -302,6 +321,16 @@ export async function marginReport(
   const production = await prisma.production.findMany({
     where: {
       companyId,
+      ...(options.crewId ? { crewId: options.crewId } : {}),
+      ...(options.projectId ? { projectId: options.projectId } : {}),
+      ...(options.customerId || options.operationId
+        ? {
+            project: {
+              ...(options.customerId ? { customerId: options.customerId } : {}),
+              ...(options.operationId ? { operationId: options.operationId } : {}),
+            },
+          }
+        : {}),
       ...(options.from || options.to
         ? {
             productionDate: {

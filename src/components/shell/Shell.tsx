@@ -28,6 +28,7 @@ const NAV: ReadonlyArray<{
       { href: '/recipients', label: 'Empresas receptoras', permission: 'payroll:approve' },
       { href: '/crews', label: 'Cuadrillas', permission: 'crew:manage' },
       { href: '/contractors', label: 'Contratistas', permission: 'contractor:manage' },
+      { href: '/advances', label: 'Préstamos', permission: 'advance:view' },
       { href: '/projects', label: 'Proyectos', permission: 'project:manage' },
       { href: '/customers', label: 'Clientes', permission: 'project:manage' },
       { href: '/billing-rates', label: 'Tarifas de venta', permission: 'rate:view' },

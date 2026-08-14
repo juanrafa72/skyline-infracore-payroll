@@ -263,3 +263,17 @@ Novasite: día $400, noche $440, que vive en `WorkerRate` como siempre.
 | BR-213 | Al registrar producción se congelan los dos precios (`appliedPrice`, `appliedSalePrice`). Renegociar después no altera lo ya registrado. | CONFIRMED |
 | BR-214 | Una negociación que deja pérdida **no se bloquea** —a veces se hace a propósito— pero se avisa con el monto exacto por unidad antes y después de guardar. | CONFIRMED |
 | BR-215 | Un mismo corte semanal puede tener días pagados por jornal **y** producción pagada por unidad, incluso de la misma cuadrilla. El margen los suma juntos; mostrarlos por separado daría una cifra que no existe. | CONFIRMED |
+
+## 22. Préstamos y financiaciones
+
+| ID | Regla | Estado |
+|---|---|---|
+| BR-220 | Un préstamo puede ser a una **persona, una cuadrilla, un contratista o una empresa receptora**. Exactamente uno; la base lo hace cumplir. | CONFIRMED |
+| BR-221 | El saldo **no es una columna**: sale de lo prestado menos los abonos. Una columna se desincroniza el día que alguien inserte un movimiento sin actualizarla, y el sistema cobra de más sin que nadie lo note. | CONFIRMED |
+| BR-222 | **Nunca se descuenta más de lo que se debe.** Aunque el plan diga $200 y el saldo sea $50, se descuentan $50. | CONFIRMED |
+| BR-223 | Quien aprueba un préstamo tiene que ser distinto de quien lo pidió. Misma separación que en la nómina. | CONFIRMED |
+| BR-224 | Sin aprobar no se descuenta ni admite abonos. | CONFIRMED |
+| BR-225 | Un préstamo sin motivo no se guarda: es plata que salió sin explicación. | CONFIRMED |
+| BR-226 | Con método **manual** el sistema NO propone monto: lo decide una persona cada vez, y solo se le avisa el saldo. | CONFIRMED |
+| BR-227 | Un préstamo con abonos aplicados no se anula: la plata ya se movió. | CONFIRMED |
+| BR-228 | El estado se **calcula** del saldo, no se escribe a mano: uno escrito a mano puede decir «pagado» con saldo pendiente. | CONFIRMED |

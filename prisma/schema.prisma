@@ -425,6 +425,7 @@ model Crew {
   pricing     CrewPricing[]
   shares      CrewMemberShare[]
   billingRates BillingRate[]
+  advances    Advance[]
   production  Production[]
 
   @@unique([companyId, code])
@@ -1037,6 +1038,10 @@ model Advance {
   beneficiaryType  BeneficiaryType
   workerId         String?
   contractorId     String?
+  /// Un préstamo también puede ser a una cuadrilla o a una empresa receptora:
+  /// «Novasite pide $300 para arrancar la operación» — BR-220.
+  crewId           String?
+  recipientId      String?
   requestDate      DateTime       @db.Date
   amount           Decimal        @db.Decimal(18, 2)
   reason           String
@@ -1056,6 +1061,8 @@ model Advance {
 
   worker     Worker?           @relation(fields: [workerId], references: [id])
   contractor Contractor?       @relation(fields: [contractorId], references: [id])
+  crew       Crew?             @relation(fields: [crewId], references: [id])
+  recipient  PaymentRecipient? @relation(fields: [recipientId], references: [id])
   recoveries AdvanceRecovery[]
   pauses     AdvancePause[]
 
@@ -1067,6 +1074,8 @@ model Advance {
 enum BeneficiaryType {
   WORKER
   CONTRACTOR
+  CREW
+  RECIPIENT // empresa receptora
 }
 
 enum RecoveryMethod {
@@ -1421,6 +1430,7 @@ model PaymentRecipient {
   company  Company             @relation(fields: [companyId], references: [id])
   payrolls WorkerPayroll[]
   orders   DisbursementOrder[]
+  advances Advance[]
 
   @@unique([companyId, normalizedName])
   @@index([companyId, active])

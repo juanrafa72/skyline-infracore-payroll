@@ -55,6 +55,8 @@ const ROUTES = [
   '/projects',
   '/production',
   '/margin',
+  '/margin?desde=2026-01-01&hasta=2026-12-31',
+  '/advances',
   '/billing-rates',
   '/approvals',
   '/disbursements',

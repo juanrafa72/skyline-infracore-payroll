@@ -3,10 +3,43 @@ import { EmptyState, PageHeader, money } from '@/components/ui'
 import { Kpi } from '@/components/ui/metrics'
 import { assertCan } from '@/lib/auth/rbac'
 import { getActiveCompany } from '@/lib/company/context'
-import { marginReport, type MarginBreakdown } from '@/lib/margin/service'
+import { prisma } from '@/lib/db/client'
+import { marginReport, type MarginBreakdown, type MarginFilters } from '@/lib/margin/service'
 import type { MarginView } from '@/lib/margin'
+import { MarginFilterBar } from './MarginFilterBar'
 
 export const dynamic = 'force-dynamic'
+
+/** Convierte lo que viene en la dirección web en un filtro, ignorando basura. */
+function readFilters(params: Record<string, string | string[] | undefined>): MarginFilters {
+  const one = (key: string) => {
+    const value = params[key]
+    const text = Array.isArray(value) ? value[0] : value
+    return text && text !== '' ? text : undefined
+  }
+  const date = (key: string) => {
+    const text = one(key)
+    if (!text || !/^\d{4}-\d{2}-\d{2}$/.test(text)) return undefined
+    const parsed = new Date(`${text}T00:00:00Z`)
+    return Number.isNaN(parsed.getTime()) ? undefined : parsed
+  }
+
+  const filters: MarginFilters = {}
+  const from = date('desde')
+  const to = date('hasta')
+  const crewId = one('cuadrilla')
+  const projectId = one('proyecto')
+  const customerId = one('cliente')
+  const operationId = one('operacion')
+
+  if (from) filters.from = from
+  if (to) filters.to = to
+  if (crewId) filters.crewId = crewId
+  if (projectId) filters.projectId = projectId
+  if (customerId) filters.customerId = customerId
+  if (operationId) filters.operationId = operationId
+  return filters
+}
 
 /**
  * Rentabilidad: venta, costo y margen.
@@ -15,10 +48,41 @@ export const dynamic = 'force-dynamic'
  * completo cuando no lo está**. Si faltan tarifas de venta, se dice arriba y en
  * cada fila, porque alguien va a tomar decisiones con estos números.
  */
-export default async function MarginPage() {
+export default async function MarginPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}) {
   await assertCan('dashboard:view')
   const company = await getActiveCompany()
-  const report = await marginReport(company.id)
+
+  const params = await searchParams
+  const filters = readFilters(params)
+  const filtering = Object.keys(filters).length > 0
+
+  const [report, crews, projects, customers, operations] = await Promise.all([
+    marginReport(company.id, filters),
+    prisma.crew.findMany({
+      where: { companyId: company.id },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true },
+    }),
+    prisma.project.findMany({
+      where: { companyId: company.id },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true },
+    }),
+    prisma.customer.findMany({
+      where: { companyId: company.id },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true },
+    }),
+    prisma.operation.findMany({
+      where: { companyId: company.id },
+      orderBy: { sortOrder: 'asc' },
+      select: { id: true, name: true },
+    }),
+  ])
 
   const nothing = Number(report.total.cost) === 0 && Number(report.total.revenue) === 0
 
@@ -29,10 +93,22 @@ export default async function MarginPage() {
         subtitle={`Venta, costo y margen · ${company.displayName}`}
       />
 
+      <MarginFilterBar
+        crews={crews.map((row) => ({ value: row.id, label: row.name }))}
+        projects={projects.map((row) => ({ value: row.id, label: row.name }))}
+        customers={customers.map((row) => ({ value: row.id, label: row.name }))}
+        operations={operations.map((row) => ({ value: row.id, label: row.name }))}
+        current={params}
+      />
+
       {nothing ? (
         <EmptyState
-          title="Todavía no hay nada que medir"
-          hint="Cuando se calcule una nómina, aquí aparece cuánto costó, cuánto se vendió y cuánto quedó."
+          title={filtering ? 'Nada coincide con ese filtro' : 'Todavía no hay nada que medir'}
+          hint={
+            filtering
+              ? 'Prueba con otro rango de fechas, otra cuadrilla u otro proyecto.'
+              : 'Cuando se calcule una nómina, aquí aparece cuánto costó, cuánto se vendió y cuánto quedó.'
+          }
         />
       ) : (
         <>
