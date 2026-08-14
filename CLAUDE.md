@@ -49,8 +49,9 @@ viven en `/docs`; este archivo es corto a propósito.
 
 ```bash
 npm run dev                  # http://localhost:3100 (puerto fijo: el 3000 lo usa otro proyecto)
+npm run build && npm run start   # el mismo 3100, pero compilado: es lo que se le deja al negocio
 npm run check                # typecheck + lint + test + build — antes de cerrar cualquier módulo
-npm run smoke                # abre TODAS las pantallas en las dos compañías (requiere dev corriendo)
+npm run smoke                # abre TODAS las pantallas + el PDF (necesita el servidor arriba, dev o start)
 npm run flow                 # recorre el proceso completo contra la base real
 
 npm run test                 # Vitest
@@ -74,12 +75,19 @@ Los errores que llegaron al negocio pasaron `check` sin problema. Por eso hay tr
 | | Qué atrapa | Qué NO atrapa |
 |---|---|---|
 | `check` | tipos, lint, lógica pura | consultas mal escritas, botones que no hacen nada |
-| `smoke` | pantallas que revientan al consultar la base, formularios anidados, códigos en inglés visibles | que los botones hagan lo correcto |
+| `smoke` | pantallas que revientan al consultar la base, formularios anidados, códigos en inglés visibles, PDF ilegible | que los botones hagan lo correcto |
 | `flow` | el proceso de punta a punta y lo que NO debe poder hacerse | lo visual |
 
 `smoke` prueba a propósito **una semana con gente**: una vacía muestra el paso 1
 y deja sin revisar la rejilla, el botón de quitar y el de enviar a aprobación —
-justo donde estuvieron los errores.
+justo donde estuvieron los errores. También pide el PDF de una orden real y
+comprueba que los bytes sean un PDF de verdad: es un archivo, no una pantalla, y
+si el generador se rompe ninguna otra revisión se entera.
+
+**Un servidor viejo miente.** Si `npm run dev` ya estaba corriendo desde antes de
+regenerar el cliente de Prisma, guarda el cliente viejo en memoria y las
+pantallas nuevas dan 500 aunque el código esté bien. Ante un 500 raro tras tocar
+el esquema: matar el proceso del 3100 y volver a levantarlo antes de investigar.
 
 ---
 
@@ -127,11 +135,19 @@ Al agregar una regla, va en el nivel puro.
 
 ### Protecciones en la base, no en el código
 
-`prisma/migrations/*_guardrails/` instala triggers y restricciones: audit log
-append-only, nómina pagada inmutable, tarifas sin solape, condonación con
-aprobador obligatorio, adicional sin nota rechazado, pago mayor al aprobado
-imposible. `tests/security/db-guardrails.test.ts` las verifica con SQL crudo,
-saltándose la aplicación.
+Once triggers y veintitrés restricciones, repartidas en dos migraciones:
+`20260812233000_guardrails` (audit log append-only, nómina pagada inmutable,
+tarifas sin solape, condonación con aprobador, adicional sin nota, pago mayor al
+aprobado) y `20260813202556_disbursement_orders` (orden pagada inmutable,
+renglones congelados, receptora con historial no se borra, diferencia sin
+explicar rechazada).
+
+Se verifican con SQL crudo, saltándose la aplicación:
+`tests/security/db-guardrails.test.ts` y `tests/security/disbursement.test.ts`.
+Para limpiar datos de prueba hay que desactivar los triggers un momento —
+`ALTER TABLE ... DISABLE TRIGGER` dentro de un `try/finally`. Es un privilegio
+que la aplicación nunca tiene; si un `cleanup` empieza a fallar, casi siempre es
+un trigger nuevo que falta desactivar ahí.
 
 ### Fronteras entre proveedores — no cruzarlas
 
@@ -227,6 +243,25 @@ aplica migraciones y vuelve a sembrar catálogos (el seed usa upsert).
 netlify deploy --prod
 ```
 
+> **El despliegue está bloqueado, y no es el código ni la sesión.** `netlify
+> deploy` responde `JSONHTTPError: Forbidden`. El mensaje real solo aparece
+> preguntándole a la API directamente:
+>
+> ```
+> POST /api/v1/sites/<id>/deploys
+> 403 {"error":"Account credit usage exceeded - new deploys are blocked until credits are added"}
+> ```
+>
+> Cuenta gratuita, 300 créditos por período; el período va del 12 de agosto al
+> 12 de septiembre de 2026 y se agotaron. No hay medio de pago registrado.
+> **Antes de diagnosticar nada, comprobar ese POST**: `netlify status` da 200 y
+> el token funciona para leer, así que todo parece bien salvo el despliegue.
+>
+> Consecuencia: **el sitio publicado está viejo** — no tiene empresas receptoras
+> ni órdenes de desembolso. Todo está en GitHub, listo para subir cuando se
+> desbloquee. Mientras tanto se trabaja en local. Que el usuario pague o no es
+> decisión suya: no agregar medios de pago ni comprar créditos.
+
 ---
 
 ## Estado
@@ -251,7 +286,21 @@ subida real de archivos a SharePoint (hoy se guarda el enlace) · envío de corr
 a contabilidad (hoy se registra el hecho) · liquidación de contratistas (todo
 `FORMATO COMIS`) · margen por cuadrilla y proyecto.
 
-Ver `docs/IMPLEMENTATION_PLAN.md`.
+Ver `docs/IMPLEMENTATION_PLAN.md`. Las reglas de desembolso son BR-180…BR-194 en
+`docs/BUSINESS_RULES.md` §19.
+
+### Datos que el negocio tiene que resolver
+
+No son errores del sistema; son cosas que los Excel traían así y que hay que
+preguntar antes de correr una nómina de verdad:
+
+- ~63 personas sin tarifa válida. Aparecen calculando en **$0.00** y con **0
+  días**, y así entran a órdenes de desembolso. Se muestran a propósito: no
+  esconderlas.
+- 37 grupos de nombres que podrían ser la misma persona, retenidos sin unir.
+- 15 reglas en `NEEDS BUSINESS CONFIRMATION` (A1–A15).
+- El histórico en Neon quedó a medias (~5.048 de 12.906 días) cuando se pausó la
+  importación por un bloqueo de migración.
 
 <!-- BEGIN:nextjs-agent-rules -->
 
