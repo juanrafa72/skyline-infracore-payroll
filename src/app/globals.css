@@ -16,6 +16,17 @@
   --accent: #12467b;
   --accent-deep: #0d3358;
   --brand-gradient: linear-gradient(135deg, #0d3358, #12467b);
+
+  /* Tipografía: también es marca. Cada compañía la sobreescribe con la suya. */
+  --title-font: var(--font-body);
+  --title-transform: none;
+  --title-weight: 600;
+  --title-spacing: -0.01em;
+  --label-font: var(--font-body);
+  --label-transform: uppercase;
+  --label-weight: 600;
+  --label-spacing: 0.05em;
+  --label-size: 0.72rem;
 }
 
 body {
@@ -26,26 +37,25 @@ body {
 }
 
 /*
- * Titulares: pesados, en mayúscula, ligeramente apretados. Es el gesto más
- * reconocible de la marca de Infracore.
+ * Titulares y rótulos.
+ *
+ * No fijan una tipografía: leen la de la compañía activa. Infracore titula en
+ * Saira mayúscula pesada y rotula en monoespaciada; Skyline titula en Inter
+ * minúscula. Con un solo estilo fijo, una de las dos se vería como la otra.
  */
 .brand-display {
-  font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  text-transform: uppercase;
+  font-family: var(--title-font), ui-sans-serif, system-ui, sans-serif;
+  font-weight: var(--title-weight);
+  letter-spacing: var(--title-spacing);
+  text-transform: var(--title-transform);
 }
 
-/*
- * Etiquetas: monoespaciada, mayúscula, muy espaciada. Su otro sello, el que
- * usan en el menú y en los rótulos pequeños.
- */
 .brand-label {
-  font-family: var(--font-mono), ui-monospace, monospace;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  font-size: 0.68rem;
-  font-weight: 500;
+  font-family: var(--label-font), ui-sans-serif, system-ui, sans-serif;
+  text-transform: var(--label-transform);
+  letter-spacing: var(--label-spacing);
+  font-size: var(--label-size);
+  font-weight: var(--label-weight);
 }
 
 .brand-gradient {
