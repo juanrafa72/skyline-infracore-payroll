@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db/client'
+import { workersMissingRateCount } from './rates-status/service'
 import type { Range } from './ranges'
 
 /**
@@ -265,28 +266,32 @@ export interface ControlSignals {
 
 /** Señales de que algo necesita atención. Es lo que el Excel nunca pudo mostrar. */
 export async function controlSignals(companyId: string): Promise<ControlSignals> {
-  const [critical, review, activeWorkers, withRate, rules, entriesWithoutPayroll] =
-    await Promise.all([
-      prisma.exception.count({ where: { companyId, status: 'OPEN', level: 'CRITICAL' } }),
-      prisma.exception.count({ where: { companyId, status: 'OPEN', level: 'REVIEW_REQUIRED' } }),
-      prisma.worker.count({ where: { companyId, status: 'ACTIVE' } }),
-      prisma.worker.count({ where: { companyId, status: 'ACTIVE', rates: { some: { active: true } } } }),
-      prisma.companySetting.count({
-        where: { companyId, needsBusinessConfirmation: true, confirmed: false },
-      }),
-      prisma.workEntry.count({
-        where: {
-          companyId,
-          dayType: { in: ['FULL_DAY', 'HALF_DAY', 'HOURLY'] },
-          payrollWeek: { payrolls: { none: {} } },
-        },
-      }),
-    ])
+  /*
+   * "Sin tarifa" se responde con la misma vara del motor de cálculo
+   * (rates-status), no contando tarifas activas a ciegas: una tarifa vencida o
+   * amarrada a otro proyecto contaba como "tiene" y después el cálculo
+   * reventaba igual.
+   */
+  const [critical, review, withoutRate, rules, entriesWithoutPayroll] = await Promise.all([
+    prisma.exception.count({ where: { companyId, status: 'OPEN', level: 'CRITICAL' } }),
+    prisma.exception.count({ where: { companyId, status: 'OPEN', level: 'REVIEW_REQUIRED' } }),
+    workersMissingRateCount(companyId, new Date().toISOString().slice(0, 10)),
+    prisma.companySetting.count({
+      where: { companyId, needsBusinessConfirmation: true, confirmed: false },
+    }),
+    prisma.workEntry.count({
+      where: {
+        companyId,
+        dayType: { in: ['FULL_DAY', 'HALF_DAY', 'HOURLY'] },
+        payrollWeek: { payrolls: { none: {} } },
+      },
+    }),
+  ])
 
   return {
     criticalExceptions: critical,
     reviewExceptions: review,
-    workersWithoutRate: activeWorkers - withRate,
+    workersWithoutRate: withoutRate,
     unconfirmedRules: rules,
     daysNotCalculated: entriesWithoutPayroll,
   }

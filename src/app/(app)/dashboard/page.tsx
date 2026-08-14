@@ -133,9 +133,16 @@ export default async function DashboardPage({
         <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-3.5 text-sm text-amber-900">
           <strong>{pendingAttention} cosas necesitan atención.</strong>{' '}
           {signals.criticalExceptions > 0 ? `${signals.criticalExceptions} errores críticos · ` : ''}
-          {signals.workersWithoutRate > 0
-            ? `${signals.workersWithoutRate} personas activas sin tarifa vigente · `
-            : ''}
+          {signals.workersWithoutRate > 0 ? (
+            <>
+              <Link prefetch={false} href="/worker-rates" className="font-medium underline">
+                {signals.workersWithoutRate} personas activas sin tarifa vigente
+              </Link>
+              {' · '}
+            </>
+          ) : (
+            ''
+          )}
           {signals.unconfirmedRules > 0 ? `${signals.unconfirmedRules} reglas sin confirmar` : ''}
         </div>
       ) : null}

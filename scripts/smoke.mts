@@ -50,6 +50,7 @@ const ROUTES = [
   '/dashboard',
   '/workers',
   '/workers/new',
+  '/worker-rates',
   '/crews',
   '/contractors',
   '/projects',

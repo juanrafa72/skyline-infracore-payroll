@@ -200,8 +200,14 @@ export function calculateBasePay(
   }
 }
 
-/** Explica en cristiano por qué ninguna tarifa aplicó a este día. */
-function explainMissingRate(
+/**
+ * Explica en cristiano por qué ninguna tarifa aplicó a este día.
+ *
+ * Exportada porque la pantalla de tarifas faltantes muestra el mismo motivo:
+ * si el diagnóstico se escribiera dos veces, tarde o temprano dirían cosas
+ * distintas sobre el mismo trabajador.
+ */
+export function explainMissingRate(
   rates: readonly RateInput[],
   entry: WorkEntryInput,
   isHourly: boolean,

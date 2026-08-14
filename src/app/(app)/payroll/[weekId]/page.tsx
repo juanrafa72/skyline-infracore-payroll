@@ -4,6 +4,7 @@ import { Badge, Button, EmptyState, LinkButton, PageHeader, Stat, money } from '
 import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
 import { weekExtras } from '@/lib/payroll/extras/service'
+import { ratesStatus } from '@/lib/payroll/rates-status/service'
 import { shortDay, toIso } from '@/lib/payroll/week'
 import { calculateWeek, saveWorkEntries } from '../actions'
 import { Extras } from './Extras'
@@ -118,21 +119,31 @@ export default async function WeekPage({
    * siempre significaba cargar 149 trabajadores con sus tarifas en cada
    * pantalla de días, para nada.
    */
-  const [everyone, crews] = showChooser
+  /*
+   * "¿Quién tiene tarifa?" se responde con rates-status, la misma vara del
+   * motor: vigencia al inicio de ESTA semana, con el proyecto y la operación
+   * de cada persona. Antes se contaba cualquier tarifa activa sin mirar
+   * fechas, y una persona con tarifa vencida entraba al paso 1 para reventar
+   * en el cálculo.
+   */
+  const [everyone, crews, rateStatus] = showChooser
     ? await Promise.all([
         prisma.worker.findMany({
           where: { companyId: company.id, status: 'ACTIVE' },
           orderBy: { displayName: 'asc' },
-          include: {
-            rates: { where: { active: true }, orderBy: { effectiveFrom: 'desc' }, take: 1 },
-          },
         }),
         prisma.crew.findMany({ where: { companyId: company.id }, select: { id: true, name: true } }),
+        ratesStatus(company.id, toIso(week.startDate)),
       ])
-    : [[], []]
+    : [[], [], null]
 
   const crewName = new Map(crews.map((crew) => [crew.id, crew.name]))
-  const withRate = everyone.filter((person) => person.rates.length > 0)
+  const rateOf = new Map(
+    (rateStatus?.needsRate ?? [])
+      .filter((row) => row.resolvedAmount !== null)
+      .map((row) => [row.workerId, { amount: row.resolvedAmount!, rateType: row.rateType }]),
+  )
+  const withRate = everyone.filter((person) => rateOf.has(person.id))
   const hiddenWithoutRate = everyone.length - withRate.length
 
   // El período puede durar 1, 7, 14, 15, 16, 28, 30 o 31 días según la
@@ -313,8 +324,8 @@ export default async function WeekPage({
               people={withRate.map((person) => ({
                 id: person.id,
                 name: person.displayName,
-                rate: money(person.rates[0]!.amount),
-                rateType: label(TIPO_TARIFA, person.rates[0]!.rateType).toLowerCase(),
+                rate: money(rateOf.get(person.id)!.amount),
+                rateType: label(TIPO_TARIFA, rateOf.get(person.id)!.rateType).toLowerCase(),
                 crew:
                   person.defaultCrewId && crewName.get(person.defaultCrewId)
                     ? crewName.get(person.defaultCrewId)!

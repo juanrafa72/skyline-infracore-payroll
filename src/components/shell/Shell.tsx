@@ -25,6 +25,7 @@ const NAV: ReadonlyArray<{
     group: 'Mis listas',
     items: [
       { href: '/workers', label: 'Mi gente', permission: 'worker:view' },
+      { href: '/worker-rates', label: 'Tarifas faltantes', permission: 'rate:view' },
       { href: '/recipients', label: 'Empresas receptoras', permission: 'payroll:approve' },
       { href: '/crews', label: 'Cuadrillas', permission: 'crew:manage' },
       { href: '/contractors', label: 'Contratistas', permission: 'contractor:manage' },

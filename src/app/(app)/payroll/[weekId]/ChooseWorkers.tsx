@@ -145,8 +145,9 @@ export function ChooseWorkers({
 
         {hiddenWithoutRate > 0 ? (
           <p className="mt-3 text-xs text-[var(--muted)]">
-            {hiddenWithoutRate} persona(s) no aparecen porque no tienen tarifa.{' '}
-            <Link prefetch={false} href="/workers" className="text-[var(--accent)] underline">
+            {hiddenWithoutRate} persona(s) no aparecen porque no tienen tarifa que aplique a esta
+            semana (o se pagan por producción).{' '}
+            <Link prefetch={false} href="/worker-rates" className="text-[var(--accent)] underline">
               Ponerles tarifa
             </Link>
           </p>

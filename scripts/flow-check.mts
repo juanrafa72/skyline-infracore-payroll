@@ -29,6 +29,7 @@ import { renderDisbursementPdf } from '../src/lib/pdf/disbursement'
 import { toCents, toDecimalString } from '../src/lib/payroll/engine/money'
 import { DEFAULT_SETTINGS } from '../src/lib/payroll/engine/types'
 import { periodOf } from '../src/lib/payroll/period'
+import { ratesStatus, saveMissingRate } from '../src/lib/payroll/rates-status/service'
 import type { CurrentUser } from '../src/lib/auth/rbac'
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl() }) })
@@ -412,6 +413,37 @@ async function main() {
   check('quincenal: del 16 al fin de mes',
     periodOf('2026-07-20', 'SEMI_MONTHLY').endDate === '2026-07-31')
   check('mensual: julio tiene 31 días', periodOf('2026-07-10', 'MONTHLY').days.length === 31)
+
+  // ── 10. Tarifas faltantes
+  console.log('\n10. Tarifas faltantes')
+  const sinTarifa = await prisma.worker.create({
+    data: {
+      companyId: PREFIX, code: 'FW3', firstName: 'Sin', lastName: 'Tarifa',
+      displayName: 'SIN TARIFA (FLOW)',
+    },
+  })
+  const antes = await ratesStatus(PREFIX, '2026-07-22')
+  const fila = antes.missing.find((row) => row.workerId === sinTarifa.id)
+  check('la persona sin tarifa aparece como faltante', fila !== undefined)
+  check('con su porqué en cristiano', (fila?.why ?? '').includes('ninguna tarifa'), fila?.why ?? '')
+  check('la persona CON tarifa no aparece', !antes.missing.some((row) => row.workerId === worker.id))
+
+  const guardada = await saveMissingRate(rafael, {
+    workerId: sinTarifa.id, amount: '150', effectiveFrom: '2026-07-19',
+  })
+  check('se guarda desde la pantalla de faltantes', guardada.ok, guardada.message)
+  const despues = await ratesStatus(PREFIX, '2026-07-22')
+  check('deja de aparecer como faltante', !despues.missing.some((row) => row.workerId === sinTarifa.id))
+
+  const subida = await saveMissingRate(rafael, {
+    workerId: sinTarifa.id, amount: '175', effectiveFrom: '2026-07-26',
+  })
+  check('subirla cierra la anterior sin hueco ni solape',
+    subida.ok && subida.message.includes('quedó cerrada'), subida.message)
+  const solapada = await saveMissingRate(rafael, {
+    workerId: sinTarifa.id, amount: '160', effectiveFrom: '2026-07-20',
+  })
+  check('una vigencia que empieza antes de la actual se rechaza', !solapada.ok, solapada.message)
 
   await cleanup()
 
