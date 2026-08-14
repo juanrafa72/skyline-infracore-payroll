@@ -308,6 +308,15 @@ El proceso completo, probado de punta a punta: marcar días y proyecto → calcu
 → revisar → asignar empresa receptora → aprobar → órdenes de desembolso → pagar
 → comprobante en PDF → histórico.
 
+**Probado por quién:** por pruebas automáticas; el negocio todavía no ha
+completado una semana real en la pantalla. Solo 4 de 153 semanas tienen nómina
+calculada. Las otras 149 son **archivo del Excel, no pendientes**: la
+importación crea días pero jamás nóminas, a propósito (BR-153) — calcularlas
+inventaría obligaciones de pago que ya se pagaron por fuera. **No "ayudar"
+calculándolas.** La validación que falta es que Rafael corra la semana actual en
+la interfaz y la cuadre contra su Excel. Pendiente confirmarle que ninguna
+semana histórica siga sin pagar.
+
 **Hecho:** motor de cálculo · protecciones en la base · login por persona con
 roles · venta, costo y margen con tarifas vigentes · producción con sus dos
 precios (lo que nos pagan y lo que pagamos) · préstamos con plan de recuperación
@@ -347,8 +356,10 @@ preguntar antes de correr una nómina de verdad:
 
 - **4.833 días sin proyecto** de 12.542 en Skyline. Sin proyecto no hay cliente,
   y sin cliente el margen de esa semana sale incompleto — a propósito.
-- ~63 personas sin tarifa válida. Calculan en **$0.00** y así entran a órdenes de
-  desembolso. Se muestran a propósito: no esconderlas.
+- **63 personas activas sin tarifa** — Skyline 47 de 149, Infracore **16 de 18**:
+  Infracore hoy no puede correr una semana. Una sola persona sin tarifa genera
+  error CRÍTICO que bloquea el envío de la semana entera. Las importadas viejas
+  además calculan en $0.00 y así entran a órdenes. Solo Rafael sabe los valores.
 - 37 grupos de nombres que podrían ser la misma persona, retenidos sin unir.
   Ejemplo vivo: `ISAAC CEBALLOS-UG` y `ISSAC CEBALLOS BORRERO`, ocho registros.
 - 15 reglas en `NEEDS BUSINESS CONFIRMATION` (A1–A15).
