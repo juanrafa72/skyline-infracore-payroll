@@ -5,6 +5,7 @@ import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
 import { shortDay, toIso } from '@/lib/payroll/week'
 import { calculateWeek, saveWorkEntries } from '../actions'
+import { RunningTotal } from './RunningTotal'
 import { RemoveWorker } from './RemoveWorker'
 import { SubmitWeek } from './SubmitWeek'
 import { AddWorkerInline, ChooseWorkers } from './ChooseWorkers'
@@ -423,6 +424,15 @@ export default async function WeekPage({
                   </div>
                 ))}
               </div>
+
+              {/* Suma en vivo: días y gran total, mientras se marca */}
+              <RunningTotal
+                workers={workers.map((worker) => ({
+                  id: worker.id,
+                  name: worker.displayName,
+                  rate: worker.rates[0] ? worker.rates[0].amount.toFixed(2) : null,
+                }))}
+              />
 
               <div className="mt-4 flex flex-wrap gap-2">
                 <Button>Guardar días</Button>
