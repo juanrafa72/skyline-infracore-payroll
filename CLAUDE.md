@@ -185,6 +185,19 @@ un trigger nuevo que falta desactivar ahí.
 - **`<form>` dentro de `<form>`** es HTML inválido: el navegador descarta el de
   adentro y su botón envía el de afuera. Compila, la página abre, y el botón no
   hace nada. `smoke` lo detecta sobre el HTML servido.
+- **En los cleanups de pruebas, los `payment` se borran ANTES que contratistas
+  y proveedores.** Borrar al beneficiario primero dispara el FK `SET NULL`
+  sobre el pago y el CHECK `payment_single_payee` revienta con "new row
+  violates check" — desconcertante porque un DELETE no debería "insertar"
+  nada (en Postgres, el UPDATE del FK cuenta como fila nueva para el CHECK).
+  Igual: los renglones de orden ANTES que `crew_payroll`/`equipment_payroll`
+  (FK RESTRICT). Los triggers nuevos de esas dos tablas van en TODOS los
+  `DISABLE TRIGGER` de los cleanups.
+- **`prisma migrate dev` se niega en terminal no interactiva** cuando la
+  migración trae advertencias (índices únicos nuevos). La salida: escribir la
+  carpeta `prisma/migrations/<timestamp>_<nombre>/migration.sql` a mano y
+  aplicar con `prisma migrate deploy` — que además es como se agregan los
+  CHECKs y triggers que Prisma no sabe generar.
 - **`include: { relacion: false }` en Prisma** no es válido: compila, pasa el
   typecheck y revienta al abrir la página. Hay regla de lint.
 - **Trigger `BEFORE ... FOR EACH ROW` en Postgres**: en un `DELETE` hay que
@@ -308,12 +321,19 @@ netlify deploy --prod
 
 ## Estado
 
-**315 pruebas · 51 tablas · 14 migraciones · 18 pantallas** · `check`, `smoke` y
-`flow` en verde. 140 reglas de negocio documentadas.
+**347 pruebas · 54 tablas · 16 migraciones · 21+ pantallas** · `check`, `smoke`
+(30) y `flow` (64) en verde. 150 reglas de negocio documentadas.
 
-El proceso completo, probado de punta a punta: marcar días y proyecto → calcular
-→ revisar → asignar empresa receptora → aprobar → órdenes de desembolso → pagar
-→ comprobante en PDF → histórico.
+El proceso completo, probado de punta a punta, para LOS TRES pagables (persona,
+cuadrilla, equipo rentado): marcar días y proyecto → calcular → revisar →
+asignar empresa receptora → aprobar → órdenes de desembolso mixtas → pagar →
+PDF con desglose por cuadrilla → histórico. La semana tiene los tres bloques
+que pidió el negocio (personal / equipo rentado / crews), "copiar semana
+anterior" (solo QUIÉNES + proyecto sugerido, jamás días), receptora sugerida de
+la semana pasada (propone, nunca asigna — BR-181), pantalla de tarifas
+faltantes con la vara del motor, y acceso por la red de la oficina
+(`docs/LAN_ACCESS.md`, `SESSION_COOKIE_SECURE`) con cambio de contraseña
+forzado al primer ingreso.
 
 **Probado por quién:** por pruebas automáticas; el negocio todavía no ha
 completado una semana real en la pantalla. Solo 4 de 153 semanas tienen nómina
@@ -326,23 +346,26 @@ semana histórica siga sin pagar.
 
 **Hecho:** motor de cálculo · protecciones en la base · login por persona con
 roles · venta, costo y margen con tarifas vigentes · producción con sus dos
-precios (lo que nos pagan y lo que pagamos) · préstamos con plan de recuperación
-· descuentos y adicionales de la semana · órdenes de desembolso con consecutivo,
-PDF y pago parcial · empresas receptoras · rentabilidad con filtros · marca
-propia de cada compañía · períodos y cortes · importación del histórico.
+precios (lo que nos pagan y lo que pagamos) · **liquidaciones de cuadrilla al
+contratista y de equipo rentado al proveedor, por el mismo flujo con delegados
+(`workflow/payables.ts`)** · días de control de la gente del crew
+(`isControlOnly`: anotan, no pagan, no tocan hashes) · catálogo de equipos y
+proveedores · préstamos con plan de recuperación (y AVISO de saldo vivo al
+aprobar cuadrillas — el descuento automático dentro de `CrewPayroll` queda
+para después) · descuentos y adicionales de la semana · órdenes de desembolso
+mixtas con consecutivo, PDF con desglose por cuadrilla y pago parcial por
+renglón · empresas receptoras · rentabilidad con filtros · marca propia de
+cada compañía · períodos y cortes · importación del histórico.
 
 **Falta**, en el orden en que conviene atacarlo:
 
-1. **Equipo rentado** — no hay dónde marcarle días al camión ni a la máquina.
-   `Equipment` existe con `dailyCost`; falta el modelo de días y su pago.
-2. **Cuadrillas que se pagan al contratista** — la producción se ve pero no se
-   convierte en obligación de pago como sí pasa con las personas.
-3. **Despliegue por crew en el centro de pagos** — el negocio lo marcó como
-   crítico. Hoy la orden va empresa receptora → trabajadores, saltándose el crew.
-4. Semana trabajada vs facturada, y si el cliente ya pagó.
-5. Cuentas por pagar y proyección de las próximas semanas.
-6. Dashboard con los KPI pedidos (ventas del año, margen acumulado, pendiente).
-7. Reapertura de semanas cerradas con motivo y aprobación.
+1. Semana trabajada vs facturada, y si el cliente ya pagó.
+2. Cuentas por pagar y proyección de las próximas semanas.
+3. Dashboard con los KPI pedidos (ventas del año, margen acumulado, pendiente).
+4. Reapertura de semanas cerradas con motivo y aprobación.
+5. Costo de equipo dentro del margen (BR-171) y la inconsistencia preexistente
+   de `marginForWeek`/`marginYearToDate` que excluye producción — anotadas a
+   propósito para no mover números a mitad del MVP.
 
 **No existe y no bloquea operar:** inventario · disputas · notificaciones ·
 portal de contratistas · solicitud de detalle de descuento · planes de pago con
@@ -369,7 +392,13 @@ preguntar antes de correr una nómina de verdad:
   además calculan en $0.00 y así entran a órdenes. Solo Rafael sabe los valores.
 - 37 grupos de nombres que podrían ser la misma persona, retenidos sin unir.
   Ejemplo vivo: `ISAAC CEBALLOS-UG` y `ISSAC CEBALLOS BORRERO`, ocho registros.
-- 15 reglas en `NEEDS BUSINESS CONFIRMATION` (A1–A15).
+- **Contratista de cada cuadrilla que se paga por producción** — la puerta de
+  APPROVE lo exige (a él se le paga). Se asigna en /crews.
+- **Proveedor y costo diario de cada equipo RENTADO** (PLOW-RENT, MINI
+  ESCAVADORA…) — sin costo no calcula, sin proveedor no se aprueba (BR-121).
+  Se llenan en /equipment, con creación inline de proveedores.
+- 15 reglas en `NEEDS BUSINESS CONFIRMATION` (A1–A15). La A14 quedó respondida
+  en la práctica: equipo RENTED se paga al proveedor; OWNED es costo interno.
 - El histórico en Neon quedó a medias (~5.048 de 12.906 días).
 
 ### Cómo se abre

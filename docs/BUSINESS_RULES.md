@@ -289,3 +289,18 @@ Novasite: día $400, noche $440, que vive en `WorkerRate` como siempre.
 | BR-234 | Agregar o quitar un extra son campos **materiales**: si la nómina estaba aprobada, la aprobación se cae en el acto y se avisa. Permitir agregar pero bloquear quitar sería incoherente. | CONFIRMED |
 | BR-235 | Una nómina **pagada** no admite extras ni quitarlos. Se corrige con un ajuste. | CONFIRMED |
 | BR-236 | Un extra con fecha fuera de la semana se rechaza. | CONFIRMED |
+
+## 24. Cuadrillas y equipos como pagables (BR-240 – BR-249)
+
+| # | Regla | Estado |
+|---|-------|--------|
+| BR-240 | La liquidación de una cuadrilla (`CrewPayroll`) es la Σ de su `Production` en la semana, sumada en centavos. Es un **vehículo de pago**: el margen sigue leyendo `Production` directo. Jamás se emiten líneas `BASE_PRODUCTION` — sería contar cada pie dos veces. | CONFIRMED |
+| BR-241 | `syncCrewPayrolls`/`syncEquipmentPayrolls` solo recalculan liquidaciones en estado editable (DRAFT/PREPARED/REJECTED). Lo enviado, aprobado o pagado jamás se recalcula en silencio: se invalida con rastro o se devuelve. | CONFIRMED |
+| BR-242 | Aprobar la liquidación de una cuadrilla exige **contratista** además de empresa receptora: a él se le paga (`Payment` tipo CONTRACTOR). La receptora es el conducto; el contratista, el beneficiario legal. | CONFIRMED |
+| BR-243 | Los días de la gente de una cuadrilla que cobra por producción son **control interno** (`WorkEntry.isControlOnly`): se anotan, NO generan pago individual, no entran al motor, al roster, al dashboard ni a las huellas de aprobación, y jamás pisan un día pagado. | CONFIRMED (Rafael, 2026-08-14) |
+| BR-244 | La producción de una (cuadrilla, semana) cuya liquidación ya movió dinero no se agrega ni se borra: se corrige con ajuste. Sobre una aprobada se permite, pero la aprobación se cae en el acto con rastro. `deleteProduction` estuvo sin guarda alguna; ya no. | CONFIRMED |
+| BR-245 | La liquidación de un equipo es días marcados × `dailyCost` **congelado al calcular**. Solo los `RENTED` liquidan; los `OWNED` son costo interno (A14). Sin costo diario: error CRÍTICO — jamás se paga $0.00 en silencio. | CONFIRMED |
+| BR-246 | Aprobar la liquidación de un equipo exige **proveedor** (BR-121: un equipo jamás recibe pagos). `Payment` tipo VENDOR. | CONFIRMED |
+| BR-247 | Un renglón de orden de desembolso referencia **exactamente un** pagable — persona, cuadrilla o equipo (CHECK `disbursement_order_item_one_payable`) — con nombre y cuadrilla congelados (`itemNameSnapshot`, `crewLabelSnapshot`). | CONFIRMED |
+| BR-248 | El desglose por cuadrilla del centro de pagos y del PDF sale SOLO de los snapshots del renglón, nunca de joins vivos: el desglose de una orden pagada dice lo que decía el día del pago (extiende BR-186). | CONFIRMED |
+| BR-249 | Préstamos vivos del crew o su contratista se AVISAN en la aprobación de su liquidación. El descuento automático dentro de `CrewPayroll` queda para diseño posterior; mientras tanto la recuperación se registra a mano en Préstamos. | CONFIRMED (alcance MVP) |
