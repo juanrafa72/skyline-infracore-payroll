@@ -322,7 +322,7 @@ describe('generar las órdenes', () => {
     })
     expect(orders).toHaveLength(1)
     expect(orders[0]!.totalAmount.toFixed(2)).toBe('350.50')
-    expect(orders[0]!.workerCount).toBe(2)
+    expect(orders[0]!.itemCount).toBe(2)
     expect(orders[0]!.items).toHaveLength(2)
   })
 
@@ -448,7 +448,7 @@ describe('registrar el pago', () => {
       ...base,
       orderId: order.id,
       amountPaid: first.amount.toFixed(2),
-      workerPayrollIds: [first.workerPayrollId],
+      workerPayrollIds: [first.workerPayrollId!],
     })
 
     expect(result.ok).toBe(false)
@@ -463,7 +463,7 @@ describe('registrar el pago', () => {
       ...base,
       orderId: order.id,
       amountPaid: first.amount.toFixed(2),
-      workerPayrollIds: [first.workerPayrollId],
+      workerPayrollIds: [first.workerPayrollId!],
       differenceReason: 'El segundo giro sale mañana',
     })
 
@@ -472,12 +472,12 @@ describe('registrar el pago', () => {
     expect(after.status).toBe('PARTIALLY_PAID')
 
     const paid = await prisma.workerPayroll.findUniqueOrThrow({
-      where: { id: first.workerPayrollId },
+      where: { id: first.workerPayrollId! },
     })
     expect(paid.status).toBe('PAID')
 
     const rest = await prisma.workerPayroll.findMany({
-      where: { companyId: COMPANY, NOT: { id: first.workerPayrollId } },
+      where: { companyId: COMPANY, NOT: { id: first.workerPayrollId! } },
     })
     expect(rest.every((payroll) => payroll.status === 'APPROVED')).toBe(true)
   })
@@ -490,7 +490,7 @@ describe('registrar el pago', () => {
       ...base,
       orderId: order.id,
       amountPaid: first!.amount.toFixed(2),
-      workerPayrollIds: [first!.workerPayrollId],
+      workerPayrollIds: [first!.workerPayrollId!],
       differenceReason: 'primer giro',
     })
     const result = await payOrder(treasury, {
@@ -498,7 +498,7 @@ describe('registrar el pago', () => {
       reference: 'REF-2',
       orderId: order.id,
       amountPaid: second!.amount.toFixed(2),
-      workerPayrollIds: [second!.workerPayrollId],
+      workerPayrollIds: [second!.workerPayrollId!],
       differenceReason: 'segundo giro',
     })
 
@@ -680,7 +680,7 @@ describe('devolver una nómina que ya está en una orden', () => {
     expect(result.moved).toBe(1)
     const after = await prisma.disbursementOrder.findUniqueOrThrow({ where: { id: order.id } })
     expect(after.totalAmount.toFixed(2)).toBe('200.00')
-    expect(after.workerCount).toBe(1)
+    expect(after.itemCount).toBe(1)
     expect(
       await prisma.disbursementOrderItem.count({ where: { workerPayrollId: ids[0]! } }),
     ).toBe(0)
@@ -726,7 +726,7 @@ describe('devolver una nómina que ya está en una orden', () => {
       method: 'WIRE',
       reference: 'REF-PARCIAL',
       amountPaid: first.amount.toFixed(2),
-      workerPayrollIds: [first.workerPayrollId],
+      workerPayrollIds: [first.workerPayrollId!],
       differenceReason: 'primer giro',
     })
 

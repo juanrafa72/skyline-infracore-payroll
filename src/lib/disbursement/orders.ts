@@ -291,7 +291,7 @@ export async function generateOrders(
         companyId: user.companyId,
         workerPayrollId: item.workerPayrollId,
         workerId: item.workerId,
-        workerNameSnapshot: item.workerName,
+        itemNameSnapshot: item.workerName,
         amount: toDecimalString(item.amount),
       }))
 
@@ -310,7 +310,7 @@ export async function generateOrders(
           where: { id: open.id },
           data: {
             totalAmount: totals._sum.amount ?? 0,
-            workerCount: totals._count,
+            itemCount: totals._count,
             approvedById: user.id,
             approvedByName: user.name,
             approvedAt: new Date(),
@@ -331,7 +331,7 @@ export async function generateOrders(
           payrollWeekId: group.payrollWeekId,
           recipientId: group.recipientId,
           orderNumber,
-          workerCount: group.items.length,
+          itemCount: group.items.length,
           totalAmount: toDecimalString(group.total),
           companyNameSnapshot: company.displayName,
           recipientNameSnapshot: recipient.name,
@@ -430,8 +430,12 @@ export async function payOrder(user: CurrentUser, input: PayOrderInput): Promise
     return { ok: false, message: `La orden ${order.orderNumber} está anulada.` }
   }
 
+  // Hoy los renglones pagables por aquí son de personas; cuadrillas y equipos
+  // se conectan en la fase de órdenes mixtas.
   const pending = order.items.filter(
-    (item) => !['PAID', 'RECONCILED', 'CLOSED'].includes(item.workerPayroll.status),
+    (item) =>
+      item.workerPayroll !== null &&
+      !['PAID', 'RECONCILED', 'CLOSED'].includes(item.workerPayroll.status),
   )
   if (pending.length === 0) {
     return { ok: false, message: 'Todas las personas de esta orden ya están pagadas.' }
@@ -440,9 +444,9 @@ export async function payOrder(user: CurrentUser, input: PayOrderInput): Promise
   const selectedIds = new Set(
     input.workerPayrollIds && input.workerPayrollIds.length > 0
       ? input.workerPayrollIds
-      : pending.map((item) => item.workerPayrollId),
+      : pending.map((item) => item.workerPayrollId!),
   )
-  const selected = pending.filter((item) => selectedIds.has(item.workerPayrollId))
+  const selected = pending.filter((item) => selectedIds.has(item.workerPayrollId!))
 
   if (selected.length === 0) {
     return { ok: false, message: 'No marcaste a nadie de esta orden.' }
@@ -493,7 +497,7 @@ export async function payOrder(user: CurrentUser, input: PayOrderInput): Promise
   }
 
   // Primero la transición. Si esta persona no puede pagar esto, no se crea nada.
-  const ids = selected.map((item) => item.workerPayrollId)
+  const ids = selected.map((item) => item.workerPayrollId!)
   const started = await applyTransition(user, ids, 'START_PAYMENT', null)
   if (started.moved === 0) {
     return { ok: false, message: started.skipped[0]?.reason ?? 'No se pudo iniciar el pago.' }
@@ -515,7 +519,7 @@ export async function payOrder(user: CurrentUser, input: PayOrderInput): Promise
           companyId: user.companyId,
           paymentNumber: `PAY-${String(count + index + 1).padStart(5, '0')}`,
           payeeType: 'WORKER',
-          workerId: item.workerId,
+          workerId: item.workerId!,
           payrollWeekId: order.payrollWeekId,
           disbursementOrderId: order.id,
           approvedAmount: item.amount,
@@ -532,7 +536,7 @@ export async function payOrder(user: CurrentUser, input: PayOrderInput): Promise
       })
 
       await tx.workerPayroll.update({
-        where: { id: item.workerPayrollId },
+        where: { id: item.workerPayrollId! },
         data: { paymentId: payment.id },
       })
     }
@@ -575,7 +579,7 @@ export async function payOrder(user: CurrentUser, input: PayOrderInput): Promise
           paid: toDecimalString(paidSoFar),
           reference,
           method: input.method,
-          workers: selected.map((item) => item.workerNameSnapshot),
+          workers: selected.map((item) => item.itemNameSnapshot),
         },
         changedFields: ['status', 'amountPaid', 'reference'],
         reason: input.differenceReason?.trim() || input.notes?.trim() || null,

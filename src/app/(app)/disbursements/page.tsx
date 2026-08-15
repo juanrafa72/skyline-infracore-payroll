@@ -43,7 +43,7 @@ export default async function DisbursementsPage() {
       recipient: true,
       documents: { orderBy: { uploadedAt: 'desc' } },
       items: {
-        orderBy: { workerNameSnapshot: 'asc' },
+        orderBy: { itemNameSnapshot: 'asc' },
         include: { workerPayroll: { select: { status: true } } },
       },
     },
@@ -65,10 +65,12 @@ export default async function DisbursementsPage() {
     total: order.totalAmount.toFixed(2),
     amountPaid: order.amountPaid.toFixed(2),
     workers: order.items.map((item) => ({
-      workerPayrollId: item.workerPayrollId,
-      name: item.workerNameSnapshot,
+      // Hoy todos los renglones son de personas; las cuadrillas y equipos
+      // entran en la fase de órdenes mixtas.
+      workerPayrollId: item.workerPayrollId!,
+      name: item.itemNameSnapshot,
       amount: item.amount.toFixed(2),
-      paid: ['PAID', 'RECONCILED', 'CLOSED'].includes(item.workerPayroll.status),
+      paid: ['PAID', 'RECONCILED', 'CLOSED'].includes(item.workerPayroll?.status ?? ''),
     })),
     approvedByName: order.approvedByName,
     preparedByName: order.preparedByName,

@@ -21,7 +21,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     where: { id, companyId: user.companyId },
     include: {
       items: {
-        orderBy: { workerNameSnapshot: 'asc' },
+        orderBy: { itemNameSnapshot: 'asc' },
         include: { workerPayroll: { select: { status: true } } },
       },
     },
@@ -42,9 +42,9 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     periodEnd: toIso(order.periodEnd),
     createdAt: toIso(order.createdAt),
     workers: order.items.map((item) => ({
-      name: item.workerNameSnapshot,
+      name: item.itemNameSnapshot,
       amount: item.amount.toFixed(2),
-      paid: ['PAID', 'RECONCILED', 'CLOSED'].includes(item.workerPayroll.status),
+      paid: ['PAID', 'RECONCILED', 'CLOSED'].includes(item.workerPayroll?.status ?? ''),
     })),
     total: order.totalAmount.toFixed(2),
     amountPaid: order.amountPaid.toFixed(2),

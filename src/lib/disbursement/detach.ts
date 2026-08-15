@@ -85,7 +85,7 @@ export async function detachFromOrder(
         cancellationReason: `Quedó sin trabajadores: ${why}`,
         cancelledAt: new Date(),
         totalAmount: 0,
-        workerCount: 0,
+        itemCount: 0,
       },
     })
     return { ok: true, orderNumber: item.order.orderNumber, orderEmptied: true }
@@ -93,7 +93,7 @@ export async function detachFromOrder(
 
   await tx.disbursementOrder.update({
     where: { id: item.disbursementOrderId },
-    data: { totalAmount: totals._sum.amount ?? 0, workerCount: totals._count },
+    data: { totalAmount: totals._sum.amount ?? 0, itemCount: totals._count },
   })
 
   return { ok: true, orderNumber: item.order.orderNumber }

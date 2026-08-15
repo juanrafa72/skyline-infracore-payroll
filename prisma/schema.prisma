@@ -899,6 +899,7 @@ model CrewPayroll {
   contractor       Contractor?       @relation(fields: [contractorId], references: [id])
   payment          Payment?          @relation(fields: [paymentId], references: [id])
   paymentRecipient PaymentRecipient? @relation(fields: [paymentRecipientId], references: [id])
+  disbursementItem DisbursementOrderItem?
 
   @@unique([companyId, payrollWeekId, crewId])
   @@index([companyId, payrollWeekId, status])
@@ -955,6 +956,7 @@ model EquipmentPayroll {
   vendor           Vendor?           @relation(fields: [vendorId], references: [id])
   payment          Payment?          @relation(fields: [paymentId], references: [id])
   paymentRecipient PaymentRecipient? @relation(fields: [paymentRecipientId], references: [id])
+  disbursementItem DisbursementOrderItem?
 
   @@unique([companyId, payrollWeekId, equipmentId])
   @@index([companyId, payrollWeekId, status])
@@ -1616,7 +1618,10 @@ model DisbursementOrder {
 
   status DisbursementOrderStatus @default(PENDING_PAYMENT)
 
-  workerCount Int     @default(0)
+  /// Renglones de la orden (personas + cuadrillas + equipos). La columna
+  /// conserva su nombre histórico "workerCount" (`@map`): renombrarla en la
+  /// base tocaría triggers y datos ya pagados.
+  itemCount   Int     @default(0) @map("workerCount")
   totalAmount Decimal @default(0) @db.Decimal(18, 2)
   amountPaid  Decimal @default(0) @db.Decimal(18, 2)
 
@@ -1689,18 +1694,31 @@ enum DisbursementOrderStatus {
 ///
 /// El nombre y el monto se congelan aquí: el PDF tiene que coincidir
 /// exactamente con lo que se aprobó, pase lo que pase después.
+/// Un renglón de una orden de desembolso: EXACTAMENTE UNO de los tres
+/// pagables (persona, cuadrilla o equipo) — lo impone el CHECK
+/// `disbursement_order_item_one_payable`. El nombre en Prisma es
+/// `itemNameSnapshot`, pero la COLUMNA sigue llamándose "workerNameSnapshot"
+/// (`@map`): renombrarla en la base tocaría CHECKs, triggers y datos pagados.
 model DisbursementOrderItem {
   id                  String  @id @default(uuid(7))
   companyId           String
   disbursementOrderId String
-  workerPayrollId     String  @unique
-  workerId            String
-  workerNameSnapshot  String
+  workerPayrollId     String? @unique
+  workerId            String?
+  crewPayrollId       String? @unique
+  equipmentPayrollId  String? @unique
+  itemNameSnapshot    String  @map("workerNameSnapshot")
+  /// Cuadrilla a la que pertenece este renglón, congelada al generar la
+  /// orden: para personas, la de sus días de esa semana; para cuadrillas, su
+  /// propio nombre; para equipos, null. Alimenta el desglose por crew.
+  crewLabelSnapshot   String?
   amount              Decimal @db.Decimal(18, 2)
   createdAt           DateTime @default(now())
 
-  order         DisbursementOrder @relation(fields: [disbursementOrderId], references: [id], onDelete: Cascade)
-  workerPayroll WorkerPayroll     @relation(fields: [workerPayrollId], references: [id])
+  order            DisbursementOrder @relation(fields: [disbursementOrderId], references: [id], onDelete: Cascade)
+  workerPayroll    WorkerPayroll?    @relation(fields: [workerPayrollId], references: [id], onDelete: Restrict)
+  crewPayroll      CrewPayroll?      @relation(fields: [crewPayrollId], references: [id], onDelete: Restrict)
+  equipmentPayroll EquipmentPayroll? @relation(fields: [equipmentPayrollId], references: [id], onDelete: Restrict)
 
   @@index([disbursementOrderId])
   @@map("disbursement_order_item")
