@@ -21,9 +21,12 @@ async function run(action: WorkflowAction, formData: FormData): Promise<string> 
   const user = await requireUser()
   const ids = formData.getAll('payrollId').map(String).filter(Boolean)
   const crewIds = formData.getAll('crewPayrollId').map(String).filter(Boolean)
+  const equipmentIds = formData.getAll('equipmentPayrollId').map(String).filter(Boolean)
   const reason = String(formData.get('reason') ?? '').trim() || null
 
-  if (ids.length === 0 && crewIds.length === 0) return 'No marcaste ninguna nómina.'
+  if (ids.length === 0 && crewIds.length === 0 && equipmentIds.length === 0) {
+    return 'No marcaste ninguna nómina.'
+  }
 
   const result =
     ids.length > 0
@@ -33,11 +36,16 @@ async function run(action: WorkflowAction, formData: FormData): Promise<string> 
     crewIds.length > 0
       ? await applyPayableTransition(user, 'CREW', crewIds, action, reason)
       : { moved: 0, skipped: [] as Array<{ name: string; reason: string }> }
+  const machines =
+    equipmentIds.length > 0
+      ? await applyPayableTransition(user, 'EQUIPMENT', equipmentIds, action, reason)
+      : { moved: 0, skipped: [] as Array<{ name: string; reason: string }> }
 
-  const moved = result.moved + crews.moved
+  const moved = result.moved + crews.moved + machines.moved
   const allSkipped = [
     ...result.skipped.map((row) => `${row.workerName}: ${row.reason}`),
     ...crews.skipped.map((row) => `${row.name}: ${row.reason}`),
+    ...machines.skipped.map((row) => `${row.name}: ${row.reason}`),
   ]
 
   /*
@@ -53,6 +61,7 @@ async function run(action: WorkflowAction, formData: FormData): Promise<string> 
     const generated = await generateOrders(user, {
       workerPayrollIds: ids,
       crewPayrollIds: crewIds,
+      equipmentPayrollIds: equipmentIds,
     })
     if (generated.ok && generated.orderNumbers && generated.orderNumbers.length > 0) {
       orders = ` ${generated.message}`
@@ -69,10 +78,10 @@ async function run(action: WorkflowAction, formData: FormData): Promise<string> 
     action as 'APPROVE' | 'REJECT' | 'RETURN'
   ]
 
-  const what =
-    crews.moved > 0
-      ? `${result.moved} nómina(s) y ${crews.moved} cuadrilla(s)`
-      : `${result.moved} nómina(s)`
+  const parts = [`${result.moved} nómina(s)`]
+  if (crews.moved > 0) parts.push(`${crews.moved} cuadrilla(s)`)
+  if (machines.moved > 0) parts.push(`${machines.moved} equipo(s)`)
+  const what = parts.join(' y ')
 
   if (allSkipped.length === 0) {
     return `LISTO|${what} ${verb}(s).${orders}`
@@ -98,13 +107,14 @@ export async function assignRecipientAction(
   const user = await assertCan('payroll:approve')
   const ids = formData.getAll('payrollId').map(String).filter(Boolean)
   const crewIds = formData.getAll('crewPayrollId').map(String).filter(Boolean)
+  const equipmentIds = formData.getAll('equipmentPayrollId').map(String).filter(Boolean)
   const recipientId = String(formData.get('recipientId') ?? '')
 
   if (!recipientId) return 'Escoge la empresa receptora.'
 
   const result = await assignRecipientToPayables(
     user,
-    { workerPayrollIds: ids, crewPayrollIds: crewIds },
+    { workerPayrollIds: ids, crewPayrollIds: crewIds, equipmentPayrollIds: equipmentIds },
     recipientId,
   )
   revalidatePath('/approvals')
@@ -123,6 +133,7 @@ export async function createAndAssignRecipient(
   const user = await assertCan('payroll:approve')
   const ids = formData.getAll('payrollId').map(String).filter(Boolean)
   const crewIds = formData.getAll('crewPayrollId').map(String).filter(Boolean)
+  const equipmentIds = formData.getAll('equipmentPayrollId').map(String).filter(Boolean)
 
   const created = await createRecipient(user, {
     name: String(formData.get('name') ?? ''),
@@ -143,7 +154,7 @@ export async function createAndAssignRecipient(
     return created.message
   }
 
-  if (ids.length === 0 && crewIds.length === 0) {
+  if (ids.length === 0 && crewIds.length === 0 && equipmentIds.length === 0) {
     revalidatePath('/approvals')
     revalidatePath('/recipients')
     return `LISTO|${created.message}`
@@ -151,7 +162,7 @@ export async function createAndAssignRecipient(
 
   const assigned = await assignRecipientToPayables(
     user,
-    { workerPayrollIds: ids, crewPayrollIds: crewIds },
+    { workerPayrollIds: ids, crewPayrollIds: crewIds, equipmentPayrollIds: equipmentIds },
     created.recipientId,
   )
   revalidatePath('/approvals')
@@ -179,7 +190,8 @@ export async function submitWeek(_previous: string | null, formData: FormData): 
   const user = await requireUser()
   const ids = formData.getAll('payrollId').map(String).filter(Boolean)
   const crewIds = formData.getAll('crewPayrollId').map(String).filter(Boolean)
-  if (ids.length === 0 && crewIds.length === 0) {
+  const equipmentIds = formData.getAll('equipmentPayrollId').map(String).filter(Boolean)
+  if (ids.length === 0 && crewIds.length === 0 && equipmentIds.length === 0) {
     return 'No hay nóminas calculadas para enviar.'
   }
 
@@ -188,26 +200,31 @@ export async function submitWeek(_previous: string | null, formData: FormData): 
       ? await applyTransition(user, ids, 'SUBMIT', null)
       : { moved: 0, skipped: [] as Array<{ workerName: string; reason: string }> }
 
-  // Las liquidaciones de cuadrilla viajan en el mismo envío: mismo motor,
-  // delegado distinto.
+  // Las liquidaciones de cuadrilla y de equipo viajan en el mismo envío:
+  // mismo motor, delegado distinto.
   const crews =
     crewIds.length > 0
       ? await applyPayableTransition(user, 'CREW', crewIds, 'SUBMIT', null)
+      : { moved: 0, skipped: [] as Array<{ name: string; reason: string }> }
+  const machines =
+    equipmentIds.length > 0
+      ? await applyPayableTransition(user, 'EQUIPMENT', equipmentIds, 'SUBMIT', null)
       : { moved: 0, skipped: [] as Array<{ name: string; reason: string }> }
 
   revalidatePath('/payroll')
   revalidatePath('/approvals')
 
-  const moved = result.moved + crews.moved
+  const moved = result.moved + crews.moved + machines.moved
   const skipped = [
     ...result.skipped.map((row) => `${row.workerName}: ${row.reason}`),
     ...crews.skipped.map((row) => `${row.name}: ${row.reason}`),
+    ...machines.skipped.map((row) => `${row.name}: ${row.reason}`),
   ]
 
-  const summary =
-    crews.moved > 0
-      ? `${result.moved} nómina(s) y ${crews.moved} cuadrilla(s) enviada(s) a aprobación.`
-      : `${result.moved} nómina(s) enviada(s) a aprobación.`
+  const parts = [`${result.moved} nómina(s)`]
+  if (crews.moved > 0) parts.push(`${crews.moved} cuadrilla(s)`)
+  if (machines.moved > 0) parts.push(`${machines.moved} equipo(s)`)
+  const summary = `${parts.join(' y ')} enviada(s) a aprobación.`
 
   if (skipped.length === 0) return `LISTO|${summary}`
   const detail = skipped.join(' · ')

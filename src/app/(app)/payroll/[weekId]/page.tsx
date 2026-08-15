@@ -14,7 +14,9 @@ import { RemoveWorker } from './RemoveWorker'
 import { SubmitWeek } from './SubmitWeek'
 import { AddWorkerInline, ChooseWorkers } from './ChooseWorkers'
 import { CrewsBlock } from './CrewsBlock'
+import { EquipmentBlock } from './EquipmentBlock'
 import { weekCrewViews } from '@/lib/payroll/crews/service'
+import { weekEquipmentViews } from '@/lib/payroll/equipment/service'
 import { ESTADO_NOMINA, TIPO_TARIFA, label } from '@/lib/payroll/labels'
 import { DayCell } from './DayCell'
 
@@ -141,6 +143,24 @@ export default async function WeekPage({
     revenue: row.revenue === null ? null : row.revenue.toFixed(2),
     margin: row.revenue === null ? null : (Number(row.revenue) - Number(row.amount)).toFixed(2),
   })
+  const equipmentViews = await weekEquipmentViews(company.id, week.id)
+  const equipmentRows = equipmentViews.map((view) => ({
+    equipmentId: view.equipmentId,
+    name: view.name,
+    kindLabel: view.kindLabel,
+    dailyCost: view.dailyCost,
+    vendorName: view.vendorName,
+    hasVendor: view.hasVendor,
+    payable: view.payable
+      ? {
+          total: view.payable.total,
+          days: view.payable.days,
+          statusLabel: label(ESTADO_NOMINA, view.payable.status),
+        }
+      : null,
+    markedDays: view.markedDays,
+  }))
+
   const crewsForBlock = crewViews.map((view) => ({
     crewId: view.crewId,
     crewName: view.crewName,
@@ -317,15 +337,6 @@ export default async function WeekPage({
           hint={critical.length > 0 ? 'Bloquean el envío a aprobación' : 'Ninguno'}
         />
       </div>
-
-      {crewsForBlock.length > 0 || looseProduction.length > 0 ? (
-        <CrewsBlock
-          weekId={week.id}
-          shortDays={days.map((iso) => ({ iso, label: shortDay(iso) }))}
-          crews={crewsForBlock}
-          loose={looseProduction.map(productionRow)}
-        />
-      ) : null}
 
       {showChooser ? (
         <>
@@ -559,7 +570,28 @@ export default async function WeekPage({
             />
 
             <AddWorkerInline weekId={week.id} operations={operations} />
+          </section>
 
+          {/* Bloque 2: equipo rentado. Bloque 3: cuadrillas. El orden es el
+              que pidió el negocio: personal / equipo / crews. */}
+          {equipmentRows.length > 0 ? (
+            <EquipmentBlock
+              weekId={week.id}
+              shortDays={days.map((iso) => ({ iso, label: shortDay(iso) }))}
+              rows={equipmentRows}
+            />
+          ) : null}
+
+          {crewsForBlock.length > 0 || looseProduction.length > 0 ? (
+            <CrewsBlock
+              weekId={week.id}
+              shortDays={days.map((iso) => ({ iso, label: shortDay(iso) }))}
+              crews={crewsForBlock}
+              loose={looseProduction.map(productionRow)}
+            />
+          ) : null}
+
+          <section className="mb-8">
             <form action={calculateWeek} className="mt-2">
               <input type="hidden" name="weekId" value={week.id} />
               <Button variant="secondary">Calcular nómina</Button>
@@ -661,10 +693,21 @@ export default async function WeekPage({
                 name: view.crewName,
                 net: view.payable!.total,
               }))}
+            equipment={equipmentViews
+              .filter(
+                (view) =>
+                  view.payable && ['PREPARED', 'REJECTED'].includes(view.payable.status),
+              )
+              .map((view) => ({
+                id: view.payable!.id,
+                name: view.name,
+                net: view.payable!.total,
+              }))}
             blockedByErrors={critical.length}
             alreadySent={
               payrolls.filter((payroll) => payroll.status === 'PENDING_APPROVAL').length +
-              crewViews.filter((view) => view.payable?.status === 'PENDING_APPROVAL').length
+              crewViews.filter((view) => view.payable?.status === 'PENDING_APPROVAL').length +
+              equipmentViews.filter((view) => view.payable?.status === 'PENDING_APPROVAL').length
             }
           />
         </>

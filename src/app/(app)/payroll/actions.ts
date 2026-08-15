@@ -24,6 +24,7 @@ import { invalidateIfStale } from '@/lib/payroll/workflow/service'
 import { currentRoster, removeFromRoster, setRoster } from '@/lib/payroll/roster'
 import { addExtra, removeExtra } from '@/lib/payroll/extras/service'
 import { saveControlDays, syncCrewPayrolls } from '@/lib/payroll/crews/service'
+import { saveEquipmentDays, syncEquipmentPayrolls } from '@/lib/payroll/equipment/service'
 
 /**
  * Abre un período de pago.
@@ -518,11 +519,12 @@ export async function calculateWeek(formData: FormData) {
   }
 
   /*
-   * Las cuadrillas se liquidan aquí mismo: su producción de la semana se vuelve
-   * deuda con el contratista, con el mismo botón que calcula a las personas.
-   * Solo toca liquidaciones editables — igual que arriba.
+   * Las cuadrillas y los equipos rentados se liquidan aquí mismo: producción →
+   * deuda con el contratista, días de equipo → deuda con el proveedor, con el
+   * mismo botón que calcula a las personas. Solo estados editables.
    */
   await syncCrewPayrolls(company.id, week.id)
+  await syncEquipmentPayrolls(company.id, week.id)
 
   revalidatePath(`/payroll/${weekId}`)
 }
@@ -666,6 +668,39 @@ export async function saveCrewControlDays(
 
   const result = await saveControlDays(user, weekId, { workers, marked })
   revalidatePath(`/payroll/${weekId}`)
+  return result.ok ? `LISTO|${result.message}` : result.message
+}
+
+/**
+ * Guarda los días del equipo rentado de la semana.
+ *
+ * `equipoday:<equipmentId>:<fecha>` = casilla marcada;
+ * `equipomember:<equipmentId>` marca el universo mostrado. Un equipo cuya
+ * liquidación ya movió dinero no se toca; lo aprobado se invalida con rastro.
+ */
+export async function saveEquipmentWeekDays(
+  _previous: string | null,
+  formData: FormData,
+): Promise<string> {
+  const user = await assertCan('payroll:edit')
+  const weekId = String(formData.get('weekId') ?? '')
+
+  const equipmentIds: string[] = []
+  const marked: Array<{ equipmentId: string; date: string }> = []
+
+  for (const [key] of formData.entries()) {
+    if (key.startsWith('equipomember:')) {
+      const equipmentId = key.slice('equipomember:'.length)
+      if (equipmentId) equipmentIds.push(equipmentId)
+    } else if (key.startsWith('equipoday:')) {
+      const [, equipmentId, date] = key.split(':')
+      if (equipmentId && date) marked.push({ equipmentId, date })
+    }
+  }
+
+  const result = await saveEquipmentDays(user, weekId, { equipmentIds, marked })
+  revalidatePath(`/payroll/${weekId}`)
+  revalidatePath('/approvals')
   return result.ok ? `LISTO|${result.message}` : result.message
 }
 

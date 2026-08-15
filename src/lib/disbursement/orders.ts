@@ -221,7 +221,7 @@ async function loadApprovedPayables(
   companyId: string,
   selection: PayableSelection,
 ): Promise<LoadedPayables> {
-  const [workers, crews] = await Promise.all([
+  const [workers, crews, equipment] = await Promise.all([
     (selection.workerPayrollIds?.length ?? 0) > 0
       ? prisma.workerPayroll.findMany({
           where: {
@@ -237,6 +237,17 @@ async function loadApprovedPayables(
       ? prisma.crewPayroll.findMany({
           where: {
             id: { in: [...selection.crewPayrollIds!] },
+            companyId,
+            status: { in: ['APPROVED', 'READY_TO_PAY'] },
+            disbursementItem: null,
+          },
+          include: { payrollWeek: true, paymentRecipient: true },
+        })
+      : [],
+    (selection.equipmentPayrollIds?.length ?? 0) > 0
+      ? prisma.equipmentPayroll.findMany({
+          where: {
+            id: { in: [...selection.equipmentPayrollIds!] },
             companyId,
             status: { in: ['APPROVED', 'READY_TO_PAY'] },
             disbursementItem: null,
@@ -295,6 +306,17 @@ async function loadApprovedPayables(
       recipientId: payroll.paymentRecipientId,
       recipientName: payroll.paymentRecipient?.name ?? null,
     })),
+    ...equipment.map((payroll) => ({
+      kind: 'EQUIPMENT' as PayableKind,
+      payableId: payroll.id,
+      refId: payroll.equipmentId,
+      name: `Equipo ${payroll.equipmentNameSnapshot}${payroll.vendorNameSnapshot ? ` → ${payroll.vendorNameSnapshot}` : ''}`,
+      crewLabel: 'Equipo rentado',
+      payrollWeekId: payroll.payrollWeekId,
+      amount: payroll.totalAmount.toFixed(2),
+      recipientId: payroll.paymentRecipientId,
+      recipientName: payroll.paymentRecipient?.name ?? null,
+    })),
   ]
 
   const weeks = new Map<string, { label: string; year: number; startDate: Date; endDate: Date }>()
@@ -304,6 +326,9 @@ async function loadApprovedPayables(
   for (const payroll of crews) {
     weeks.set(payroll.payrollWeekId, payroll.payrollWeek)
   }
+  for (const payroll of equipment) {
+    weeks.set(payroll.payrollWeekId, payroll.payrollWeek)
+  }
 
   return {
     rows,
@@ -311,6 +336,7 @@ async function loadApprovedPayables(
     preparedById:
       workers.find((row) => row.preparedById)?.preparedById ??
       crews.find((row) => row.preparedById)?.preparedById ??
+      equipment.find((row) => row.preparedById)?.preparedById ??
       null,
     contractorByCrewPayroll: new Map(crews.map((row) => [row.id, row.contractorId])),
   }

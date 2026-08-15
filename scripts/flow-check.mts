@@ -19,6 +19,7 @@ import { currentRoster, removeFromRoster, setRoster } from '../src/lib/payroll/r
 import { applyTransition, currentHash, invalidateIfStale } from '../src/lib/payroll/workflow/service'
 import { applyPayableTransition } from '../src/lib/payroll/workflow/payables'
 import { syncCrewPayrolls } from '../src/lib/payroll/crews/service'
+import { syncEquipmentPayrolls } from '../src/lib/payroll/equipment/service'
 import { assignRecipientToPayables } from '../src/lib/disbursement/orders'
 import { calculateWorkerPayroll } from '../src/lib/payroll/engine/index'
 import {
@@ -563,6 +564,99 @@ async function main() {
   const huellaDespues = await currentHash(payroll.id)
   check('un día de control del mismo trabajador NO cambia su huella de aprobación',
     huellaAntes === huellaDespues)
+
+  // ── 13. Equipo rentado: días → deuda con el proveedor → pago
+  console.log('\n13. Equipo rentado que se paga al proveedor')
+  const vendorRow = await prisma.vendor.create({
+    data: { companyId: PREFIX, name: 'Rentas Flow' },
+  })
+  const machine = await prisma.equipment.create({
+    data: {
+      companyId: PREFIX, code: 'FE1', name: 'Camion Flow',
+      ownership: 'RENTED', dailyCost: '450.00',
+    },
+  })
+  await prisma.equipmentEntry.createMany({
+    data: [20, 21, 22].map((day) => ({
+      companyId: PREFIX, payrollWeekId: week.id, equipmentId: machine.id,
+      workDate: new Date(`2026-07-${day}T00:00:00Z`),
+    })),
+  })
+
+  await syncEquipmentPayrolls(PREFIX, week.id)
+  const equipPayable = await prisma.equipmentPayroll.findUniqueOrThrow({
+    where: {
+      companyId_payrollWeekId_equipmentId: {
+        companyId: PREFIX, payrollWeekId: week.id, equipmentId: machine.id,
+      },
+    },
+  })
+  check('3 días × $450 = $1.350,00 congelado',
+    equipPayable.totalAmount.toFixed(2) === '1350.00' && equipPayable.appliedDailyCost.toFixed(2) === '450.00')
+
+  await applyPayableTransition(leo, 'EQUIPMENT', [equipPayable.id], 'SUBMIT')
+  await assignRecipientToPayables(
+    rafael, { equipmentPayrollIds: [equipPayable.id] }, recipient.recipientId!,
+  )
+  const sinProveedor = await applyPayableTransition(rafael, 'EQUIPMENT', [equipPayable.id], 'APPROVE')
+  check('sin proveedor NO se aprueba: un equipo jamás recibe pagos',
+    sinProveedor.moved === 0 && (sinProveedor.skipped[0]?.reason ?? '').includes('proveedor'),
+    sinProveedor.skipped[0]?.reason)
+
+  await applyPayableTransition(rafael, 'EQUIPMENT', [equipPayable.id], 'REJECT', 'Ponerle proveedor')
+  await prisma.equipment.update({ where: { id: machine.id }, data: { vendorId: vendorRow.id } })
+  await syncEquipmentPayrolls(PREFIX, week.id)
+  await applyPayableTransition(leo, 'EQUIPMENT', [equipPayable.id], 'SUBMIT')
+  const equipApproved = await applyPayableTransition(rafael, 'EQUIPMENT', [equipPayable.id], 'APPROVE')
+  check('con proveedor y receptora, se aprueba', equipApproved.moved === 1,
+    equipApproved.skipped[0]?.reason)
+
+  const equipOrders = await generateOrders(rafael, { equipmentPayrollIds: [equipPayable.id] })
+  check('se genera la orden del equipo', equipOrders.ok && (equipOrders.orderNumbers?.length ?? 0) > 0,
+    equipOrders.message)
+  const equipItem = await prisma.disbursementOrderItem.findUniqueOrThrow({
+    where: { equipmentPayrollId: equipPayable.id },
+    include: { order: true },
+  })
+  check('el renglón queda bajo "Equipo rentado"', equipItem.crewLabelSnapshot === 'Equipo rentado')
+
+  const equipPay = await payOrder(tesoreria, {
+    orderId: equipItem.order.id, paymentDate: '2026-07-26', method: 'ZELLE',
+    reference: 'FLOW-REF-3', amountPaid: '1350.00',
+  })
+  check('tesorería paga el alquiler', equipPay.ok, equipPay.message)
+  const equipPayment = await prisma.payment.findFirst({
+    where: { companyId: PREFIX, disbursementOrderId: equipItem.order.id },
+  })
+  check('el pago queda a nombre del PROVEEDOR (BR-121)',
+    equipPayment?.payeeType === 'VENDOR' && equipPayment?.vendorId === vendorRow.id)
+
+  // Un equipo SIN costo diario: bloquea con error crítico, jamás paga $0.
+  const sinCosto = await prisma.equipment.create({
+    data: { companyId: PREFIX, code: 'FE2', name: 'Plow Flow', ownership: 'RENTED', vendorId: vendorRow.id },
+  })
+  await prisma.equipmentEntry.create({
+    data: {
+      companyId: PREFIX, payrollWeekId: week.id, equipmentId: sinCosto.id,
+      workDate: new Date('2026-07-20T00:00:00Z'),
+    },
+  })
+  await syncEquipmentPayrolls(PREFIX, week.id)
+  const sinCostoPayable = await prisma.equipmentPayroll.findUniqueOrThrow({
+    where: {
+      companyId_payrollWeekId_equipmentId: {
+        companyId: PREFIX, payrollWeekId: week.id, equipmentId: sinCosto.id,
+      },
+    },
+  })
+  await applyPayableTransition(leo, 'EQUIPMENT', [sinCostoPayable.id], 'SUBMIT')
+  await assignRecipientToPayables(
+    rafael, { equipmentPayrollIds: [sinCostoPayable.id] }, recipient.recipientId!,
+  )
+  const sinCostoApprove = await applyPayableTransition(rafael, 'EQUIPMENT', [sinCostoPayable.id], 'APPROVE')
+  check('sin costo diario NO se aprueba: jamás se paga $0.00 en silencio',
+    sinCostoApprove.moved === 0 && (sinCostoApprove.skipped[0]?.reason ?? '').includes('crítico'),
+    sinCostoApprove.skipped[0]?.reason)
 
   await cleanup()
 

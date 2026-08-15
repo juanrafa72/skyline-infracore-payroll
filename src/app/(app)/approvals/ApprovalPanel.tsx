@@ -41,22 +41,32 @@ export interface ApprovalRow {
   suggestedRecipientName: string | null
 }
 
-/** Liquidación de una cuadrilla esperando aprobación: se paga al contratista. */
-export interface CrewApprovalRow {
+/**
+ * Liquidación que no es de una persona: cuadrilla (cobra su contratista) o
+ * equipo rentado (cobra su proveedor). Misma mesa, mismas reglas.
+ */
+export interface PayableApprovalRow {
+  kind: 'CREW' | 'EQUIPMENT'
   id: string
+  /** Cómo se muestra: "Cuadrilla X" / "Equipo Y". */
   name: string
-  contractorName: string | null
-  hasContractor: boolean
+  /** Para el desglose por crew en el resumen. */
+  crewLabel: string
+  /** "cobra Fulano" o vacío si falta el beneficiario. */
+  payeeName: string | null
+  payeeMissing: boolean
+  payeeMissingLabel: string
   weekId: string
   weekLabel: string
   period: string
-  productionCount: number
+  /** "3 registro(s) de producción" / "4 día(s) × $450.00". */
+  detail: string
   total: string
   recipientId: string | null
   recipientName: string | null
   suggestedRecipientId: string | null
   suggestedRecipientName: string | null
-  /** Saldo vivo de préstamos del crew o su contratista — solo aviso. */
+  /** Saldo vivo de préstamos (solo cuadrillas) — aviso, no descuento. */
   loanBalance: string | null
   preparedByMe: boolean
   wasInvalidated: boolean
@@ -77,7 +87,7 @@ export function ApprovalPanel({
   recipients,
 }: {
   rows: readonly ApprovalRow[]
-  crewRows: readonly CrewApprovalRow[]
+  crewRows: readonly PayableApprovalRow[]
   threshold: number
   recipients: readonly RecipientOption[]
 }) {
@@ -110,7 +120,12 @@ export function ApprovalPanel({
   const selectedRows = rows.filter((row) => selected.has(row.id))
   const selectedIds = selectedRows.map((row) => row.id)
   const selectedCrewRows = crewRows.filter((row) => selectedCrews.has(row.id))
-  const selectedCrewIds = selectedCrewRows.map((row) => row.id)
+  const selectedCrewIds = selectedCrewRows
+    .filter((row) => row.kind === 'CREW')
+    .map((row) => row.id)
+  const selectedEquipmentIds = selectedCrewRows
+    .filter((row) => row.kind === 'EQUIPMENT')
+    .map((row) => row.id)
 
   const toggleCrew = (id: string) => {
     setSelectedCrews((previous) => {
@@ -141,11 +156,11 @@ export function ApprovalPanel({
         recipientName: row.recipientName,
       })),
       ...selectedCrewRows.map((row) => ({
-        kind: 'CREW' as const,
+        kind: row.kind,
         payableId: row.id,
         refId: row.id,
-        name: `Cuadrilla ${row.name}${row.contractorName ? ` → ${row.contractorName}` : ''}`,
-        crewLabel: row.name,
+        name: `${row.name}${row.payeeName ? ` → ${row.payeeName}` : ''}`,
+        crewLabel: row.crewLabel,
         payrollWeekId: row.weekId,
         amount: row.total,
         recipientId: row.recipientId,
@@ -224,7 +239,8 @@ export function ApprovalPanel({
           recipients={recipients}
           selectedIds={selectedIds}
           selectedCrewIds={selectedCrewIds}
-          selectedCount={selectedIds.length + selectedCrewIds.length}
+          selectedEquipmentIds={selectedEquipmentIds}
+          selectedCount={selectedIds.length + selectedCrewRows.length}
           choice={choice}
           onChoiceChange={setChoice}
         />
@@ -256,7 +272,7 @@ export function ApprovalPanel({
         {crewRows.length > 0 ? (
           <div className="mb-4 space-y-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-              Cuadrillas — se paga al contratista
+              Cuadrillas y equipos — se paga al contratista o al proveedor
             </p>
             {crewRows.map((row) => {
               const isSelected = selectedCrews.has(row.id)
@@ -270,7 +286,7 @@ export function ApprovalPanel({
                   <div className="flex flex-wrap items-center gap-3 p-3">
                     <input
                       type="checkbox"
-                      name="crewPayrollId"
+                      name={row.kind === 'CREW' ? 'crewPayrollId' : 'equipmentPayrollId'}
                       value={row.id}
                       checked={isSelected}
                       onChange={() => toggleCrew(row.id)}
@@ -279,13 +295,13 @@ export function ApprovalPanel({
                     />
 
                     <div className="min-w-[160px] flex-1">
-                      <p className="text-sm font-semibold">Cuadrilla {row.name}</p>
+                      <p className="text-sm font-semibold">{row.name}</p>
                       <p className="text-xs text-[var(--muted)]">
-                        {row.weekLabel} · {row.productionCount} registro(s) de producción ·{' '}
-                        {row.contractorName ? (
-                          <>cobra <strong>{row.contractorName}</strong></>
+                        {row.weekLabel} · {row.detail} ·{' '}
+                        {row.payeeName ? (
+                          <>cobra <strong>{row.payeeName}</strong></>
                         ) : (
-                          <span className="font-medium text-red-700">sin contratista</span>
+                          <span className="font-medium text-red-700">{row.payeeMissingLabel}</span>
                         )}
                       </p>
                     </div>
@@ -312,7 +328,9 @@ export function ApprovalPanel({
 
                     <div className="text-right">
                       <p className="text-sm font-semibold tabular-nums">${currency(row.total)}</p>
-                      <p className="text-xs text-[var(--muted)]">producción de la semana</p>
+                      <p className="text-xs text-[var(--muted)]">
+                        {row.kind === 'CREW' ? 'producción de la semana' : 'alquiler de la semana'}
+                      </p>
                     </div>
                   </div>
 
@@ -325,7 +343,7 @@ export function ApprovalPanel({
 
                   {row.wasInvalidated ? (
                     <p className="border-t border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                      Ya estaba aprobada y su producción cambió después. Hay que revisarla de nuevo.
+                      Ya estaba aprobada y algo cambió después. Hay que revisarla de nuevo.
                     </p>
                   ) : null}
 

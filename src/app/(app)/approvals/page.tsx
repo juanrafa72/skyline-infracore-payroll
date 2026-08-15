@@ -32,7 +32,7 @@ export default async function ApprovalsPage() {
   })
   const selfApprovalOn = selfApprovalSetting?.value === 'true'
 
-  const [pending, pendingCrews, recipients] = await Promise.all([
+  const [pending, pendingCrews, pendingEquipment, recipients] = await Promise.all([
     prisma.workerPayroll.findMany({
       where: { companyId: company.id, status: 'PENDING_APPROVAL' },
       include: {
@@ -50,6 +50,11 @@ export default async function ApprovalsPage() {
       include: { payrollWeek: true, paymentRecipient: true },
       orderBy: [{ payrollWeek: { startDate: 'desc' } }, { crewNameSnapshot: 'asc' }],
     }),
+    prisma.equipmentPayroll.findMany({
+      where: { companyId: company.id, status: 'PENDING_APPROVAL' },
+      include: { payrollWeek: true, paymentRecipient: true },
+      orderBy: [{ payrollWeek: { startDate: 'desc' } }, { equipmentNameSnapshot: 'asc' }],
+    }),
     prisma.paymentRecipient.findMany({
       where: { companyId: company.id, active: true },
       orderBy: { name: 'asc' },
@@ -57,7 +62,7 @@ export default async function ApprovalsPage() {
     }),
   ])
 
-  if (pending.length === 0 && pendingCrews.length === 0) {
+  if (pending.length === 0 && pendingCrews.length === 0 && pendingEquipment.length === 0) {
     return (
       <>
         <PageHeader title="Aprobaciones" subtitle={company.displayName} />
@@ -74,6 +79,7 @@ export default async function ApprovalsPage() {
     ...new Set([
       ...pending.map((row) => row.payrollWeekId),
       ...pendingCrews.map((row) => row.payrollWeekId),
+      ...pendingEquipment.map((row) => row.payrollWeekId),
     ]),
   ]
   const weeks = await prisma.payrollWeek.findMany({ where: { id: { in: weekIds } } })
@@ -129,6 +135,23 @@ export default async function ApprovalsPage() {
     previousCrewPayrolls.map((row) => [`${row.payrollWeekId}:${row.crewId}`, row]),
   )
 
+  const previousEquipmentPayrolls = await prisma.equipmentPayroll.findMany({
+    where: {
+      companyId: company.id,
+      payrollWeekId: { in: [...previousByWeek.values()] },
+      equipmentId: { in: pendingEquipment.map((row) => row.equipmentId) },
+    },
+    select: {
+      equipmentId: true,
+      payrollWeekId: true,
+      paymentRecipientId: true,
+      paymentRecipient: { select: { name: true, active: true } },
+    },
+  })
+  const previousEquipmentByKey = new Map(
+    previousEquipmentPayrolls.map((row) => [`${row.payrollWeekId}:${row.equipmentId}`, row]),
+  )
+
   const crewAdvances =
     pendingCrews.length > 0
       ? await prisma.advance.findMany({
@@ -172,7 +195,13 @@ export default async function ApprovalsPage() {
     where: {
       companyId: company.id,
       status: 'OPEN',
-      entityId: { in: [...pending.map((row) => row.id), ...pendingCrews.map((row) => row.id)] },
+      entityId: {
+        in: [
+          ...pending.map((row) => row.id),
+          ...pendingCrews.map((row) => row.id),
+          ...pendingEquipment.map((row) => row.id),
+        ],
+      },
     },
   })
   const exceptionsByPayroll = new Map<string, typeof exceptions>()
@@ -237,39 +266,80 @@ export default async function ApprovalsPage() {
     }
   })
 
-  const crewRows = pendingCrews.map((payroll) => {
-    const previousId = previousByWeek.get(payroll.payrollWeekId)
-    const previous = previousId
-      ? previousCrewByKey.get(`${previousId}:${payroll.crewId}`)
-      : undefined
-    const suggestion =
-      !payroll.paymentRecipientId &&
-      previous?.paymentRecipientId &&
-      previous.paymentRecipient?.active
-        ? { id: previous.paymentRecipientId, name: previous.paymentRecipient.name }
-        : null
-    const own = exceptionsByPayroll.get(payroll.id) ?? []
+  const crewRows = [
+    ...pendingCrews.map((payroll) => {
+      const previousId = previousByWeek.get(payroll.payrollWeekId)
+      const previous = previousId
+        ? previousCrewByKey.get(`${previousId}:${payroll.crewId}`)
+        : undefined
+      const suggestion =
+        !payroll.paymentRecipientId &&
+        previous?.paymentRecipientId &&
+        previous.paymentRecipient?.active
+          ? { id: previous.paymentRecipientId, name: previous.paymentRecipient.name }
+          : null
+      const own = exceptionsByPayroll.get(payroll.id) ?? []
 
-    return {
-      id: payroll.id,
-      name: payroll.crewNameSnapshot,
-      contractorName: payroll.contractorNameSnapshot,
-      hasContractor: payroll.contractorId !== null,
-      weekId: payroll.payrollWeekId,
-      weekLabel: `${payroll.payrollWeek.label} · ${payroll.payrollWeek.year}`,
-      period: `${toIso(payroll.payrollWeek.startDate)} → ${toIso(payroll.payrollWeek.endDate)}`,
-      productionCount: payroll.productionCount,
-      total: payroll.productionTotal.toFixed(2),
-      recipientId: payroll.paymentRecipientId,
-      recipientName: payroll.paymentRecipient?.name ?? null,
-      suggestedRecipientId: suggestion?.id ?? null,
-      suggestedRecipientName: suggestion?.name ?? null,
-      loanBalance: loanBalanceFor(payroll.crewId, payroll.contractorId),
-      preparedByMe: payroll.preparedById === user.id && !selfApprovalOn,
-      wasInvalidated: payroll.approvalInvalidatedAt !== null,
-      exceptions: own.map((row) => ({ level: row.level, title: row.title, detail: row.detail })),
-    }
-  })
+      return {
+        kind: 'CREW' as const,
+        id: payroll.id,
+        name: `Cuadrilla ${payroll.crewNameSnapshot}`,
+        crewLabel: payroll.crewNameSnapshot,
+        payeeName: payroll.contractorNameSnapshot,
+        payeeMissing: payroll.contractorId === null,
+        payeeMissingLabel: 'sin contratista',
+        weekId: payroll.payrollWeekId,
+        weekLabel: `${payroll.payrollWeek.label} · ${payroll.payrollWeek.year}`,
+        period: `${toIso(payroll.payrollWeek.startDate)} → ${toIso(payroll.payrollWeek.endDate)}`,
+        detail: `${payroll.productionCount} registro(s) de producción`,
+        total: payroll.productionTotal.toFixed(2),
+        recipientId: payroll.paymentRecipientId,
+        recipientName: payroll.paymentRecipient?.name ?? null,
+        suggestedRecipientId: suggestion?.id ?? null,
+        suggestedRecipientName: suggestion?.name ?? null,
+        loanBalance: loanBalanceFor(payroll.crewId, payroll.contractorId),
+        preparedByMe: payroll.preparedById === user.id && !selfApprovalOn,
+        wasInvalidated: payroll.approvalInvalidatedAt !== null,
+        exceptions: own.map((row) => ({ level: row.level, title: row.title, detail: row.detail })),
+      }
+    }),
+    ...pendingEquipment.map((payroll) => {
+      const previousId = previousByWeek.get(payroll.payrollWeekId)
+      const previous = previousId
+        ? previousEquipmentByKey.get(`${previousId}:${payroll.equipmentId}`)
+        : undefined
+      const suggestion =
+        !payroll.paymentRecipientId &&
+        previous?.paymentRecipientId &&
+        previous.paymentRecipient?.active
+          ? { id: previous.paymentRecipientId, name: previous.paymentRecipient.name }
+          : null
+      const own = exceptionsByPayroll.get(payroll.id) ?? []
+
+      return {
+        kind: 'EQUIPMENT' as const,
+        id: payroll.id,
+        name: `Equipo ${payroll.equipmentNameSnapshot}`,
+        crewLabel: 'Equipo rentado',
+        payeeName: payroll.vendorNameSnapshot,
+        payeeMissing: payroll.vendorId === null,
+        payeeMissingLabel: 'sin proveedor',
+        weekId: payroll.payrollWeekId,
+        weekLabel: `${payroll.payrollWeek.label} · ${payroll.payrollWeek.year}`,
+        period: `${toIso(payroll.payrollWeek.startDate)} → ${toIso(payroll.payrollWeek.endDate)}`,
+        detail: `${payroll.daysTotal} día(s) × $${payroll.appliedDailyCost.toFixed(2)}`,
+        total: payroll.totalAmount.toFixed(2),
+        recipientId: payroll.paymentRecipientId,
+        recipientName: payroll.paymentRecipient?.name ?? null,
+        suggestedRecipientId: suggestion?.id ?? null,
+        suggestedRecipientName: suggestion?.name ?? null,
+        loanBalance: null,
+        preparedByMe: payroll.preparedById === user.id && !selfApprovalOn,
+        wasInvalidated: payroll.approvalInvalidatedAt !== null,
+        exceptions: own.map((row) => ({ level: row.level, title: row.title, detail: row.detail })),
+      }
+    }),
+  ]
 
   const totals = rows.reduce(
     (accumulator, row) => ({
@@ -322,7 +392,7 @@ export default async function ApprovalsPage() {
       <PageHeader
         title="Aprobaciones"
         subtitle={`${rows.length} nómina(s)${
-          crewRows.length > 0 ? ` y ${crewRows.length} cuadrilla(s)` : ''
+          crewRows.length > 0 ? ` y ${crewRows.length} cuadrilla(s)/equipo(s)` : ''
         } esperando · ${company.displayName}`}
       />
 
@@ -355,7 +425,7 @@ export default async function ApprovalsPage() {
 
       <section className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Kpi
-          label={crewRows.length > 0 ? 'Personas + cuadrillas' : 'Personas'}
+          label={crewRows.length > 0 ? 'Personas + cuadrillas/equipos' : 'Personas'}
           value={crewRows.length > 0 ? `${rows.length} + ${crewRows.length}` : String(rows.length)}
         />
         <Kpi label="Bruto personas" value={`$${money(totals.gross)}`} />

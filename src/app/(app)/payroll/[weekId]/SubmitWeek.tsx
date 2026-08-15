@@ -12,12 +12,14 @@ import { submitWeek } from '../../approvals/actions'
 export function SubmitWeek({
   payrolls,
   crews,
+  equipment,
   blockedByErrors,
   alreadySent,
 }: {
   payrolls: ReadonlyArray<{ id: string; name: string; net: string }>
-  /** Liquidaciones de cuadrilla listas para viajar en el mismo envío. */
+  /** Liquidaciones de cuadrilla y de equipo listas para el mismo envío. */
   crews: ReadonlyArray<{ id: string; name: string; net: string }>
+  equipment: ReadonlyArray<{ id: string; name: string; net: string }>
   blockedByErrors: number
   alreadySent: number
 }) {
@@ -25,9 +27,10 @@ export function SubmitWeek({
   const ok = result?.startsWith('LISTO|')
   const total =
     payrolls.reduce((sum, row) => sum + Number(row.net), 0) +
-    crews.reduce((sum, row) => sum + Number(row.net), 0)
+    crews.reduce((sum, row) => sum + Number(row.net), 0) +
+    equipment.reduce((sum, row) => sum + Number(row.net), 0)
 
-  if (payrolls.length === 0 && crews.length === 0) {
+  if (payrolls.length === 0 && crews.length === 0 && equipment.length === 0) {
     return (
       <div className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-sm">
         {alreadySent > 0 ? (
@@ -61,16 +64,22 @@ export function SubmitWeek({
       <p className="text-sm font-semibold">Enviar a aprobación</p>
       <p className="mt-1 text-xs text-[var(--muted)]">
         {payrolls.length} nómina(s)
-        {crews.length > 0 ? ` + ${crews.length} cuadrilla(s)` : ''} · $
+        {crews.length > 0 ? ` + ${crews.length} cuadrilla(s)` : ''}
+        {equipment.length > 0 ? ` + ${equipment.length} equipo(s)` : ''} · $
         {total.toLocaleString('en-US', { minimumFractionDigits: 2 })} en total. Una vez enviadas
         no las puedes editar hasta que quien aprueba las devuelva.
       </p>
 
-      {crews.length > 0 ? (
+      {crews.length > 0 || equipment.length > 0 ? (
         <ul className="mt-1.5 text-xs text-[var(--muted)]">
           {crews.map((crew) => (
             <li key={crew.id}>
               Cuadrilla {crew.name} · ${Number(crew.net).toLocaleString('en-US', { minimumFractionDigits: 2 })} al contratista
+            </li>
+          ))}
+          {equipment.map((machine) => (
+            <li key={machine.id}>
+              Equipo {machine.name} · ${Number(machine.net).toLocaleString('en-US', { minimumFractionDigits: 2 })} al proveedor
             </li>
           ))}
         </ul>
@@ -88,11 +97,14 @@ export function SubmitWeek({
           {crews.map((crew) => (
             <input key={crew.id} type="hidden" name="crewPayrollId" value={crew.id} />
           ))}
+          {equipment.map((machine) => (
+            <input key={machine.id} type="hidden" name="equipmentPayrollId" value={machine.id} />
+          ))}
           <button
             type="submit"
             className="h-9 rounded-md bg-[var(--accent)] px-4 text-sm font-medium text-white hover:opacity-90"
           >
-            Enviar {payrolls.length + crews.length} a aprobación
+            Enviar {payrolls.length + crews.length + equipment.length} a aprobación
           </button>
         </form>
       )}

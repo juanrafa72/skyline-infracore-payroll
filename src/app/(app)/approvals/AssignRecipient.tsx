@@ -54,14 +54,16 @@ export function AssignRecipient({
   recipients,
   selectedIds,
   selectedCrewIds,
+  selectedEquipmentIds,
   selectedCount,
   choice,
   onChoiceChange,
 }: {
   recipients: readonly RecipientOption[]
   selectedIds: readonly string[]
-  /** Liquidaciones de cuadrilla marcadas: viajan en el mismo clic. */
+  /** Liquidaciones de cuadrilla y equipo marcadas: viajan en el mismo clic. */
   selectedCrewIds: readonly string[]
+  selectedEquipmentIds: readonly string[]
   selectedCount: number
   choice: string
   onChoiceChange: (recipientId: string) => void
@@ -83,6 +85,7 @@ export function AssignRecipient({
     const data = new FormData()
     for (const id of selectedIds) data.append('payrollId', id)
     for (const id of selectedCrewIds) data.append('crewPayrollId', id)
+    for (const id of selectedEquipmentIds) data.append('equipmentPayrollId', id)
     return data
   }
 
