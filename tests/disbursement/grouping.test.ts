@@ -23,6 +23,7 @@ function payroll(
     refId: `w-${id}`,
     name,
     crewLabel: null,
+    detail: '5 días',
     payrollWeekId: weekId,
     amount: net,
     recipientId,
@@ -83,6 +84,13 @@ describe('agrupar por empresa receptora', () => {
     )
     const result = groupByRecipient(rows)
     expect(toDecimalString(result.grandTotal)).toBe('3233.01')
+  })
+
+  it('cada renglón llega al resumen con el contra qué se paga', () => {
+    // Quien aprueba tiene que ver a cuántos días equivale el pago sin salir de
+    // la pantalla: el dato viaja pegado al renglón, no se recalcula al mostrar.
+    const result = groupByRecipient([payroll('1', 'Ana', '500.00', 'r1', 'Receptora A')])
+    expect(result.groups[0]!.items[0]!.detail).toBe('5 días')
   })
 
   it('las personas salen en orden alfabético', () => {

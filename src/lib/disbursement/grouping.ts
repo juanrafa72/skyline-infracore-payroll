@@ -32,6 +32,13 @@ export interface PayableToGroup {
   name: string
   /** Cuadrilla del renglón, para el desglose. null = "Sin cuadrilla". */
   crewLabel: string | null
+  /**
+   * Contra QUÉ se está pagando ese monto: "5 días", "3 registro(s) de
+   * producción", "4 día(s) × $450.00". Solo para mostrar — quien aprueba no
+   * debería tener que abrir otra pantalla para saber a cuántos días equivale
+   * un pago. Nunca entra en la suma ni en el nombre que se congela.
+   */
+  detail: string | null
   payrollWeekId: string
   /** Monto aprobado, como cadena con 2 decimales. */
   amount: string
@@ -45,6 +52,8 @@ export interface GroupItem {
   refId: string
   name: string
   crewLabel: string | null
+  /** "5 días", "3 registro(s) de producción"… — solo para mostrar. */
+  detail: string | null
   amount: Cents
 }
 
@@ -96,6 +105,7 @@ export function groupByRecipient(payables: readonly PayableToGroup[]): GroupingR
       refId: payable.refId,
       name: payable.name,
       crewLabel: payable.crewLabel,
+      detail: payable.detail,
       amount,
     }
 

@@ -290,6 +290,9 @@ async function loadApprovedPayables(
         )
         return names.length > 0 ? names.join(' / ') : null
       })(),
+      // El "contra qué" solo se muestra en la pantalla de aprobación; la orden
+      // guarda nombre y monto congelados (BR-186), no textos de apoyo.
+      detail: null,
       payrollWeekId: payroll.payrollWeekId,
       amount: payroll.netPay.toFixed(2),
       recipientId: payroll.paymentRecipientId,
@@ -301,6 +304,7 @@ async function loadApprovedPayables(
       refId: payroll.crewId,
       name: `Cuadrilla ${payroll.crewNameSnapshot}${payroll.contractorNameSnapshot ? ` → ${payroll.contractorNameSnapshot}` : ''}`,
       crewLabel: payroll.crewNameSnapshot,
+      detail: null,
       payrollWeekId: payroll.payrollWeekId,
       amount: payroll.productionTotal.toFixed(2),
       recipientId: payroll.paymentRecipientId,
@@ -312,6 +316,7 @@ async function loadApprovedPayables(
       refId: payroll.equipmentId,
       name: `Equipo ${payroll.equipmentNameSnapshot}${payroll.vendorNameSnapshot ? ` → ${payroll.vendorNameSnapshot}` : ''}`,
       crewLabel: 'Equipo rentado',
+      detail: null,
       payrollWeekId: payroll.payrollWeekId,
       amount: payroll.totalAmount.toFixed(2),
       recipientId: payroll.paymentRecipientId,
@@ -397,6 +402,9 @@ export async function previewApproval(
       refId: payroll.workerId,
       name: payroll.worker.displayName,
       crewLabel: null,
+      // Los días de cada renglón se arman en la pantalla de aprobación, que es
+      // donde se leen; este resumen del servidor solo reparte montos.
+      detail: null,
       payrollWeekId: payroll.payrollWeekId,
       amount: payroll.netPay.toFixed(2),
       recipientId: payroll.paymentRecipientId,
@@ -408,6 +416,7 @@ export async function previewApproval(
       refId: payroll.crewId,
       name: `Cuadrilla ${payroll.crewNameSnapshot}`,
       crewLabel: payroll.crewNameSnapshot,
+      detail: null,
       payrollWeekId: payroll.payrollWeekId,
       amount: payroll.productionTotal.toFixed(2),
       recipientId: payroll.paymentRecipientId,
