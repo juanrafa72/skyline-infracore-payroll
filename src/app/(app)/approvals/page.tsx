@@ -12,6 +12,7 @@ import {
   toCents,
   toDecimalString,
 } from '@/lib/payroll/engine/money'
+import { crewDetail, equipmentDetail } from '@/lib/disbursement/detail'
 import { toIso } from '@/lib/payroll/week'
 import { ApprovalPanel } from './ApprovalPanel'
 import { toggleSelfApproval } from './actions'
@@ -291,7 +292,7 @@ export default async function ApprovalsPage() {
         weekId: payroll.payrollWeekId,
         weekLabel: `${payroll.payrollWeek.label} · ${payroll.payrollWeek.year}`,
         period: `${toIso(payroll.payrollWeek.startDate)} → ${toIso(payroll.payrollWeek.endDate)}`,
-        detail: `${payroll.productionCount} registro(s) de producción`,
+        detail: crewDetail(payroll.productionCount),
         total: payroll.productionTotal.toFixed(2),
         recipientId: payroll.paymentRecipientId,
         recipientName: payroll.paymentRecipient?.name ?? null,
@@ -327,7 +328,7 @@ export default async function ApprovalsPage() {
         weekId: payroll.payrollWeekId,
         weekLabel: `${payroll.payrollWeek.label} · ${payroll.payrollWeek.year}`,
         period: `${toIso(payroll.payrollWeek.startDate)} → ${toIso(payroll.payrollWeek.endDate)}`,
-        detail: `${payroll.daysTotal} día(s) × $${payroll.appliedDailyCost.toFixed(2)}`,
+        detail: equipmentDetail(payroll.daysTotal, payroll.appliedDailyCost.toFixed(2)),
         total: payroll.totalAmount.toFixed(2),
         recipientId: payroll.paymentRecipientId,
         recipientName: payroll.paymentRecipient?.name ?? null,

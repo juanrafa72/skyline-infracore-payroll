@@ -25,8 +25,18 @@ export interface DisbursementPdfData {
   /**
    * Renglones del desembolso. `group` es la cuadrilla congelada al generar la
    * orden (null = sin cuadrilla); alimenta el desglose que pidió el negocio.
+   * `detail` es contra QUÉ se paga ese renglón —«5 días», «3 registros de
+   * producción», «4 días × $450.00»—, también congelado: sin él, contabilidad
+   * ve un monto sin saber a cuánto trabajo corresponde (BR-195). `null` en las
+   * órdenes emitidas antes de que existiera.
    */
-  workers: ReadonlyArray<{ name: string; amount: string; paid: boolean; group: string | null }>
+  workers: ReadonlyArray<{
+    name: string
+    detail: string | null
+    amount: string
+    paid: boolean
+    group: string | null
+  }>
   total: string
   amountPaid: string
   preparedBy: string | null
@@ -104,6 +114,18 @@ export function renderDisbursementPdf(data: DisbursementPdfData): Buffer {
     gray: 0.45,
   })
   y += 14
+
+  /*
+   * Encabezado de columnas.
+   *
+   * Sin él, la columna del medio («5 días», «3 registros de producción») se lee
+   * como un comentario suelto. Con él, contabilidad sabe qué está mirando.
+   */
+  const DETAIL_X = MARGIN + 286
+  pdf.text(MARGIN + 24, y, 'CONCEPTO', { size: 7, bold: true, gray: 0.5 })
+  pdf.text(DETAIL_X, y, 'CONTRA QUÉ', { size: 7, bold: true, gray: 0.5 })
+  pdf.text(RIGHT, y, 'MONTO', { size: 7, bold: true, gray: 0.5, align: 'right' })
+  y += 10
   pdf.line(MARGIN, y, RIGHT, y, 0.75)
   y += 14
 
@@ -162,7 +184,15 @@ export function renderDisbursementPdf(data: DisbursementPdfData): Buffer {
 
     breakIfNeeded()
     pdf.text(MARGIN + 2, y, String(index + 1).padStart(2, '0'), { size: 8, gray: 0.55 })
-    pdf.text(MARGIN + 24, y, ellipsize(worker.name, 330, 10), { size: 10 })
+    pdf.text(MARGIN + 24, y, ellipsize(worker.name, 254, 10), { size: 10 })
+    if (worker.detail) {
+      // Contra qué se paga: los días de la persona, la producción de la
+      // cuadrilla, el alquiler del equipo. Un monto solo no explica nada.
+      pdf.text(DETAIL_X, y, ellipsize(worker.detail, anyPaid ? 108 : 168, 9), {
+        size: 9,
+        gray: 0.4,
+      })
+    }
     if (anyPaid) {
       pdf.text(RIGHT - 96, y, worker.paid ? 'pagado' : 'pendiente', {
         size: 8,

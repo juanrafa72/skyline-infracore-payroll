@@ -180,7 +180,12 @@ Al agregar una regla, va en el nivel puro.
   cuando se devuelve, y lo impide si el dinero ya salió.
 - **`pdf/`** — generador de PDF propio, sin dependencias. El desprendible de
   contabilidad lleva el detalle por renglón **agrupado por cuadrilla con
-  subtotales** (desde snapshots), nunca solo el total.
+  subtotales** (desde snapshots), nunca solo el total, y una columna «contra
+  qué» con los días o la producción de cada renglón (BR-195).
+- **`disbursement/detail.ts`** — la frase «contra qué se paga» («5 días», «3
+  registros de producción», «4 días × $450.00») se escribe UNA vez: la usan el
+  resumen de aprobación, el centro de pagos y el PDF. Si cada pantalla la
+  armara aparte, la orden y su soporte dirían cosas distintas.
 - **`payroll/period.ts`** — diario, semanal, catorcenal, quincenal, mensual, y
   cortes fuera de calendario para liquidar a quien se retira.
 - **`payroll/week.ts`** — la semana va domingo a sábado y se numera como
@@ -363,8 +368,8 @@ netlify deploy --prod
 
 ## Estado
 
-**356 pruebas · 54 tablas · 16 migraciones · 21+ pantallas** · `check`, `smoke`
-(30) y `flow` (69) en verde. 153 reglas de negocio documentadas.
+**365 pruebas · 54 tablas · 17 migraciones · 21+ pantallas** · `check`, `smoke`
+(30) y `flow` (71) en verde. 153 reglas de negocio documentadas.
 
 El proceso completo, probado de punta a punta, para LOS TRES pagables (persona,
 cuadrilla, equipo rentado): marcar días y proyecto → calcular → revisar →

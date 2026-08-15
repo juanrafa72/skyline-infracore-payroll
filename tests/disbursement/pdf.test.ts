@@ -21,8 +21,8 @@ function data(overrides: Partial<DisbursementPdfData> = {}): DisbursementPdfData
     periodEnd: '2026-03-07',
     createdAt: '2026-03-08',
     workers: [
-      { name: 'Primera Persona', amount: '450.00', paid: false, group: null },
-      { name: 'Segunda Persona', amount: '312.50', paid: false, group: null },
+      { name: 'Primera Persona', detail: null, amount: '450.00', paid: false, group: null },
+      { name: 'Segunda Persona', detail: null, amount: '312.50', paid: false, group: null },
     ],
     total: '762.50',
     amountPaid: '0.00',
@@ -97,8 +97,8 @@ describe('desprendible de la orden de desembolso', () => {
           bankName: 'Banco de prueba',
           reference: 'REF-XYZ-123',
           workers: [
-            { name: 'Primera Persona', amount: '450.00', paid: true, group: null },
-            { name: 'Segunda Persona', amount: '312.50', paid: true, group: null },
+            { name: 'Primera Persona', detail: null, amount: '450.00', paid: true, group: null },
+            { name: 'Segunda Persona', detail: null, amount: '312.50', paid: true, group: null },
           ],
         }),
       ),
@@ -111,14 +111,47 @@ describe('desprendible de la orden de desembolso', () => {
     expect(pdf).toContain('Banco de prueba')
   })
 
+  it('dice contra qué se paga cada renglón, no solo el monto', () => {
+    const pdf = readable(
+      renderDisbursementPdf(
+        data({
+          workers: [
+            { name: 'Primera Persona', detail: '5 días', amount: '450.00', paid: false, group: null },
+            {
+              name: 'Equipo Mini Excavadora → Proveedor',
+              detail: '4 días × $450.00',
+              amount: '312.50',
+              paid: false,
+              group: null,
+            },
+          ],
+        }),
+      ),
+    )
+
+    expect(pdf).toContain('CONTRA QU')
+    expect(pdf).toContain('5 d')
+    expect(pdf).toContain('4 d')
+    expect(pdf).toContain('450.00')
+  })
+
+  it('una orden vieja sin ese dato no inventa nada', () => {
+    // Las órdenes emitidas antes de que existiera el detalle salen sin él: en
+    // un soporte contable, un dato inventado es peor que uno ausente.
+    const pdf = readable(renderDisbursementPdf(data()))
+    expect(pdf).toContain('Primera Persona')
+    expect(pdf).not.toContain('undefined')
+    expect(pdf).not.toContain('null')
+  })
+
   it('desglosa por cuadrilla con subtítulos y subtotales — pedido del negocio', () => {
     const pdf = readable(
       renderDisbursementPdf(
         data({
           workers: [
-            { name: 'Ana Norte', amount: '200.00', paid: false, group: 'Cuadrilla Norte' },
-            { name: 'Beto Norte', amount: '300.00', paid: false, group: 'Cuadrilla Norte' },
-            { name: 'Carla Suelta', amount: '150.00', paid: false, group: null },
+            { name: 'Ana Norte', detail: null, amount: '200.00', paid: false, group: 'Cuadrilla Norte' },
+            { name: 'Beto Norte', detail: null, amount: '300.00', paid: false, group: 'Cuadrilla Norte' },
+            { name: 'Carla Suelta', detail: null, amount: '150.00', paid: false, group: null },
           ],
           total: '650.00',
         }),
@@ -140,8 +173,8 @@ describe('desprendible de la orden de desembolso', () => {
       renderDisbursementPdf(
         data({
           workers: [
-            { name: 'Primera Persona', amount: '450.00', paid: false, group: null },
-            { name: 'Segunda Persona', amount: '312.50', paid: false, group: null },
+            { name: 'Primera Persona', detail: null, amount: '450.00', paid: false, group: null },
+            { name: 'Segunda Persona', detail: null, amount: '312.50', paid: false, group: null },
           ],
         }),
       ),
@@ -156,7 +189,7 @@ describe('desprendible de la orden de desembolso', () => {
       renderDisbursementPdf(
         data({
           recipientName: 'Muñoz Construcción S.A.',
-          workers: [{ name: 'José Ramírez Peña', amount: '762.50', paid: false, group: null }],
+          workers: [{ name: 'José Ramírez Peña', detail: null, amount: '762.50', paid: false, group: null }],
         }),
       ),
     )
@@ -167,7 +200,7 @@ describe('desprendible de la orden de desembolso', () => {
 
   it('los paréntesis en un nombre no rompen el archivo', () => {
     const pdf = renderDisbursementPdf(
-      data({ workers: [{ name: 'Empresa (antes Otra) \\ SAS', amount: '762.50', paid: false, group: null }] }),
+      data({ workers: [{ name: 'Empresa (antes Otra) \\ SAS', detail: null, amount: '762.50', paid: false, group: null }] }),
     )
     const text = readable(pdf)
 
@@ -178,6 +211,7 @@ describe('desprendible de la orden de desembolso', () => {
   it('una lista larga se reparte en varias páginas sin perder a nadie', () => {
     const workers = Array.from({ length: 90 }, (_, index) => ({
       name: `Persona numero ${index + 1}`,
+      detail: '5 días',
       amount: '100.00',
       paid: false,
       group: null,

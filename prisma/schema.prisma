@@ -1712,6 +1712,11 @@ model DisbursementOrderItem {
   /// orden: para personas, la de sus días de esa semana; para cuadrillas, su
   /// propio nombre; para equipos, null. Alimenta el desglose por crew.
   crewLabelSnapshot   String?
+  /// Contra QUÉ se paga este renglón, congelado al generar la orden: «5 días»,
+  /// «3 registros de producción», «4 días × $450.00». El soporte contable de
+  /// una orden pagada tiene que seguir diciendo lo que decía ese día — BR-186.
+  /// Nulo en las órdenes emitidas antes de que esto existiera.
+  itemDetailSnapshot  String?
   amount              Decimal @db.Decimal(18, 2)
   createdAt           DateTime @default(now())
 

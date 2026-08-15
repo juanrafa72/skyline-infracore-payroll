@@ -348,6 +348,8 @@ async function main() {
   check('congela los nombres para el documento',
     order?.recipientNameSnapshot === 'Receptora de la prueba' &&
       order.weekLabelSnapshot.includes('Semana 30'))
+  check('congela también contra qué se paga: 5 días',
+    order?.items[0]!.itemDetailSnapshot === '5 días', order?.items[0]!.itemDetailSnapshot ?? 'sin detalle')
 
   // El PDF que va a contabilidad tiene que traer el detalle, no solo el total.
   const pdf = renderDisbursementPdf({
@@ -356,7 +358,8 @@ async function main() {
     recipientTaxId: order!.recipientTaxIdSnapshot, weekLabel: order!.weekLabelSnapshot,
     periodStart: '2026-07-19', periodEnd: '2026-07-25', createdAt: '2026-07-26',
     workers: order!.items.map((item) => ({
-      name: item.itemNameSnapshot, amount: item.amount.toFixed(2), paid: false, group: item.crewLabelSnapshot,
+      name: item.itemNameSnapshot, detail: item.itemDetailSnapshot,
+      amount: item.amount.toFixed(2), paid: false, group: item.crewLabelSnapshot,
     })),
     total: order!.totalAmount.toFixed(2), amountPaid: '0.00',
     preparedBy: order!.preparedByName, approvedBy: order!.approvedByName,
@@ -366,6 +369,8 @@ async function main() {
   }).toString('latin1')
   check('el PDF trae el nombre y el monto de la persona',
     pdf.includes('Federico Quintero') && pdf.includes('1,000.00'))
+  check('el PDF dice contra cuántos días va ese pago',
+    pdf.includes('5 d') && pdf.includes('CONTRA QU'))
 
   // ── 7. Pagar
   console.log('\n7. Pagar')

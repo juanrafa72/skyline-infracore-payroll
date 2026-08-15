@@ -10,6 +10,7 @@ import {
   type PayableKind,
   type PayableToGroup,
 } from './grouping'
+import { crewDetail, equipmentDetail, workerDetail } from './detail'
 import { formatOrderNumber, nextNumber } from './sequence'
 
 /**
@@ -290,9 +291,10 @@ async function loadApprovedPayables(
         )
         return names.length > 0 ? names.join(' / ') : null
       })(),
-      // El "contra qué" solo se muestra en la pantalla de aprobación; la orden
-      // guarda nombre y monto congelados (BR-186), no textos de apoyo.
-      detail: null,
+      // Contra qué se paga, congelado con el resto del renglón (BR-195): el
+      // soporte de contabilidad no puede depender de lo que diga la nómina
+      // meses después.
+      detail: workerDetail(payroll.daysFull, payroll.daysHalf),
       payrollWeekId: payroll.payrollWeekId,
       amount: payroll.netPay.toFixed(2),
       recipientId: payroll.paymentRecipientId,
@@ -304,7 +306,7 @@ async function loadApprovedPayables(
       refId: payroll.crewId,
       name: `Cuadrilla ${payroll.crewNameSnapshot}${payroll.contractorNameSnapshot ? ` → ${payroll.contractorNameSnapshot}` : ''}`,
       crewLabel: payroll.crewNameSnapshot,
-      detail: null,
+      detail: crewDetail(payroll.productionCount),
       payrollWeekId: payroll.payrollWeekId,
       amount: payroll.productionTotal.toFixed(2),
       recipientId: payroll.paymentRecipientId,
@@ -316,7 +318,7 @@ async function loadApprovedPayables(
       refId: payroll.equipmentId,
       name: `Equipo ${payroll.equipmentNameSnapshot}${payroll.vendorNameSnapshot ? ` → ${payroll.vendorNameSnapshot}` : ''}`,
       crewLabel: 'Equipo rentado',
-      detail: null,
+      detail: equipmentDetail(payroll.daysTotal, payroll.appliedDailyCost.toFixed(2)),
       payrollWeekId: payroll.payrollWeekId,
       amount: payroll.totalAmount.toFixed(2),
       recipientId: payroll.paymentRecipientId,
@@ -402,9 +404,7 @@ export async function previewApproval(
       refId: payroll.workerId,
       name: payroll.worker.displayName,
       crewLabel: null,
-      // Los días de cada renglón se arman en la pantalla de aprobación, que es
-      // donde se leen; este resumen del servidor solo reparte montos.
-      detail: null,
+      detail: workerDetail(payroll.daysFull, payroll.daysHalf),
       payrollWeekId: payroll.payrollWeekId,
       amount: payroll.netPay.toFixed(2),
       recipientId: payroll.paymentRecipientId,
@@ -416,7 +416,7 @@ export async function previewApproval(
       refId: payroll.crewId,
       name: `Cuadrilla ${payroll.crewNameSnapshot}`,
       crewLabel: payroll.crewNameSnapshot,
-      detail: null,
+      detail: crewDetail(payroll.productionCount),
       payrollWeekId: payroll.payrollWeekId,
       amount: payroll.productionTotal.toFixed(2),
       recipientId: payroll.paymentRecipientId,
@@ -529,6 +529,7 @@ export async function generateOrders(
         companyId: user.companyId,
         itemNameSnapshot: item.name,
         crewLabelSnapshot: item.crewLabel,
+        itemDetailSnapshot: item.detail,
         amount: toDecimalString(item.amount),
         ...(item.kind === 'WORKER'
           ? { workerPayrollId: item.payableId, workerId: item.refId }

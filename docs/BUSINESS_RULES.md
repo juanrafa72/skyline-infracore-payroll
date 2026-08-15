@@ -222,7 +222,7 @@ de Skyline puede pagarse enviando fondos a un subcontratista, a una agencia o a
 | BR-192 | Una empresa receptora con historial no se borra: se desactiva. Impuesto por trigger, para que el historial contable no quede apuntando a nada. | CONFIRMED |
 | BR-193 | El PDF de la orden debe traer el detalle completo por trabajador, no solo el total. Un soporte que solo diga «empresa + monto» no explica por qué salió el dinero. | CONFIRMED |
 | BR-194 | Se registra quién asignó la receptora, quién la creó, quién aprobó, quién pagó, cuándo, con qué referencia y a quién se le envió el soporte. | CONFIRMED |
-| BR-195 | El resumen previo a aprobar dice **contra qué** se paga cada renglón —días de la persona, registros de producción de la cuadrilla, días × costo del equipo— junto al monto. Aprobar un número sin saber a cuántos días equivale es aprobar a ciegas. | CONFIRMED (Rafael, 2026-08-15) |
+| BR-195 | Cada renglón dice **contra qué** se paga —días de la persona, registros de producción de la cuadrilla, días × costo del equipo— junto al monto: en el resumen previo a aprobar, en el centro de pagos y en el PDF de contabilidad. Aprobar un número sin saber a cuántos días equivale es aprobar a ciegas. El texto se **congela** en el renglón de la orden (`itemDetailSnapshot`, BR-186); las órdenes emitidas antes de que existiera salen sin él — no se inventa. | CONFIRMED (Rafael, 2026-08-15) |
 
 ---
 

@@ -72,6 +72,7 @@ export default async function DisbursementsPage() {
       itemId: item.id,
       name: item.itemNameSnapshot,
       crewLabel: item.crewLabelSnapshot,
+      detail: item.itemDetailSnapshot,
       amount: item.amount.toFixed(2),
       paid: ['PAID', 'RECONCILED', 'CLOSED'].includes(
         item.workerPayroll?.status ?? item.crewPayroll?.status ?? item.equipmentPayroll?.status ?? '',

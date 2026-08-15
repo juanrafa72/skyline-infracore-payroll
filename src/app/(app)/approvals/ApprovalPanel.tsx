@@ -7,7 +7,7 @@ import {
   type PayableToGroup,
 } from '@/lib/disbursement/grouping'
 import { ZERO, add, toCents, toDecimalString } from '@/lib/payroll/engine/money'
-import { daysLabel } from '@/lib/payroll/estimate'
+import { workerDetail } from '@/lib/disbursement/detail'
 import { AssignRecipient, type RecipientOption } from './AssignRecipient'
 import { approvePayrolls, rejectPayrolls } from './actions'
 
@@ -81,21 +81,6 @@ function currency(value: string): string {
   })
 }
 
-/**
- * A cuántos días equivale un pago: «5 días», «5½ días».
- *
- * Va pegado al renglón en el resumen porque aprobar un monto sin saber contra
- * cuántos días se paga es aprobar a ciegas. Dos medios días son uno completo
- * (`daysLabel`, el mismo que usa la suma en vivo de la nómina).
- *
- * `null` cuando no hay días marcados —pago por horas, por ejemplo—: mejor no
- * decir nada que escribir «0 días» junto a un monto que no es cero.
- */
-function daysText(daysFull: number, daysHalf: number): string | null {
-  if (daysFull === 0 && daysHalf === 0) return null
-  const value = daysLabel(daysFull, daysHalf)
-  return `${value} ${value === '1' ? 'día' : 'días'}`
-}
 
 export function ApprovalPanel({
   rows,
@@ -167,7 +152,7 @@ export function ApprovalPanel({
         refId: row.workerId,
         name: row.workerName,
         crewLabel: null,
-        detail: daysText(row.daysFull, row.daysHalf),
+        detail: workerDetail(row.daysFull, row.daysHalf),
         payrollWeekId: row.weekId,
         amount: row.net,
         recipientId: row.recipientId,

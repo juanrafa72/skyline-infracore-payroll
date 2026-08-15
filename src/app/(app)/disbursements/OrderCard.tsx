@@ -14,6 +14,8 @@ export interface OrderWorker {
   itemId: string
   name: string
   crewLabel: string | null
+  /** Contra qué se paga, congelado: «5 días», «3 registros de producción». */
+  detail: string | null
   amount: string
   paid: boolean
 }
@@ -235,6 +237,9 @@ export function OrderCard({ data, canPay }: { data: OrderCardData; canPay: boole
                           />
                         ) : null}
                         {worker.name}
+                        {worker.detail ? (
+                          <span className="text-xs text-[var(--muted)]">· {worker.detail}</span>
+                        ) : null}
                         {worker.paid ? (
                           <span className="rounded border border-emerald-300 bg-emerald-50 px-1.5 text-xs text-emerald-800">
                             pagado

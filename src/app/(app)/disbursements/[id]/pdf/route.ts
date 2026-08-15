@@ -47,6 +47,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     createdAt: toIso(order.createdAt),
     workers: order.items.map((item) => ({
       name: item.itemNameSnapshot,
+      detail: item.itemDetailSnapshot,
       amount: item.amount.toFixed(2),
       paid: ['PAID', 'RECONCILED', 'CLOSED'].includes(
         item.workerPayroll?.status ?? item.crewPayroll?.status ?? item.equipmentPayroll?.status ?? '',
