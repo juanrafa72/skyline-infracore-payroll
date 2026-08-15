@@ -268,7 +268,14 @@ lectura en `tools/excel-analysis/`. Importación en `prisma/import-historical.ts
 
 **Local:** PostgreSQL 16 por Homebrew (`brew services start postgresql@16`), base
 `payroll_dev`. Variables en `.env`: `DATABASE_URL`, `SESSION_SECRET` (mínimo 32
-caracteres).
+caracteres), y `SESSION_COOKIE_SECURE=false` **solo** para servir en la red de la
+oficina: `npm run start` corre con NODE_ENV=production y marca la cookie de sesión
+como `secure`, que los navegadores descartan sobre `http://<ip-lan>` (únicamente
+localhost se salva) — sin la variable, quien entre desde otro computador queda en
+un bucle de login. En un sitio publicado con HTTPS esa variable NO va. El acceso
+de otros computadores está documentado paso a paso en `docs/LAN_ACCESS.md` (el
+servidor ya escucha en todas las interfaces; suele faltar solo el permiso del
+firewall a `node` y usar el nombre `<mac>.local`).
 
 **Publicado:** https://skyline-infracore-payroll.netlify.app · repositorio
 privado `juanrafa72/skyline-infracore-payroll` · base en Neon. Cada despliegue

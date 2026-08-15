@@ -75,7 +75,17 @@ export async function createSession(
   const store = await cookies()
   store.set(SESSION_COOKIE, await seal(session.id), {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    /*
+     * `secure` hace que el navegador solo mande la cookie por HTTPS. En la red
+     * de la oficina la app se sirve por http://<mac>.local:3100, y un navegador
+     * DESCARTA una cookie secure que llegue por HTTP simple (solo perdona a
+     * localhost): el login "funciona" y de inmediato te devuelve al login.
+     * SESSION_COOKIE_SECURE=false existe solo para ese uso en LAN; sin la
+     * variable, el comportamiento queda igual que siempre.
+     */
+    secure: process.env.SESSION_COOKIE_SECURE
+      ? process.env.SESSION_COOKIE_SECURE === 'true'
+      : process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     path: '/',
     expires: expiresAt,

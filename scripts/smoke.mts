@@ -67,6 +67,7 @@ const ROUTES = [
   '/customers',
   '/payroll',
   '/reports',
+  '/change-password',
 ]
 
 // Señales de que la página reventó al renderizarse.
