@@ -280,3 +280,57 @@ export function calculationHash(fields: MaterialFields): string {
 export function approvalIsStale(approvedHash: string | null, currentHash: string): boolean {
   return approvedHash !== null && approvedHash !== currentHash
 }
+
+// ─────────────────────────────────────────────────────────────
+// Huellas de los otros pagables: cuadrillas y equipos
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Lo material de la liquidación de una cuadrilla: su producción, a quién se le
+ * paga y el total. Si cualquiera cambia después de aprobar, lo aprobado ya no
+ * es lo que hay — misma regla que las personas.
+ */
+export interface CrewMaterialFields {
+  crewId: string
+  contractorId: string | null
+  production: ReadonlyArray<{
+    date: string
+    unitCode: string
+    quantity: string
+    appliedPrice: string
+    amount: string
+  }>
+  total: string
+}
+
+export function crewCalculationHash(fields: CrewMaterialFields): string {
+  const canonical = {
+    crewId: fields.crewId,
+    contractorId: fields.contractorId ?? '',
+    production: [...fields.production]
+      .map((row) => [row.date, row.unitCode, row.quantity, row.appliedPrice, row.amount].join('|'))
+      .sort(),
+    total: fields.total,
+  }
+  return createHash('sha256').update(JSON.stringify(canonical)).digest('hex')
+}
+
+/** Lo material de la liquidación de un equipo rentado: días, costo y proveedor. */
+export interface EquipmentMaterialFields {
+  equipmentId: string
+  vendorId: string | null
+  days: readonly string[]
+  appliedDailyCost: string
+  total: string
+}
+
+export function equipmentCalculationHash(fields: EquipmentMaterialFields): string {
+  const canonical = {
+    equipmentId: fields.equipmentId,
+    vendorId: fields.vendorId ?? '',
+    days: [...fields.days].sort(),
+    appliedDailyCost: fields.appliedDailyCost,
+    total: fields.total,
+  }
+  return createHash('sha256').update(JSON.stringify(canonical)).digest('hex')
+}

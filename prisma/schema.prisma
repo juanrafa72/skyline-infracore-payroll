@@ -229,6 +229,7 @@ model Project {
   crewPricing CrewPricing[]
   production  Production[]
   billingRates BillingRate[]
+  equipmentEntries EquipmentEntry[]
 
   @@unique([companyId, code])
   @@map("project")
@@ -391,6 +392,7 @@ model Contractor {
   production  Production[]
   debts       Debt[]
   payments    Payment[]
+  crewPayrolls CrewPayroll[]
 
   @@unique([companyId, name])
   @@map("contractor")
@@ -427,6 +429,8 @@ model Crew {
   billingRates BillingRate[]
   advances    Advance[]
   production  Production[]
+  payrolls    CrewPayroll[]
+  equipmentEntries EquipmentEntry[]
 
   @@unique([companyId, code])
   @@map("crew")
@@ -556,6 +560,8 @@ model Equipment {
 
   company Company @relation(fields: [companyId], references: [id])
   vendor  Vendor? @relation(fields: [vendorId], references: [id])
+  entries EquipmentEntry[]
+  payrolls EquipmentPayroll[]
 
   @@unique([companyId, code])
   @@map("equipment")
@@ -593,6 +599,7 @@ model Vendor {
   equipment Equipment[]
   payments  Payment[]
   debts     Debt[]
+  equipmentPayrolls EquipmentPayroll[]
 
   @@unique([companyId, name])
   @@map("vendor")
@@ -630,6 +637,9 @@ model PayrollWeek {
   members     PayrollWeekMember[]
   production  Production[]
   disbursementOrders DisbursementOrder[]
+  crewPayrolls      CrewPayroll[]
+  equipmentPayrolls EquipmentPayroll[]
+  equipmentEntries  EquipmentEntry[]
 
   @@unique([companyId, year, weekNumber])
   @@index([companyId, startDate])
@@ -698,6 +708,11 @@ model WorkEntry {
   crewId        String?
   operationId   String?
   status        WorkEntryStatus @default(WORKED)
+  /// Día de CONTROL: se anota para saber quién trabajó en la cuadrilla, pero
+  /// NO genera pago individual — al contratista se le paga por producción y él
+  /// le paga a su gente. El motor de cálculo ignora estas filas por completo.
+  /// Default false: los hashes de todo lo ya aprobado quedan idénticos.
+  isControlOnly Boolean         @default(false)
   /// Valor adicional de ESE día (horas extra pactadas, trabajo especial,
   /// bono puntual). Se captura junto con la marca del día porque es cuando se
   /// sabe. La nota es obligatoria: un monto sin explicación no se guarda.
@@ -826,6 +841,150 @@ model WorkerPayroll {
   @@unique([companyId, payrollWeekId, workerId])
   @@index([companyId, payrollWeekId, status])
   @@map("worker_payroll")
+}
+
+/// Liquidación semanal de una CUADRILLA que trabaja por producción — el espejo
+/// de WorkerPayroll cuando el que cobra es el contratista, no las personas.
+///
+/// Es un VEHÍCULO DE PAGO: suma la producción ya registrada (cuyos precios se
+/// congelaron al anotarla — BR-213) y recorre el mismo flujo enviar → aprobar →
+/// orden de desembolso → pagar, con las mismas reglas de segregación. El margen
+/// NO se calcula desde aquí: sigue leyendo `Production` directo — si esta tabla
+/// también entrara al margen, cada pie se contaría dos veces.
+model CrewPayroll {
+  id            String        @id @default(uuid(7))
+  companyId     String
+  payrollWeekId String
+  crewId        String
+  status        PayrollStatus @default(DRAFT)
+
+  /// A quién se le paga. Snapshot al calcular; sin contratista no se aprueba.
+  contractorId           String?
+  crewNameSnapshot       String
+  contractorNameSnapshot String?
+
+  /// Σ Production.amount (COSTO) de esa cuadrilla en esa semana, y de cuántos
+  /// registros sale. La cifra es dinero que va a salir del banco: se recalcula
+  /// solo mientras el estado lo permita, jamás en silencio después de aprobar.
+  productionTotal Decimal @default(0) @db.Decimal(18, 2)
+  productionCount Int     @default(0)
+
+  /// Huella de las entradas materiales (producción + contratista + total).
+  /// Si cambia tras aprobar, la aprobación se cae sola — misma regla 5.
+  calculationHash String?
+
+  preparedById              String?
+  preparedAt                DateTime?
+  approvedById              String?
+  approvedAt                DateTime?
+  approvalInvalidatedAt     DateTime?
+  approvalInvalidatedReason String?
+  selfApproved              Boolean   @default(false)
+  rejectedById              String?
+  rejectedAt                DateTime?
+  rejectionReason           String?
+  paymentId                 String?   @unique
+
+  /// Empresa receptora de los fondos — BR-180 aplica igual que a las personas.
+  paymentRecipientId    String?
+  recipientAssignedById String?
+  recipientAssignedAt   DateTime?
+
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  payrollWeek      PayrollWeek       @relation(fields: [payrollWeekId], references: [id])
+  crew             Crew              @relation(fields: [crewId], references: [id])
+  contractor       Contractor?       @relation(fields: [contractorId], references: [id])
+  payment          Payment?          @relation(fields: [paymentId], references: [id])
+  paymentRecipient PaymentRecipient? @relation(fields: [paymentRecipientId], references: [id])
+
+  @@unique([companyId, payrollWeekId, crewId])
+  @@index([companyId, payrollWeekId, status])
+  @@map("crew_payroll")
+}
+
+/// Liquidación semanal de un EQUIPO RENTADO (camión, máquina): días marcados ×
+/// costo diario congelado al calcular.
+///
+/// El beneficiario del pago es el PROVEEDOR del equipo — BR-121: un equipo
+/// jamás recibe pagos. Solo los equipos con ownership = RENTED generan esta
+/// liquidación; los propios (OWNED) son costo interno y no le deben nada a
+/// nadie (pregunta A14).
+model EquipmentPayroll {
+  id            String        @id @default(uuid(7))
+  companyId     String
+  payrollWeekId String
+  equipmentId   String
+  status        PayrollStatus @default(DRAFT)
+
+  equipmentNameSnapshot String
+  vendorId              String?
+  vendorNameSnapshot    String?
+
+  daysTotal        Int     @default(0)
+  /// Costo diario congelado al calcular (BR-032 aplicado a equipos).
+  appliedDailyCost Decimal @default(0) @db.Decimal(18, 2)
+  totalAmount      Decimal @default(0) @db.Decimal(18, 2)
+
+  calculationHash String?
+
+  preparedById              String?
+  preparedAt                DateTime?
+  approvedById              String?
+  approvedAt                DateTime?
+  approvalInvalidatedAt     DateTime?
+  approvalInvalidatedReason String?
+  selfApproved              Boolean   @default(false)
+  rejectedById              String?
+  rejectedAt                DateTime?
+  rejectionReason           String?
+  paymentId                 String?   @unique
+
+  paymentRecipientId    String?
+  recipientAssignedById String?
+  recipientAssignedAt   DateTime?
+
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  payrollWeek      PayrollWeek       @relation(fields: [payrollWeekId], references: [id])
+  equipment        Equipment         @relation(fields: [equipmentId], references: [id])
+  vendor           Vendor?           @relation(fields: [vendorId], references: [id])
+  payment          Payment?          @relation(fields: [paymentId], references: [id])
+  paymentRecipient PaymentRecipient? @relation(fields: [paymentRecipientId], references: [id])
+
+  @@unique([companyId, payrollWeekId, equipmentId])
+  @@index([companyId, payrollWeekId, status])
+  @@map("equipment_payroll")
+}
+
+/// Un día de un equipo rentado. La fila ES el día: un camión se alquila por
+/// día completo o no se alquila — no hay medias jornadas de retroexcavadora.
+/// Vive aparte de WorkEntry a propósito: persona ≠ equipo (regla 9), y
+/// mezclarlos fue exactamente el vicio de los Excel.
+model EquipmentEntry {
+  id            String   @id @default(uuid(7))
+  companyId     String
+  payrollWeekId String
+  equipmentId   String
+  workDate      DateTime @db.Date
+  projectId     String?
+  crewId        String?
+  notes         String?
+  createdById   String?
+  createdAt     DateTime @default(now())
+
+  payrollWeek PayrollWeek @relation(fields: [payrollWeekId], references: [id])
+  equipment   Equipment   @relation(fields: [equipmentId], references: [id])
+  project     Project?    @relation(fields: [projectId], references: [id])
+  crew        Crew?       @relation(fields: [crewId], references: [id])
+
+  @@unique([companyId, equipmentId, workDate])
+  @@index([companyId, payrollWeekId])
+  @@map("equipment_entry")
 }
 
 enum PayrollStatus {
@@ -1244,6 +1403,8 @@ model Payment {
   contractor  Contractor?   @relation(fields: [contractorId], references: [id])
   vendor      Vendor?       @relation(fields: [vendorId], references: [id])
   workerPayroll WorkerPayroll?
+  crewPayroll     CrewPayroll?
+  equipmentPayroll EquipmentPayroll?
   settlement    ContractorSettlement?
   proofs        PaymentProof[]
   receipts      Receipt[]
@@ -1431,6 +1592,8 @@ model PaymentRecipient {
   payrolls WorkerPayroll[]
   orders   DisbursementOrder[]
   advances Advance[]
+  crewPayrolls      CrewPayroll[]
+  equipmentPayrolls EquipmentPayroll[]
 
   @@unique([companyId, normalizedName])
   @@index([companyId, active])

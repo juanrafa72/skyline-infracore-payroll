@@ -61,8 +61,19 @@ async function cleanup() {
   await prisma.$executeRawUnsafe('ALTER TABLE disbursement_order DISABLE TRIGGER disbursement_order_immutable')
   await prisma.$executeRawUnsafe('ALTER TABLE disbursement_order_item DISABLE TRIGGER disbursement_item_immutable')
   await prisma.$executeRawUnsafe('ALTER TABLE payment_recipient DISABLE TRIGGER payment_recipient_keep_history')
+  await prisma.$executeRawUnsafe('ALTER TABLE crew_payroll DISABLE TRIGGER crew_payroll_immutable')
+  await prisma.$executeRawUnsafe('ALTER TABLE equipment_payroll DISABLE TRIGGER equipment_payroll_immutable')
   try {
     await prisma.auditLog.deleteMany({ where: { companyId: PREFIX } })
+    await prisma.production.deleteMany({ where: { companyId: PREFIX } })
+    await prisma.crewPayroll.deleteMany({ where: { companyId: PREFIX } })
+    await prisma.equipmentPayroll.deleteMany({ where: { companyId: PREFIX } })
+    await prisma.equipmentEntry.deleteMany({ where: { companyId: PREFIX } })
+    await prisma.crewPricing.deleteMany({ where: { companyId: PREFIX } })
+    await prisma.crew.deleteMany({ where: { companyId: PREFIX } })
+    await prisma.contractor.deleteMany({ where: { companyId: PREFIX } })
+    await prisma.equipment.deleteMany({ where: { companyId: PREFIX } })
+    await prisma.vendor.deleteMany({ where: { companyId: PREFIX } })
     await prisma.disbursementDocument.deleteMany({ where: { companyId: PREFIX } })
     await prisma.disbursementOrderItem.deleteMany({ where: { companyId: PREFIX } })
     await prisma.disbursementOrder.deleteMany({ where: { companyId: PREFIX } })
@@ -94,6 +105,8 @@ async function cleanup() {
     await prisma.$executeRawUnsafe('ALTER TABLE disbursement_order ENABLE TRIGGER disbursement_order_immutable')
     await prisma.$executeRawUnsafe('ALTER TABLE disbursement_order_item ENABLE TRIGGER disbursement_item_immutable')
     await prisma.$executeRawUnsafe('ALTER TABLE payment_recipient ENABLE TRIGGER payment_recipient_keep_history')
+    await prisma.$executeRawUnsafe('ALTER TABLE crew_payroll ENABLE TRIGGER crew_payroll_immutable')
+    await prisma.$executeRawUnsafe('ALTER TABLE equipment_payroll ENABLE TRIGGER equipment_payroll_immutable')
   }
 }
 
