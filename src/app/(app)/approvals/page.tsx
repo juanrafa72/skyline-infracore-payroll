@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { EmptyState, PageHeader, money } from '@/components/ui'
+import { FlowSteps, NextStep, flowSteps } from '@/components/shell/FlowSteps'
 import { Kpi } from '@/components/ui/metrics'
 import { assertCan } from '@/lib/auth/rbac'
 import { getActiveCompany } from '@/lib/company/context'
@@ -66,7 +67,8 @@ export default async function ApprovalsPage() {
   if (pending.length === 0 && pendingCrews.length === 0 && pendingEquipment.length === 0) {
     return (
       <>
-        <PageHeader title="Aprobaciones" subtitle={company.displayName} />
+        <PageHeader title="Aprobar" subtitle={company.displayName} />
+        <FlowSteps current={3} steps={flowSteps(user.permissions)} className="mb-5" />
         <EmptyState
           title="No hay nada esperando aprobación"
           hint="Cuando quien prepara envíe una semana, aparecerá aquí con el detalle para revisar."
@@ -391,11 +393,13 @@ export default async function ApprovalsPage() {
   return (
     <>
       <PageHeader
-        title="Aprobaciones"
+        title="Aprobar"
         subtitle={`${rows.length} nómina(s)${
           crewRows.length > 0 ? ` y ${crewRows.length} cuadrilla(s)/equipo(s)` : ''
         } esperando · ${company.displayName}`}
       />
+
+      <FlowSteps current={3} steps={flowSteps(user.permissions)} className="mb-5" />
 
       {/* Qué semana se está aprobando, bien visible */}
       <div className="mb-5 rounded-xl border-2 border-[var(--accent)] bg-[var(--surface)] p-4">
@@ -510,6 +514,17 @@ export default async function ApprovalsPage() {
           Ver nóminas
         </Link>
       </p>
+
+      <NextStep
+        title="Después de aprobar"
+        detail={
+          user.permissions.has('payment:view')
+            ? 'Cada aprobación se convierte sola en una orden de desembolso, agrupada por empresa receptora. Se transfieren y se registran en Pagar.'
+            : 'Cada aprobación se convierte sola en una orden de desembolso. De ahí en adelante le toca a tesorería.'
+        }
+        href={user.permissions.has('payment:view') ? '/disbursements' : null}
+        button="Ir a pagar"
+      />
     </>
   )
 }

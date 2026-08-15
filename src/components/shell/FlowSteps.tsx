@@ -39,6 +39,42 @@ export function flowSteps(permissions: ReadonlySet<string>, weekId?: string | nu
   }))
 }
 
+/**
+ * El paso siguiente, al pie de la pantalla.
+ *
+ * Con `href`, es un botón: se termina un paso y se sigue sin volver al menú.
+ * Sin él —porque a quien mira no le toca ese paso— se dice quién sigue, que es
+ * información igual de útil: nadie se queda esperando frente a una pantalla
+ * que ya hizo lo suyo.
+ */
+export function NextStep({
+  title,
+  detail,
+  href,
+  button,
+}: {
+  title: string
+  detail: string
+  href: string | null
+  button: string
+}) {
+  return (
+    <section className="mt-8 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+      <p className="text-sm font-semibold">{title}</p>
+      <p className="mt-0.5 text-sm text-[var(--muted)]">{detail}</p>
+      {href ? (
+        <Link
+          prefetch={false}
+          href={href}
+          className="mt-3 inline-flex h-10 items-center rounded-lg bg-[var(--accent)] px-5 text-sm font-semibold text-white transition hover:opacity-90"
+        >
+          {button} →
+        </Link>
+      ) : null}
+    </section>
+  )
+}
+
 export function FlowSteps({
   current,
   steps,

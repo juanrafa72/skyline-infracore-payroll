@@ -1,6 +1,8 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { Badge, Button, EmptyState, LinkButton, PageHeader, Stat, money } from '@/components/ui'
+import { FlowSteps, NextStep, flowSteps } from '@/components/shell/FlowSteps'
+import { requireUser } from '@/lib/auth/rbac'
 import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
 import { weekExtras } from '@/lib/payroll/extras/service'
@@ -49,6 +51,7 @@ export default async function WeekPage({
 }) {
   const { weekId } = await params
   const filters = await searchParams
+  const user = await requireUser()
   const company = await getActiveCompany()
 
   const week = await prisma.payrollWeek.findFirst({
@@ -330,6 +333,13 @@ export default async function WeekPage({
         title={`${week.label} · ${week.year}`}
         subtitle={`${toIso(week.startDate)} → ${toIso(week.endDate)} · ${company.displayName}`}
         action={<LinkButton href="/payroll" variant="secondary">Volver</LinkButton>}
+      />
+
+      {/* Dónde va uno en el camino de la semana, y cómo saltar al paso siguiente */}
+      <FlowSteps
+        current={payrolls.length === 0 ? 1 : 2}
+        steps={flowSteps(user.permissions, week.id)}
+        className="mb-5"
       />
 
       {week.isOffCycle ? (
@@ -719,6 +729,18 @@ export default async function WeekPage({
               crewViews.filter((view) => view.payable?.status === 'PENDING_APPROVAL').length +
               equipmentViews.filter((view) => view.payable?.status === 'PENDING_APPROVAL').length
             }
+          />
+
+          {/* Lo que sigue cuando esta pantalla ya hizo lo suyo */}
+          <NextStep
+            title="Después de enviar"
+            detail={
+              user.permissions.has('payroll:approve')
+                ? 'Lo enviado espera en Aprobar: ahí se revisa, se le asigna empresa receptora y se aprueba.'
+                : 'Lo enviado espera a quien aprueba. Cuando lo apruebe, tesorería lo paga.'
+            }
+            href={user.permissions.has('payroll:approve') ? '/approvals' : null}
+            button="Ir a aprobar"
           />
         </>
       )}

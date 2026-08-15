@@ -1,4 +1,5 @@
 import { EmptyState, PageHeader, money } from '@/components/ui'
+import { FlowSteps, flowSteps } from '@/components/shell/FlowSteps'
 import { Kpi } from '@/components/ui/metrics'
 import { assertCan } from '@/lib/auth/rbac'
 import { getActiveCompany } from '@/lib/company/context'
@@ -109,9 +110,11 @@ export default async function DisbursementsPage() {
   return (
     <>
       <PageHeader
-        title="Desembolsos"
+        title="Pagar"
         subtitle={`${open.length} orden(es) por transferir · ${company.displayName}`}
       />
+
+      <FlowSteps current={4} steps={flowSteps(user.permissions)} className="mb-5" />
 
       <section className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Kpi label="Órdenes por pagar" value={String(open.length)} />
