@@ -22,7 +22,12 @@ const BASE = process.env.SMOKE_BASE ?? 'http://localhost:3100'
  */
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl() }) })
 
-async function openSession(): Promise<{ cookie: string; sessionId: string }> {
+async function openSession(): Promise<{
+  cookie: string
+  sessionId: string
+  /** Compañía activa de esa sesión: todo lo que se pida debe ser de ella. */
+  companyId: string | null
+}> {
   const admin = await prisma.user.findFirst({
     where: { status: 'ACTIVE', companyRoles: { some: { role: { code: 'SUPER_ADMIN' } } } },
     include: { companyRoles: true },
@@ -31,15 +36,16 @@ async function openSession(): Promise<{ cookie: string; sessionId: string }> {
     console.error('No hay un administrador. Corre: npm run user:create "Nombre" correo SUPER_ADMIN')
     process.exit(1)
   }
+  const companyId = admin.companyRoles[0]?.companyId ?? null
   const session = await prisma.userSession.create({
     data: {
       userId: admin.id,
       expiresAt: new Date(Date.now() + 10 * 60_000),
-      activeCompanyId: admin.companyRoles[0]?.companyId ?? null,
+      activeCompanyId: companyId,
       userAgent: 'smoke',
     },
   })
-  return { cookie: await seal(session.id), sessionId: session.id }
+  return { cookie: await seal(session.id), sessionId: session.id, companyId }
 }
 
 let SESSION_COOKIE = ''
@@ -139,7 +145,7 @@ function check(route: string, { status, body }: { status: number; body: string }
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 
 async function main() {
-  const { cookie, sessionId } = await openSession()
+  const { cookie, sessionId, companyId } = await openSession()
   SESSION_COOKIE = cookie
 
   let dashboard
@@ -175,7 +181,8 @@ async function main() {
    * llegó a producción.
    */
   const weekWithPeople = await prisma.payrollWeek.findFirst({
-    where: { workEntries: { some: {} } },
+    // También de la compañía de la sesión, por lo mismo que la orden de abajo.
+    where: { workEntries: { some: {} }, ...(companyId ? { companyId } : {}) },
     orderBy: { startDate: 'desc' },
     select: { id: true },
   })
@@ -192,7 +199,13 @@ async function main() {
    * Es un archivo, no una pantalla: si el generador se rompe, ninguna de las
    * revisiones anteriores se entera, y contabilidad se queda sin el soporte.
    */
+  /*
+   * De la compañía de ESTA sesión. La pantalla solo sirve órdenes de la
+   * compañía activa: pedir la de la otra devuelve 404 y la revisión reportaba
+   * un daño que no existe.
+   */
   const order = await prisma.disbursementOrder.findFirst({
+    where: companyId ? { companyId } : {},
     orderBy: { createdAt: 'desc' },
     select: { id: true, orderNumber: true },
   })

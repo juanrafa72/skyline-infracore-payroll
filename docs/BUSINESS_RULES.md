@@ -138,6 +138,8 @@ Estados de una regla:
 | BR-112 | Una cuadrilla tiene a lo sumo un líder vigente a la vez. | CONFIRMED |
 | BR-113 | Un `Project` pertenece a una compañía y a un cliente. Las operaciones (Aerial, Underground, BlowFiber, Admin, Data Center) son administrables desde Settings. | CONFIRMED |
 | BR-114 | `NO WORK` y `WAITING PROYECT` **no son proyectos**: son estados del `WorkEntry`. | CONFIRMED (corrige el dato actual — A15) |
+| BR-115 | El proyecto es de **cada día**, no de la semana. La misma persona puede estar lunes, martes y viernes en un proyecto y miércoles y jueves en otro; la rejilla lo permite por fila («cambió de proyecto entre semana») y el día manda sobre la semana. De ahí sale el cliente al que se le factura ese día. | CONFIRMED (Rafael, 2026-08-15) |
+| BR-116 | Una semana ya repartida entre proyectos **no se aplana en silencio**: la fila arranca en modo por día y, si alguien vuelve al selector único, se avisa que al guardar todos los días quedarán en ese proyecto. | CONFIRMED |
 
 ## 13. Equipos
 
@@ -220,6 +222,7 @@ de Skyline puede pagarse enviando fondos a un subcontratista, a una agencia o a
 | BR-192 | Una empresa receptora con historial no se borra: se desactiva. Impuesto por trigger, para que el historial contable no quede apuntando a nada. | CONFIRMED |
 | BR-193 | El PDF de la orden debe traer el detalle completo por trabajador, no solo el total. Un soporte que solo diga «empresa + monto» no explica por qué salió el dinero. | CONFIRMED |
 | BR-194 | Se registra quién asignó la receptora, quién la creó, quién aprobó, quién pagó, cuándo, con qué referencia y a quién se le envió el soporte. | CONFIRMED |
+| BR-195 | El resumen previo a aprobar dice **contra qué** se paga cada renglón —días de la persona, registros de producción de la cuadrilla, días × costo del equipo— junto al monto. Aprobar un número sin saber a cuántos días equivale es aprobar a ciegas. | CONFIRMED (Rafael, 2026-08-15) |
 
 ---
 

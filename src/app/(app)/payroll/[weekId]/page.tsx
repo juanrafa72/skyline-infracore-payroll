@@ -18,7 +18,7 @@ import { EquipmentBlock } from './EquipmentBlock'
 import { weekCrewViews } from '@/lib/payroll/crews/service'
 import { weekEquipmentViews } from '@/lib/payroll/equipment/service'
 import { ESTADO_NOMINA, TIPO_TARIFA, label } from '@/lib/payroll/labels'
-import { DayCell } from './DayCell'
+import { ProjectDays } from './ProjectDays'
 
 export const dynamic = 'force-dynamic'
 
@@ -274,6 +274,24 @@ export default async function WeekPage({
     }
   }
 
+  /*
+   * Quién tiene la semana repartida entre varios proyectos.
+   *
+   * Pasa de verdad: lunes, martes y viernes en un pueblo, miércoles y jueves en
+   * otro. Cuando ya está así, la fila ARRANCA en modo por día — con un solo
+   * selector, el siguiente «Guardar días» mandaría toda la semana al mismo
+   * proyecto sin que nadie lo pidiera, y ese es el dato con el que se factura.
+   *
+   * Un día a propósito sin proyecto cuenta como valor distinto: mezclar «sin
+   * proyecto» con «Dublin» también es una semana repartida.
+   */
+  const projectsByWorker = new Map<string, Set<string>>()
+  for (const entry of entries) {
+    const seen = projectsByWorker.get(entry.workerId) ?? new Set<string>()
+    seen.add(entry.projectId ?? '')
+    projectsByWorker.set(entry.workerId, seen)
+  }
+
   // Lo que no es un día trabajado pero cambia el pago: hotel, equipo, bonos.
   const extras = await weekExtras(company.id, week.id)
 
@@ -284,6 +302,9 @@ export default async function WeekPage({
         dayType: entry.dayType as string,
         amount: entry.additionalAmount ? entry.additionalAmount.toFixed(2) : '',
         note: entry.additionalNote ?? '',
+        // '' = el día existe y quedó sin proyecto, que no es lo mismo que no
+        // tener día. La rejilla necesita distinguirlos.
+        projectId: entry.projectId ?? '',
       },
     ]),
   )
@@ -395,6 +416,12 @@ export default async function WeekPage({
               <strong>Sí +</strong> = trabajó y además se le paga algo extra ese día (pide monto y
               motivo; sin motivo no se guarda).
             </p>
+            <p className="mb-3 text-xs text-[var(--muted)]">
+              El proyecto va para toda la semana. Si alguien se movió —lunes, martes y viernes en
+              uno, miércoles y jueves en otro— oprime{' '}
+              <strong>«cambió de proyecto entre semana»</strong> en su fila y marca el proyecto de
+              cada día.
+            </p>
 
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[var(--hover)] px-3 py-2">
               <span className="text-sm">
@@ -440,7 +467,26 @@ export default async function WeekPage({
                   </span>
                 </div>
 
-                {workers.map((worker) => (
+                {workers.map((worker) => {
+                  const gridDays = days.map((day) => {
+                    const current = entryMap.get(`${worker.id}:${day}`)
+                    return {
+                      iso: day,
+                      label: shortDay(day),
+                      dayType: current?.dayType ?? '',
+                      amount: current?.amount ?? '',
+                      note: current?.note ?? '',
+                      // null = no hay día guardado; '' = día sin proyecto.
+                      savedProjectId: current ? current.projectId : null,
+                    }
+                  })
+                  const weekProject =
+                    projectOf.get(worker.id) ??
+                    prevProjectOf.get(worker.id) ??
+                    worker.defaultProjectId ??
+                    ''
+
+                  return (
                   <div
                     key={worker.id}
                     style={gridStyle}
@@ -468,66 +514,29 @@ export default async function WeekPage({
                     </div>
 
                     {/*
-                      En qué proyecto trabajó esta semana.
+                      En qué proyecto trabajó, y sus días.
 
                       No es un adorno: de aquí sale el cliente, y sin cliente no
                       se sabe a quién facturarle el día. Sin esto la venta y el
                       margen quedaban incompletos.
-                    */}
-                    <div className="mt-2 md:mt-0">
-                      <span className="mb-0.5 block text-[11px] text-[var(--muted)] md:hidden">
-                        Proyecto
-                      </span>
-                      {/*
-                        Si esta semana aún no dice nada, se propone el proyecto
-                        de la semana pasada (solo sugerencia visual: no se
-                        guarda nada hasta oprimir «Guardar días»).
-                      */}
-                      <select
-                        name={`proyecto:${worker.id}`}
-                        defaultValue={
-                          projectOf.get(worker.id) ??
-                          prevProjectOf.get(worker.id) ??
-                          worker.defaultProjectId ??
-                          ''
-                        }
-                        className="h-8 w-full rounded border border-[var(--border)] bg-[var(--surface)] px-1 text-xs outline-none focus:border-[var(--accent)]"
-                      >
-                        <option value="">— sin proyecto —</option>
-                        {projects.map((project) => (
-                          <option key={project.id} value={project.id}>
-                            {project.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
 
-                    {/* `md:contents` disuelve este envoltorio dentro de la rejilla en escritorio */}
-                    <div className={`mt-3 grid grid-cols-4 gap-2 md:mt-0 ${inlineDays ? "md:contents" : "md:grid-cols-8 md:gap-1.5"}`}>
-                      {days.map((day) => {
-                        const current = entryMap.get(`${worker.id}:${day}`)
-                        return (
-                          // La clave incluye el valor: al recalcular, React vuelve a montar
-                          // el campo y muestra lo que quedó guardado. Sin esto, un campo no
-                          // controlado conserva en pantalla lo que tenía antes.
-                          <label
-                            key={`${day}:${current?.dayType ?? ''}:${current?.amount ?? ''}`}
-                            className="block"
-                          >
-                            <span className={`mb-0.5 block text-center text-[11px] text-[var(--muted)] ${inlineDays ? 'md:hidden' : ''}`}>
-                              {shortDay(day)}
-                            </span>
-                            <DayCell
-                              workerId={worker.id}
-                              day={day}
-                              dayType={current?.dayType ?? ''}
-                              amount={current?.amount ?? ''}
-                              note={current?.note ?? ''}
-                            />
-                          </label>
-                        )
-                      })}
-                    </div>
+                      Van en el mismo componente porque comparten el
+                      interruptor «uno para toda la semana» / «uno por día».
+                      La clave lleva lo guardado: al volver de guardar o
+                      calcular, los campos se vuelven a montar mostrando lo que
+                      quedó, no lo que había antes.
+                    */}
+                    <ProjectDays
+                      key={gridDays
+                        .map((day) => `${day.dayType}/${day.amount}/${day.savedProjectId ?? ''}`)
+                        .join('|')}
+                      workerId={worker.id}
+                      weekProjectId={weekProject}
+                      days={gridDays}
+                      projects={projects}
+                      inlineDays={inlineDays}
+                      startPerDay={(projectsByWorker.get(worker.id)?.size ?? 0) > 1}
+                    />
 
                     <div className="mt-2 md:mt-0">
                       <RemoveWorker
@@ -540,7 +549,8 @@ export default async function WeekPage({
                       />
                     </div>
                   </div>
-                ))}
+                  )
+                })}
               </div>
 
               {/* Suma en vivo: días y gran total, mientras se marca */}

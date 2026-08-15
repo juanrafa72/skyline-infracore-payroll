@@ -96,6 +96,9 @@ async function cleanup() {
   await prisma.payrollWeek.deleteMany({ where: { companyId: PREFIX } })
   await prisma.workerRate.deleteMany({ where: { companyId: PREFIX } })
   await prisma.worker.deleteMany({ where: { companyId: PREFIX } })
+  // Los proyectos, después de todo lo que los apunta (días, líneas, tarifas) y
+  // antes de la operación, que ellos mismos apuntan.
+  await prisma.project.deleteMany({ where: { companyId: PREFIX } })
   await prisma.operation.deleteMany({ where: { companyId: PREFIX } })
     await prisma.company.deleteMany({ where: { id: PREFIX } })
     for (const email of ['flow-leo@check', 'flow-rafael@check', 'flow-teso@check']) {
@@ -657,6 +660,136 @@ async function main() {
   check('sin costo diario NO se aprueba: jamás se paga $0.00 en silencio',
     sinCostoApprove.moved === 0 && (sinCostoApprove.skipped[0]?.reason ?? '').includes('crítico'),
     sinCostoApprove.skipped[0]?.reason)
+
+  // ── 14. La misma persona, dos proyectos en la misma semana
+  console.log('\n14. Dos proyectos en la misma semana')
+  const dublin = await prisma.project.create({
+    data: { companyId: PREFIX, code: 'FLOW-DUBLIN', name: 'Dublin GA' },
+  })
+  const homer = await prisma.project.create({
+    data: { companyId: PREFIX, code: 'FLOW-HOMER', name: 'Homer GA' },
+  })
+  const viajero = await prisma.worker.create({
+    data: {
+      companyId: PREFIX, code: 'FW5', firstName: 'Isaac', lastName: 'Viajero',
+      displayName: 'Isaac Viajero', defaultOperationId: operation.id,
+    },
+  })
+  await prisma.workerRate.create({
+    data: {
+      companyId: PREFIX, workerId: viajero.id, rateType: 'DAILY', amount: '150.00',
+      effectiveFrom: new Date('2026-01-01T00:00:00Z'), operationId: operation.id,
+    },
+  })
+
+  // Lunes, martes y viernes en Dublin; miércoles y jueves en Homer. Pasa.
+  for (const [day, projectId] of [
+    ['2026-07-19', dublin.id], ['2026-07-20', dublin.id],
+    ['2026-07-21', homer.id], ['2026-07-22', homer.id],
+    ['2026-07-23', dublin.id],
+  ] as const) {
+    await prisma.workEntry.create({
+      data: {
+        companyId: PREFIX, payrollWeekId: week.id, workerId: viajero.id,
+        workDate: new Date(`${day}T00:00:00Z`), dayType: 'FULL_DAY',
+        operationId: operation.id, projectId,
+      },
+    })
+  }
+
+  const mixedEntries = await prisma.workEntry.findMany({
+    where: { payrollWeekId: week.id, workerId: viajero.id },
+    orderBy: { workDate: 'asc' },
+  })
+  const mixedRates = await prisma.workerRate.findMany({ where: { workerId: viajero.id } })
+  const mixedResult = calculateWorkerPayroll({
+    workerId: viajero.id,
+    compensationType: 'DAILY_RATE',
+    fixedWeeklyAmount: null,
+    entries: mixedEntries.map((entry) => ({
+      id: entry.id,
+      workDate: entry.workDate.toISOString().slice(0, 10),
+      dayType: entry.dayType,
+      hoursWorked: null,
+      shift: entry.shift,
+      projectId: entry.projectId,
+      crewId: entry.crewId,
+      operationId: entry.operationId,
+    })),
+    rates: mixedRates.map((rate) => ({
+      id: rate.id,
+      rateType: rate.rateType,
+      amount: toCents(rate.amount.toString()),
+      shift: rate.shift,
+      projectId: rate.projectId,
+      operationId: rate.operationId,
+      effectiveFrom: rate.effectiveFrom.toISOString().slice(0, 10),
+      effectiveTo: rate.effectiveTo?.toISOString().slice(0, 10) ?? null,
+    })),
+    additions: [], manualDeductions: [], advances: [], debts: [],
+    settings: DEFAULT_SETTINGS,
+  })
+
+  check('5 días × $150 = $750 aunque cambie de proyecto a mitad de semana',
+    toDecimalString(mixedResult.netPay) === '750.00', toDecimalString(mixedResult.netPay))
+
+  const porProyecto = new Map<string, number>()
+  for (const line of mixedResult.lines) {
+    if (!line.projectId) continue
+    porProyecto.set(line.projectId, (porProyecto.get(line.projectId) ?? 0) + 1)
+  }
+  check('cada día se queda en SU proyecto: 3 en Dublin, 2 en Homer',
+    porProyecto.get(dublin.id) === 3 && porProyecto.get(homer.id) === 2,
+    `dublin=${porProyecto.get(dublin.id) ?? 0} homer=${porProyecto.get(homer.id) ?? 0}`)
+
+  const mixedPayroll = await prisma.workerPayroll.create({
+    data: {
+      companyId: PREFIX, payrollWeekId: week.id, workerId: viajero.id, status: 'PREPARED',
+      daysFull: mixedResult.daysFull, basePay: toDecimalString(mixedResult.basePay),
+      grossPay: toDecimalString(mixedResult.grossPay), netPay: toDecimalString(mixedResult.netPay),
+    },
+  })
+  await prisma.payrollLine.createMany({
+    data: mixedResult.lines.map((line) => ({
+      workerPayrollId: mixedPayroll.id,
+      workEntryId: line.workEntryId,
+      lineType: line.lineType,
+      workDate: line.workDate ? new Date(`${line.workDate}T00:00:00Z`) : null,
+      quantity: line.quantity,
+      appliedRate: toDecimalString(line.appliedRate),
+      rateSourceId: line.rateSourceId,
+      amount: toDecimalString(line.amount),
+      projectId: line.projectId,
+      crewId: line.crewId,
+      shift: line.shift,
+      description: line.description,
+    })),
+  })
+
+  await applyTransition(leo, [mixedPayroll.id], 'SUBMIT')
+  await assignRecipient(rafael, [mixedPayroll.id], recipient.recipientId!)
+  const mixedApproved = await applyTransition(rafael, [mixedPayroll.id], 'APPROVE')
+  check('la semana repartida se aprueba igual que cualquier otra',
+    mixedApproved.moved === 1, mixedApproved.skipped[0]?.reason)
+
+  /*
+   * Mover un día de un proyecto a otro no cambia un centavo del pago… y aun así
+   * tumba la aprobación. Cambia a quién se le factura ese día, que es
+   * exactamente el tipo de cambio silencioso que este sistema existe para
+   * impedir.
+   */
+  const miercoles = mixedEntries.find(
+    (entry) => entry.workDate.toISOString().slice(0, 10) === '2026-07-21',
+  )!
+  await prisma.workEntry.update({ where: { id: miercoles.id }, data: { projectId: dublin.id } })
+  const projectStale = await invalidateIfStale(mixedPayroll.id)
+  const afterProject = await prisma.workerPayroll.findUniqueOrThrow({
+    where: { id: mixedPayroll.id },
+  })
+  check('cambiar el proyecto de un día tumba la aprobación, aunque el monto no cambie',
+    projectStale && afterProject.status === 'PENDING_APPROVAL', afterProject.status)
+  check('y el neto sigue siendo el mismo: lo que cambió fue a quién se le cobra',
+    afterProject.netPay.toFixed(2) === '750.00', afterProject.netPay.toFixed(2))
 
   await cleanup()
 

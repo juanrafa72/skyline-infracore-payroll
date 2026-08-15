@@ -158,13 +158,20 @@ Al agregar una regla, va en el nivel puro.
 - **`payroll/estimate.ts`** — lo que va sumando la rejilla mientras se marca.
   Puro y en centavos aunque solo alimente una barra: es dinero que alguien mira
   para decidir.
+- **`payroll/grid.ts`** — qué proyecto le toca a cada día: `proyecto:<id>` para
+  toda la semana, `proyectodia:<id>:<fecha>` para un día suelto, y el día manda
+  (BR-115). El proyecto de un día decide a quién se le factura, así que la
+  precedencia se prueba sola, sin base ni pantalla. La fila arranca en modo por
+  día cuando la semana ya viene repartida — con un solo selector, el siguiente
+  guardado la aplanaría en silencio (BR-116).
 - **`brand/`** — la identidad de cada compañía como DATO, no código: colores,
   logo y **tipografía**. Infracore titula en mayúscula pesada con Saira y rotula
   en monoespaciada; Skyline titula en minúscula con Inter. Con un estilo fijo,
   una se vería como la otra. Sale de la compañía de la sesión, nunca de la URL.
 - **`disbursement/`** — a dónde va el dinero. `grouping.ts` (puro) agrupa
-  pagables de los TRES tipos por semana y empresa receptora y exige que las
-  órdenes sumen **exactamente** lo aprobado; cada renglón de orden referencia
+  pagables de los TRES tipos por semana y empresa receptora, lleva pegado a cada
+  renglón **contra qué** se paga (`detail`: días, producción, alquiler — BR-195)
+  y exige que las órdenes sumen **exactamente** lo aprobado; cada renglón de orden referencia
   exactamente UN pagable (CHECK uno-de-tres) con nombre y cuadrilla congelados.
   `orders.ts` genera órdenes mixtas al aprobar y registra el pago con su
   beneficiario legal (persona / CONTRATISTA / PROVEEDOR — `payment_single_payee`
@@ -237,6 +244,11 @@ candados en paralelo y fallaban "a veces" — no volver a paralelizarlas.
   150 renders. Todos los enlaces llevan `prefetch={false}`.
 - **Un día sin operación no encuentra una tarifa amarrada a una operación.** Los
   días heredan operación, proyecto y cuadrilla de la persona al capturarse.
+- **`smoke` pide datos de la compañía de SU sesión.** Elegía la orden y la
+  semana más recientes de toda la base: en cuanto Infracore tuvo una orden, la
+  pantalla respondía 404 (solo sirve la compañía activa) y la revisión reportaba
+  un daño que no existía. Toda consulta nueva del script va filtrada por
+  `companyId`.
 - **iCloud** sincroniza esta carpeta y crea copias `archivo 2.ts` que rompen la
   compilación. `npm run clean` corre antes de cada `typecheck`. `node_modules`
   vive fuera (enlace a `~/.local/`); `.next` **no** puede moverse: rompe la
@@ -351,19 +363,21 @@ netlify deploy --prod
 
 ## Estado
 
-**347 pruebas · 54 tablas · 16 migraciones · 21+ pantallas** · `check`, `smoke`
-(30) y `flow` (64) en verde. 150 reglas de negocio documentadas.
+**356 pruebas · 54 tablas · 16 migraciones · 21+ pantallas** · `check`, `smoke`
+(30) y `flow` (69) en verde. 153 reglas de negocio documentadas.
 
 El proceso completo, probado de punta a punta, para LOS TRES pagables (persona,
 cuadrilla, equipo rentado): marcar días y proyecto → calcular → revisar →
 asignar empresa receptora → aprobar → órdenes de desembolso mixtas → pagar →
 PDF con desglose por cuadrilla → histórico. La semana tiene los tres bloques
 que pidió el negocio (personal / equipo rentado / crews), "copiar semana
-anterior" (solo QUIÉNES + proyecto sugerido, jamás días), receptora sugerida de
-la semana pasada (propone, nunca asigna — BR-181), pantalla de tarifas
-faltantes con la vara del motor, y acceso por la red de la oficina
+anterior" (solo QUIÉNES + proyecto sugerido, jamás días), **proyecto por día**
+cuando alguien se mueve entre pueblos a mitad de semana (BR-115), receptora
+sugerida de la semana pasada (propone, nunca asigna — BR-181), pantalla de
+tarifas faltantes con la vara del motor, y acceso por la red de la oficina
 (`docs/LAN_ACCESS.md`, `SESSION_COOKIE_SECURE`) con cambio de contraseña
-forzado al primer ingreso.
+forzado al primer ingreso. El resumen previo a aprobar dice contra cuántos días
+va cada pago (BR-195).
 
 **Probado por quién:** por pruebas automáticas; el negocio todavía no ha
 completado una semana real en la pantalla. Solo 4 de 153 semanas tienen nómina

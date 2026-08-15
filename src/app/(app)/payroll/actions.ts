@@ -19,6 +19,7 @@ import {
 } from '@/lib/payroll/engine'
 import { snapshotRevenue } from '@/lib/margin/service'
 import { offCyclePeriod, periodOf, type PayPeriodType } from '@/lib/payroll/period'
+import { projectForDay, readProjectSelection } from '@/lib/payroll/grid'
 import { toIso } from '@/lib/payroll/week'
 import { invalidateIfStale } from '@/lib/payroll/workflow/service'
 import { currentRoster, removeFromRoster, setRoster } from '@/lib/payroll/roster'
@@ -117,23 +118,20 @@ export async function saveWorkEntries(formData: FormData) {
   }
 
   /*
-   * El proyecto que se escogió para cada persona esta semana.
+   * El proyecto de cada día.
    *
-   * Va por persona y no por día: en la práctica alguien trabaja la semana en un
-   * proyecto. Si algún día fuera distinto, el modelo lo admite —`WorkEntry`
-   * guarda el proyecto de cada día— y solo faltaría la pantalla.
+   * Normalmente se escoge uno para toda la semana, pero la fila puede venir
+   * "por día": la misma persona trabaja lunes, martes y viernes en un pueblo y
+   * miércoles y jueves en otro. El día manda sobre la semana — la regla vive en
+   * `grid.ts`, probada aparte.
    *
    * Importa más de lo que parece: un día sin proyecto no tiene cliente, y sin
    * cliente no se sabe a quién facturarlo. Por eso la venta y el margen salían
    * incompletos.
    */
-  const projectByWorker = new Map<string, string | null>()
-  for (const [key, raw] of formData.entries()) {
-    if (!key.startsWith('proyecto:')) continue
-    const workerId = key.slice('proyecto:'.length)
-    const value = String(raw).trim()
-    projectByWorker.set(workerId, value === '' ? null : value)
-  }
+  const projectSelection = readProjectSelection(
+    [...formData.entries()].map(([key, raw]) => [key, String(raw)] as const),
+  )
 
   const operations = new Map<string, { workerId: string; date: string; value: string }>()
   for (const [key, raw] of formData.entries()) {
@@ -223,9 +221,9 @@ export async function saveWorkEntries(formData: FormData) {
 
       // Solo se toca el proyecto si el formulario lo trajo: un campo ausente
       // nunca debe borrar el proyecto que ya tenía el día.
-      const chose = projectByWorker.has(workerId)
-      const projectId = chose
-        ? projectByWorker.get(workerId)!
+      const choice = projectForDay(projectSelection, workerId, date)
+      const projectId = choice.chose
+        ? choice.projectId
         : (defaults?.defaultProjectId ?? null)
 
       await tx.workEntry.upsert({
@@ -237,7 +235,7 @@ export async function saveWorkEntries(formData: FormData) {
           payrollWeekId: week.id,
           additionalAmount: amount,
           additionalNote: amount === null ? null : note,
-          ...(chose ? { projectId } : {}),
+          ...(choice.chose ? { projectId } : {}),
         },
         create: {
           companyId: company.id,
