@@ -19,6 +19,7 @@ import {
 } from '@/lib/payroll/engine'
 import { snapshotRevenue } from '@/lib/margin/service'
 import { offCyclePeriod, periodOf, type PayPeriodType } from '@/lib/payroll/period'
+import { reiniciarSemana } from '@/lib/payroll/reset'
 import { projectForDay, readProjectSelection } from '@/lib/payroll/grid'
 import { toIso } from '@/lib/payroll/week'
 import { invalidateIfStale } from '@/lib/payroll/workflow/service'
@@ -817,4 +818,25 @@ export async function removeWeekExtra(
   const result = await removeExtra(user, kind, String(formData.get('extraId') ?? ''))
   revalidatePath(`/payroll/${String(formData.get('weekId') ?? '')}`)
   return result.ok ? `LISTO|${result.message}` : result.message
+}
+
+/**
+ * Deja la semana como antes de calcular.
+ *
+ * Existe para poder ENSAYAR. Sin este botón, un cálculo mal hecho deja la
+ * semana a medias para siempre y la única salida es tocar la base a mano.
+ * No borra días marcados ni producción, y se niega si algo ya se pagó
+ * (regla 6: lo pagado se corrige con un ajuste, nunca con un borrón).
+ */
+export async function resetWeek(formData: FormData) {
+  const user = await assertCan('payroll:edit')
+  const weekId = String(formData.get('weekId') ?? '')
+
+  const result = await reiniciarSemana(user, weekId, String(formData.get('motivo') ?? ''))
+
+  revalidatePath(`/payroll/${weekId}`)
+  revalidatePath('/inicio')
+  revalidatePath('/approvals')
+  revalidatePath('/disbursements')
+  redirect(`/payroll/${weekId}?msg=${encodeURIComponent(result.message)}`)
 }

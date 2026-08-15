@@ -68,6 +68,7 @@ const ROUTES = [
   '/advances',
   '/billing-rates',
   '/approvals',
+  '/avisos',
   '/disbursements',
   '/recipients',
   '/payments',

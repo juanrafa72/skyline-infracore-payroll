@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db/client'
 import type { CurrentUser } from '@/lib/auth/rbac'
 import { canDetach, canDetachPayable, detachFromOrder, detachPayable } from '@/lib/disbursement/detach'
+import { bloquea } from '@/lib/payroll/exceptions'
 import { toIso } from '@/lib/payroll/week'
 import {
   approvalIsStale,
@@ -378,20 +379,31 @@ export async function applyPayableTransition(
       continue
     }
 
-    // Antes de aprobar se exige que no queden errores críticos abiertos.
+    /*
+     * Antes de aprobar se exige que no queden avisos críticos SIN CERRAR sobre
+     * ESTE pagable. La lista se filtra con `bloquea` en vez de contar todo lo
+     * crítico: los avisos que trajo la importación del Excel son diferencias
+     * del archivo histórico —que ya se pagó por fuera (BR-153)— y frenaban una
+     * semana con la que no tienen nada que ver. El aviso se cierra con nota en
+     * /avisos, y ahí sí desaparece la puerta.
+     */
     if (action === 'APPROVE') {
-      const critical = await prisma.exception.count({
+      const abiertos = await prisma.exception.findMany({
         where: {
           companyId: user.companyId,
           entityId: payable.id,
           level: 'CRITICAL',
           status: 'OPEN',
         },
+        select: { level: true, status: true, code: true, entityType: true, entityId: true },
       })
-      if (critical > 0) {
+      const frenan = abiertos.filter(bloquea)
+      if (frenan.length > 0) {
         result.skipped.push({
           name: payable.displayName,
-          reason: `Tiene ${critical} error(es) crítico(s) sin resolver.`,
+          reason:
+            `Tiene ${frenan.length} aviso(s) sin cerrar. Revísalos en Avisos y ciérralos ` +
+            'con una nota para poder aprobar.',
         })
         continue
       }

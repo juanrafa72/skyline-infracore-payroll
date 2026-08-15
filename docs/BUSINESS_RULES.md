@@ -310,3 +310,20 @@ Novasite: día $400, noche $440, que vive en `WorkerRate` como siempre.
 | BR-247 | Un renglón de orden de desembolso referencia **exactamente un** pagable — persona, cuadrilla o equipo (CHECK `disbursement_order_item_one_payable`) — con nombre y cuadrilla congelados (`itemNameSnapshot`, `crewLabelSnapshot`). | CONFIRMED |
 | BR-248 | El desglose por cuadrilla del centro de pagos y del PDF sale SOLO de los snapshots del renglón, nunca de joins vivos: el desglose de una orden pagada dice lo que decía el día del pago (extiende BR-186). | CONFIRMED |
 | BR-249 | Préstamos vivos del crew o su contratista se AVISAN en la aprobación de su liquidación. El descuento automático dentro de `CrewPayroll` queda para diseño posterior; mientras tanto la recuperación se registra a mano en Préstamos. | CONFIRMED (alcance MVP) |
+
+## 25. Avisos y reinicio de semana (BR-250 – BR-256)
+
+Nacieron de un callejón sin salida encontrado probando la aplicación como
+usuario: el sistema creaba avisos y **no existía ninguna pantalla para
+cerrarlos**. La tabla tiene cuatro estados y el código solo escribía `OPEN`.
+Quien corregía el problema seguía bloqueado para siempre.
+
+| # | Regla | Estado |
+|---|-------|--------|
+| BR-250 | Un aviso se cierra como `RESOLVED` («lo revisé y quedó bien») o `DISMISSED` («no aplica»), **siempre con nota** y con autor. Sin nota no se cierra: un aviso cerrado sin explicación deja el mismo hueco que no poder cerrarlo — dentro de un mes nadie sabe si se corrigió o si alguien lo tapó para poder seguir. | CONFIRMED |
+| BR-251 | Cerrar un aviso escribe en el audit log (`EXCEPTION_RESOLVED` / `EXCEPTION_DISMISSED`) en la MISMA transacción, con el motivo. | CONFIRMED |
+| BR-252 | Un aviso **frena un pago** solo si es `CRITICAL` **y** está `OPEN` **y** salió del trabajo de la semana **y** apunta a un pagable concreto. La regla vive en `payroll/exceptions/index.ts` (puro) y la usan por igual el motor de flujo, la pantalla de la semana y el tablero de inicio. | CONFIRMED |
+| BR-253 | Los avisos que trajo la importación del Excel (`entityType: ImportBatch`, o los códigos `DUPLICATE_WORK_ENTRY`, `CROSS_COMPANY_DUPLICATE`, `DUPLICATE_WORKER`, `REVIEW_ENTITY_TYPE`) **NUNCA frenan una semana nueva**: la importación no crea nóminas (BR-153), así que esos días ya se pagaron por fuera. Antes sí frenaban, y como no había dónde cerrarlos, importar el histórico dejaba la aplicación trancada para siempre. Se archivan en bloque. | CONFIRMED |
+| BR-254 | Cada aviso se muestra con **qué pasó** y **qué hacer** en palabras del negocio, nunca el código en inglés. Un código sin texto propio cae en un texto genérico, jamás en el código crudo. | CONFIRMED |
+| BR-255 | «Empezar de cero» borra las liquidaciones de los tres pagables y sus avisos, y **conserva** los días marcados, la producción capturada y los descuentos y adicionales manuales. Deshace el CÁLCULO, no el trabajo: volver a teclear lo capturado es lo que hace odiosa una aplicación. | CONFIRMED |
+| BR-256 | «Empezar de cero» se **niega por completo** si algún pagable de la semana está `PAID`, `RECONCILED` o `CLOSED` — no borra nada y lo explica (regla 6: lo pagado se corrige con un ajuste). Antes de borrar, cada pagable sale de su orden por `detachPayable`, que recalcula el total y anula la orden que se quede vacía (BR-191). Exige motivo y queda en el audit log como `WEEK_RESET`. | CONFIRMED |

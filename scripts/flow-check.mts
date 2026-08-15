@@ -35,6 +35,7 @@ import { DEFAULT_SETTINGS } from '../src/lib/payroll/engine/types'
 import { periodOf } from '../src/lib/payroll/period'
 import { ratesStatus, saveMissingRate } from '../src/lib/payroll/rates-status/service'
 import { pendingBoard, weekFocus } from '../src/lib/payroll/home'
+import { cerrarAviso } from '../src/lib/payroll/exceptions/service'
 import type { CurrentUser } from '../src/lib/auth/rbac'
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl() }) })
@@ -323,13 +324,63 @@ async function main() {
   check('no deja aprobar con un error crítico abierto', blockedByError.moved === 0,
     blockedByError.skipped[0]?.reason)
 
-  await prisma.exception.updateMany({
-    where: { entityId: payroll.id, status: 'OPEN' },
-    data: { status: 'RESOLVED', resolvedAt: new Date(), resolutionNote: 'Revisado en la prueba' },
+  /*
+   * Se cierra POR LA PANTALLA, con el mismo servicio que usa el botón.
+   *
+   * Antes esta prueba hacía un UPDATE directo a la base, y por eso pasaba en
+   * verde mientras la aplicación no tenía NINGÚN sitio donde cerrar un aviso:
+   * el negocio quedaba trancado sin salida y la revisión no se enteraba.
+   */
+  const sinNota = await cerrarAviso(rafael, {
+    id: (await prisma.exception.findFirstOrThrow({
+      where: { entityId: payroll.id, status: 'OPEN' },
+    })).id,
+    cierre: 'RESOLVED',
+    nota: ' ',
   })
+  check('cerrar un aviso sin explicar por qué NO se permite', !sinNota.ok, sinNota.message)
+
+  const abierto = await prisma.exception.findFirstOrThrow({
+    where: { entityId: payroll.id, status: 'OPEN' },
+  })
+  const cerrado = await cerrarAviso(rafael, {
+    id: abierto.id,
+    cierre: 'RESOLVED',
+    nota: 'Revisé los días y quedaron correctos',
+  })
+  check('el aviso se cierra desde la pantalla, con nota y autor', cerrado.ok, cerrado.message)
+  check('queda el rastro de quién lo cerró y por qué',
+    (await prisma.auditLog.count({
+      where: { entityType: 'Exception', entityId: abierto.id, action: 'EXCEPTION_RESOLVED' },
+    })) === 1)
+
   const reApproved = await applyTransition(rafael, [payroll.id], 'APPROVE')
   check('tras resolverlo, sí aprueba', reApproved.moved === 1,
     reApproved.skipped[0]?.reason)
+
+  /*
+   * Un aviso que trajo el Excel NO puede frenar una semana nueva.
+   *
+   * Este era el callejón sin salida: días duplicados del histórico —que ya se
+   * pagó por fuera— bloqueaban aprobaciones sin relación con ellos, y no había
+   * dónde cerrarlos.
+   */
+  await prisma.exception.create({
+    data: {
+      companyId: PREFIX,
+      code: 'DUPLICATE_WORK_ENTRY',
+      level: 'CRITICAL',
+      entityType: 'ImportBatch',
+      title: 'Día duplicado en el Excel',
+      detail: 'Viene del archivo histórico.',
+    },
+  })
+  // Se devuelve a la mesa de aprobación para volver a intentarlo con el aviso
+  // del histórico abierto: si frenara, la nómina no pasaría.
+  await applyTransition(rafael, [payroll.id], 'RETURN', 'prueba del aviso del histórico')
+  const conHistorico = await applyTransition(rafael, [payroll.id], 'APPROVE')
+  check('un aviso del archivo del Excel NO frena una semana nueva',
+    conHistorico.moved === 1, conHistorico.skipped[0]?.reason)
 
   // ── 6. Orden de desembolso
   console.log('\n6. Orden de desembolso')
@@ -664,7 +715,7 @@ async function main() {
   )
   const sinCostoApprove = await applyPayableTransition(rafael, 'EQUIPMENT', [sinCostoPayable.id], 'APPROVE')
   check('sin costo diario NO se aprueba: jamás se paga $0.00 en silencio',
-    sinCostoApprove.moved === 0 && (sinCostoApprove.skipped[0]?.reason ?? '').includes('crítico'),
+    sinCostoApprove.moved === 0 && (sinCostoApprove.skipped[0]?.reason ?? '').includes('aviso'),
     sinCostoApprove.skipped[0]?.reason)
 
   // ── 14. La misma persona, dos proyectos en la misma semana

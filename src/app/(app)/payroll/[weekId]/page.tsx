@@ -8,7 +8,9 @@ import { prisma } from '@/lib/db/client'
 import { weekExtras } from '@/lib/payroll/extras/service'
 import { ratesStatus } from '@/lib/payroll/rates-status/service'
 import { shortDay, toIso } from '@/lib/payroll/week'
-import { calculateWeek, copyPreviousWeek, saveWorkEntries } from '../actions'
+import { calculateWeek, copyPreviousWeek, resetWeek, saveWorkEntries } from '../actions'
+import { puedeReiniciar } from '@/lib/payroll/reset'
+import { ayudaDe, bloquea } from '@/lib/payroll/exceptions'
 import { currentRoster } from '@/lib/payroll/roster'
 import { Extras } from './Extras'
 import { RunningTotal } from './RunningTotal'
@@ -47,7 +49,7 @@ export default async function WeekPage({
   searchParams,
 }: {
   params: Promise<{ weekId: string }>
-  searchParams: Promise<{ todos?: string; op?: string; paso?: string }>
+  searchParams: Promise<{ todos?: string; op?: string; paso?: string; msg?: string }>
 }) {
   const { weekId } = await params
   const filters = await searchParams
@@ -321,7 +323,13 @@ export default async function WeekPage({
     { gross: 0, deductions: 0, net: 0 },
   )
 
-  const critical = exceptions.filter((exception) => exception.level === 'CRITICAL')
+  // Los que de verdad frenan un pago. Los que trajo el Excel no cuentan: se
+  // ven en /avisos y no tienen nada que ver con esta semana.
+  const critical = exceptions.filter(bloquea)
+
+  // ¿Se puede devolver esta semana al principio? Se pregunta siempre para
+  // poder explicar POR QUÉ no, en vez de esconder el botón sin más.
+  const reinicio = await puedeReiniciar(company.id, week.id)
   // Con más de 16 días las casillas van dentro de su propio bloque, no como
   // columnas de la rejilla: `md:contents` solo sirve cuando sí son columnas.
   const inlineDays = days.length <= 16
@@ -362,12 +370,19 @@ export default async function WeekPage({
         <Stat label="Descuentos" value={`$${money(totals.deductions)}`} />
         <Stat label="Neto a pagar" value={`$${money(totals.net)}`} tone="good" />
         <Stat
-          label="Errores"
+          label="Avisos que frenan"
           value={String(critical.length)}
           tone={critical.length > 0 ? 'warning' : 'default'}
-          hint={critical.length > 0 ? 'Bloquean el envío a aprobación' : 'Ninguno'}
+          hint={critical.length > 0 ? 'Ábrelos y ciérralos para poder aprobar' : 'Ninguno'}
         />
       </div>
+
+      {/* Resultado de la última acción: reinicio, guardado, cálculo. */}
+      {filters.msg ? (
+        <p className="mb-5 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3.5 text-sm">
+          {filters.msg}
+        </p>
+      ) : null}
 
       {showChooser ? (
         <>
@@ -618,25 +633,83 @@ export default async function WeekPage({
             </form>
           </section>
 
+          {/*
+            Avisos de ESTA semana, con salida.
+            Antes se listaban en rojo sin decir qué hacer ni ofrecer dónde
+            cerrarlos: quien corregía el problema quedaba igual de bloqueado.
+          */}
           {exceptions.length > 0 ? (
             <section className="mb-8">
-              <h2 className="brand-label mb-3 text-[var(--muted)]">
-                Errores detectados
-              </h2>
+              <h2 className="brand-label mb-3 text-[var(--muted)]">Avisos de esta semana</h2>
               <ul className="space-y-2">
-                {exceptions.map((exception) => (
-                  <li
-                    key={exception.id}
-                    className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm"
-                  >
-                    <div className="flex items-center gap-2">
-                      <Badge tone="critical">{exception.level}</Badge>
-                      <span className="font-medium">{exception.title}</span>
-                    </div>
-                    <p className="mt-1 text-red-800">{exception.detail}</p>
-                  </li>
-                ))}
+                {exceptions.map((exception) => {
+                  const frena = bloquea(exception)
+                  const ayuda = ayudaDe(exception.code)
+                  return (
+                    <li
+                      key={exception.id}
+                      className={`rounded-lg border p-3 text-sm ${
+                        frena
+                          ? 'border-red-300 bg-red-50'
+                          : 'border-[var(--border)] bg-[var(--surface)]'
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge tone={frena ? 'critical' : 'info'}>
+                          {frena ? 'Frena el pago' : 'Revisar'}
+                        </Badge>
+                        <span className="font-medium">{exception.title}</span>
+                      </div>
+                      <p className="mt-1">{ayuda.queEs}</p>
+                      <p className="mt-1 text-[var(--muted)]">{ayuda.queHacer}</p>
+                      <Link
+                        href="/avisos"
+                        prefetch={false}
+                        className="mt-2 inline-block font-medium underline"
+                      >
+                        Ir a cerrarlo →
+                      </Link>
+                    </li>
+                  )
+                })}
               </ul>
+            </section>
+          ) : null}
+
+          {/*
+            Empezar de cero.
+            Es lo que permite ENSAYAR: sin esto, un cálculo mal hecho deja la
+            semana a medias para siempre. Va al final, en gris y con motivo
+            obligatorio, para que no se oprima por error.
+          */}
+          {payrolls.length > 0 && user.permissions.has('payroll:edit') ? (
+            <section className="mb-8 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+              <h2 className="brand-label mb-1 text-[var(--muted)]">Empezar esta semana de cero</h2>
+              {reinicio.ok ? (
+                <>
+                  <p className="mb-3 text-sm text-[var(--muted)]">
+                    Borra los cálculos y deja la semana como antes de calcular.{' '}
+                    <strong>No se pierden</strong> los días marcados, la producción capturada ni
+                    los descuentos que anotaste a mano: solo hay que volver a oprimir «Calcular».
+                  </p>
+                  <form action={resetWeek} className="flex flex-wrap items-end gap-2">
+                    <input type="hidden" name="weekId" value={week.id} />
+                    <label className="min-w-56 flex-1 text-sm">
+                      <span className="mb-1 block text-[var(--muted)]">Por qué (queda registrado)</span>
+                      <input
+                        name="motivo"
+                        required
+                        minLength={3}
+                        placeholder="Ej.: estoy practicando con la semana"
+                        className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 text-sm"
+                      />
+                    </label>
+                    <Button variant="danger">Empezar de cero</Button>
+                  </form>
+                </>
+              ) : (
+                <p className="text-sm text-[var(--muted)]">{reinicio.motivo}</p>
+              )}
             </section>
           ) : null}
 

@@ -16,6 +16,7 @@
  *    invitaría a calcular una nómina de 2023 que ya se pagó por fuera.
  */
 import { prisma } from '@/lib/db/client'
+import { cuantosFrenan } from '@/lib/payroll/exceptions/service'
 import { workersMissingRateCount } from '@/lib/payroll/rates-status/service'
 import { toIso, weekRangeOf } from '@/lib/payroll/week'
 
@@ -207,7 +208,7 @@ export async function pendingBoard(companyId: string, onDate: string): Promise<P
           OR: [{ vendorId: null }, { dailyCost: null }],
         },
       }),
-      prisma.exception.count({ where: { companyId, status: 'OPEN', level: 'CRITICAL' } }),
+      cuantosFrenan(companyId),
       prisma.workerPayroll.count({ where: { companyId, status: { in: ['PREPARED', 'REJECTED'] } } }),
       prisma.workerPayroll.count({
         where: {
@@ -256,9 +257,9 @@ export async function pendingBoard(companyId: string, onDate: string): Promise<P
   if (critical > 0) {
     items.push({
       key: 'errores',
-      title: `${critical} error(es) que bloquean`,
-      detail: 'Mientras estén abiertos, esas nóminas no se pueden enviar ni aprobar.',
-      href: '/payroll',
+      title: `${critical} aviso(s) que frenan un pago`,
+      detail: 'Ábrelos, revisa qué pasó y ciérralos con una nota para poder seguir.',
+      href: '/avisos',
       tone: 'critical',
     })
   }

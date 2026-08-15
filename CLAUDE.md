@@ -46,7 +46,11 @@ viven en `/docs`; este archivo es corto a propósito.
 13. **No adivinar reglas de dinero.** Si no se puede verificar: documentarla en
     `docs/BUSINESS_RULES.md` como `NEEDS BUSINESS CONFIRMATION`, hacerla
     configurable en `CompanySetting`, y usar el valor más conservador.
-14. **`CrewPayroll` y `EquipmentPayroll` son vehículos de PAGO, no de margen.**
+14. **Todo lo que bloquea tiene que tener salida.** Si el sistema levanta una
+    barrera —un aviso, un error, una puerta— hay que poder cerrarla desde una
+    pantalla, con nota y autor. Un candado sin llave no protege: tranca. Y todo
+    proceso se tiene que poder repetir desde cero, o nadie puede ensayarlo.
+15. **`CrewPayroll` y `EquipmentPayroll` son vehículos de PAGO, no de margen.**
     El margen lee `Production` y los costos directos; **jamás** se emiten
     líneas `BASE_PRODUCTION`/`BASE_PIECE` — cada pie se contaría dos veces.
     Y los días de control (`WorkEntry.isControlOnly`) anotan, **no pagan**: no
@@ -141,6 +145,19 @@ Al agregar una regla, va en el nivel puro.
   congelado), SOLO en estados editables; `reconcile*Week` invalida con rastro
   lo aprobado cuando algo cambia. También los días de control y las vistas de
   los bloques de la semana.
+- **`payroll/exceptions/`** — qué avisos frenan un pago y cuáles no, y cómo se
+  cierran. `index.ts` es puro: `bloquea()` es la única definición de «esto
+  detiene el trabajo», y la usan por igual el motor de flujo, la pantalla de la
+  semana y el tablero de inicio. `service.ts` cierra con nota y autor.
+  **Nació de un callejón sin salida real**: el sistema creaba avisos y no había
+  NINGUNA pantalla para cerrarlos, así que quien corregía el problema seguía
+  bloqueado. Peor: los avisos que trajo el Excel contaban como bloqueo, y como
+  la importación no crea nóminas (BR-153) frenaban semanas con las que no
+  tenían nada que ver — BR-250…254.
+- **`payroll/reset.ts`** — «empezar esta semana de cero». Sin esto no se puede
+  ENSAYAR: un cálculo mal hecho dejaba la semana a medias para siempre. Borra
+  las liquidaciones, **conserva los días marcados** y se niega en seco si algo
+  ya se pagó — BR-255, BR-256.
 - **`payroll/rates-status/`** — LA única respuesta a «¿quién tiene tarifa?»,
   con el mismo `resolveRate` del motor. Antes convivían tres definiciones que
   se contradecían; dashboard, paso 1 de la semana y `/worker-rates` usan esta.
@@ -289,6 +306,15 @@ candados en paralelo y fallaban "a veces" — no volver a paralelizarlas.
   clases— los rechazaba aunque la aplicación los diera por válidos. La base tenía
   razón; el candado estaba desactualizado. Al ampliar un modelo, buscar las
   restricciones viejas de esa tabla.
+- **Una prueba que se salta la interfaz no ve que la interfaz no existe.** El
+  `flow` comprobaba «tras resolverlo, sí aprueba» con un `UPDATE` directo a la
+  base, así que pasaba en verde mientras la aplicación no tenía **ningún** sitio
+  donde cerrar un aviso y el negocio quedaba trancado. Una comprobación de un
+  paso del proceso tiene que llamar al MISMO servicio que llama el botón.
+- **Un candado sin llave no protege: tranca.** Cada barrera nueva (aviso,
+  bloqueo, puerta de aprobación) necesita su pantalla para levantarla, con nota
+  y autor, en el mismo cambio que la crea. Y todo lo que se pueda hacer mal
+  necesita cómo deshacerse, o el negocio no puede ni practicar.
 - **Un cambio de estado puede dejar huérfano un documento.** Devolver una nómina
   que ya estaba dentro de una orden de desembolso dejaba la orden con el monto
   viejo, y tesorería habría transferido de más. Todo lo que saque a alguien de
@@ -381,8 +407,18 @@ netlify deploy --prod
 
 ## Estado
 
-**365 pruebas · 54 tablas · 17 migraciones · 21+ pantallas** · `check`, `smoke`
-(31) y `flow` (81) en verde. 156 reglas de negocio documentadas.
+**376 pruebas · 54 tablas · 17 migraciones · 22+ pantallas** · `check`, `smoke`
+(32) y `flow` (85) en verde. 163 reglas de negocio documentadas.
+
+**El 15/08, probando la aplicación como usuario, apareció un callejón sin
+salida** y se cerró: el sistema creaba avisos y **no había ninguna pantalla para
+cerrarlos** (la tabla tiene cuatro estados; el código solo escribía `OPEN`).
+Quien corregía el problema seguía bloqueado. Y los avisos que trajo el Excel
+contaban como bloqueo aunque la importación no cree nóminas, así que frenaban
+semanas nuevas sin relación con ellos. Ahora hay **/avisos** —con qué pasó, qué
+hacer y cierre con nota— , el archivo del Excel se archiva en bloque y no frena
+nada, y cada semana tiene **«empezar de cero»**, que borra el cálculo,
+conserva los días marcados y se niega en seco si algo ya se pagó.
 
 **La navegación se rehízo el 15/08** (pedido de Rafael: «visualmente lo veo
 enredado»). Cuatro cosas: se entra por **«Esta semana»** —qué falta y un botón

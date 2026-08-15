@@ -33,6 +33,10 @@ const NAV: ReadonlyArray<{
       { href: '/production', label: 'Producción', permission: 'payroll:view' },
       { href: '/approvals', label: 'Aprobar', permission: 'payroll:approve' },
       { href: '/disbursements', label: 'Pagar', permission: 'payment:view' },
+      // Va aquí, no en Catálogos: un aviso sin cerrar frena el pago de alguien
+      // esta misma semana, y hasta que no hubo dónde cerrarlos la nómina se
+      // quedaba trancada sin salida.
+      { href: '/avisos', label: 'Avisos', permission: 'payroll:view' },
     ],
   },
   {
