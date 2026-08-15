@@ -10,8 +10,10 @@ import {
 } from './actions'
 
 export interface OrderWorker {
-  workerPayrollId: string
+  /** Renglón de la orden: puede ser una persona, una cuadrilla o un equipo. */
+  itemId: string
   name: string
+  crewLabel: string | null
   amount: string
   paid: boolean
 }
@@ -76,7 +78,7 @@ export function OrderCard({ data, canPay }: { data: OrderCardData; canPay: boole
   const [paying, setPaying] = useState(false)
   const [extras, setExtras] = useState(false)
   const [selected, setSelected] = useState<ReadonlySet<string>>(
-    () => new Set(pending.map((worker) => worker.workerPayrollId)),
+    () => new Set(pending.map((worker) => worker.itemId)),
   )
 
   const [payResult, pay, payingNow] = useActionState(payOrderAction, null)
@@ -90,7 +92,7 @@ export function OrderCard({ data, canPay }: { data: OrderCardData; canPay: boole
   /* Lo que suman los marcados, en centavos: es lo que hay que transferir. */
   const selectedTotal = useMemo(() => {
     const total = data.workers
-      .filter((worker) => selected.has(worker.workerPayrollId))
+      .filter((worker) => selected.has(worker.itemId))
       .reduce((accumulator, worker) => add(accumulator, toCents(worker.amount)), ZERO)
     return toDecimalString(total)
   }, [data.workers, selected])
@@ -179,18 +181,18 @@ export function OrderCard({ data, canPay }: { data: OrderCardData; canPay: boole
           <ul className="px-4 pb-1">
             {data.workers.map((worker) => (
               <li
-                key={worker.workerPayrollId}
+                key={worker.itemId}
                 className="flex items-center justify-between gap-3 border-b border-[var(--border)] py-1.5 text-sm last:border-0"
               >
                 <span className="flex items-center gap-2">
                   {paying && !worker.paid ? (
                     <input
                       type="checkbox"
-                      name="workerPayrollId"
+                      name="itemId"
                       form={`pay-${data.id}`}
-                      value={worker.workerPayrollId}
-                      checked={selected.has(worker.workerPayrollId)}
-                      onChange={() => toggle(worker.workerPayrollId)}
+                      value={worker.itemId}
+                      checked={selected.has(worker.itemId)}
+                      onChange={() => toggle(worker.itemId)}
                       className="h-4 w-4"
                     />
                   ) : null}

@@ -1,7 +1,10 @@
 /**
- * Agrupación de nóminas en órdenes de desembolso.
+ * Agrupación de pagables en órdenes de desembolso.
  *
  * Se agrupa por (semana + empresa receptora): cada grupo es una transferencia.
+ * Un pagable puede ser una PERSONA (su neto), una CUADRILLA (la producción que
+ * se le debe al contratista) o un EQUIPO rentado (sus días); la orden los
+ * mezcla sin despeinarse porque el dinero no distingue.
  *
  * Puro y en centavos enteros. Los totales de una orden de desembolso son
  * dinero que sale del banco: no pueden depender de una consulta, ni sumarse en
@@ -17,67 +20,82 @@ import {
   toDecimalString,
 } from '@/lib/payroll/engine/money'
 
-export interface PayrollToGroup {
-  workerPayrollId: string
-  workerId: string
-  workerName: string
+export type PayableKind = 'WORKER' | 'CREW' | 'EQUIPMENT'
+
+export interface PayableToGroup {
+  kind: PayableKind
+  /** Id del pagable: WorkerPayroll, CrewPayroll o EquipmentPayroll. */
+  payableId: string
+  /** Id de la entidad de fondo: persona, cuadrilla o equipo. */
+  refId: string
+  /** Cómo se muestra en la orden y en el PDF. */
+  name: string
+  /** Cuadrilla del renglón, para el desglose. null = "Sin cuadrilla". */
+  crewLabel: string | null
   payrollWeekId: string
-  /** Neto aprobado, como cadena con 2 decimales. */
-  netPay: string
+  /** Monto aprobado, como cadena con 2 decimales. */
+  amount: string
   recipientId: string | null
   recipientName: string | null
+}
+
+export interface GroupItem {
+  kind: PayableKind
+  payableId: string
+  refId: string
+  name: string
+  crewLabel: string | null
+  amount: Cents
 }
 
 export interface DisbursementGroup {
   payrollWeekId: string
   recipientId: string
   recipientName: string
-  items: ReadonlyArray<{
-    workerPayrollId: string
-    workerId: string
-    workerName: string
-    amount: Cents
-  }>
+  items: ReadonlyArray<GroupItem>
   total: Cents
 }
 
 export interface GroupingResult {
   groups: readonly DisbursementGroup[]
-  /** Nóminas sin empresa receptora: bloquean la aprobación. */
-  unassigned: ReadonlyArray<{ workerPayrollId: string; workerName: string }>
+  /** Pagables sin empresa receptora: bloquean la aprobación. */
+  unassigned: ReadonlyArray<{ payableId: string; kind: PayableKind; name: string }>
   /** Suma de todos los grupos. */
   grandTotal: Cents
 }
 
 /**
- * Reparte las nóminas en grupos.
+ * Reparte los pagables en grupos.
  *
- * Las que no tienen empresa receptora NO se meten en ningún grupo ni se
+ * Los que no tienen empresa receptora NO se meten en ningún grupo ni se
  * reparten a alguna por defecto: se devuelven aparte para que alguien decida.
- * Adivinar a dónde mandar el dinero de una persona no es una opción.
+ * Adivinar a dónde mandar el dinero de alguien no es una opción.
  */
-export function groupByRecipient(payrolls: readonly PayrollToGroup[]): GroupingResult {
+export function groupByRecipient(payables: readonly PayableToGroup[]): GroupingResult {
   const groups = new Map<string, DisbursementGroup>()
-  const unassigned: Array<{ workerPayrollId: string; workerName: string }> = []
+  const unassigned: Array<{ payableId: string; kind: PayableKind; name: string }> = []
   let grandTotal = ZERO
 
-  for (const payroll of payrolls) {
-    if (!payroll.recipientId) {
+  for (const payable of payables) {
+    if (!payable.recipientId) {
       unassigned.push({
-        workerPayrollId: payroll.workerPayrollId,
-        workerName: payroll.workerName,
+        payableId: payable.payableId,
+        kind: payable.kind,
+        name: payable.name,
       })
       continue
     }
 
-    const amount = toCents(payroll.netPay)
-    const key = `${payroll.payrollWeekId}::${payroll.recipientId}`
+    const amount = toCents(payable.amount)
+    const key = `${payable.payrollWeekId}::${payable.recipientId}`
     const existing = groups.get(key)
 
-    const item = {
-      workerPayrollId: payroll.workerPayrollId,
-      workerId: payroll.workerId,
-      workerName: payroll.workerName,
+    const item: GroupItem = {
+      kind: payable.kind,
+      payableId: payable.payableId,
+      refId: payable.refId,
+      name: payable.name,
+      crewLabel: payable.crewLabel,
       amount,
     }
 
@@ -89,9 +107,9 @@ export function groupByRecipient(payrolls: readonly PayrollToGroup[]): GroupingR
       })
     } else {
       groups.set(key, {
-        payrollWeekId: payroll.payrollWeekId,
-        recipientId: payroll.recipientId,
-        recipientName: payroll.recipientName ?? '',
+        payrollWeekId: payable.payrollWeekId,
+        recipientId: payable.recipientId,
+        recipientName: payable.recipientName ?? '',
         items: [item],
         total: amount,
       })
@@ -103,7 +121,7 @@ export function groupByRecipient(payrolls: readonly PayrollToGroup[]): GroupingR
   const ordered = [...groups.values()]
     .map((group) => ({
       ...group,
-      items: [...group.items].sort((a, b) => a.workerName.localeCompare(b.workerName, 'es')),
+      items: [...group.items].sort((a, b) => a.name.localeCompare(b.name, 'es')),
     }))
     .sort((a, b) => a.recipientName.localeCompare(b.recipientName, 'es'))
 

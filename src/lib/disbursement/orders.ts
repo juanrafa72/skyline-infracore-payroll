@@ -1,16 +1,25 @@
+import type { Prisma } from '@prisma/client'
 import type { CurrentUser } from '@/lib/auth/rbac'
 import { prisma } from '@/lib/db/client'
 import { type Cents, ZERO, add, toCents, toDecimalString } from '@/lib/payroll/engine/money'
 import { applyTransition } from '@/lib/payroll/workflow/service'
-import { checkBalance, groupByRecipient, type PayrollToGroup } from './grouping'
+import { applyPayableTransition } from '@/lib/payroll/workflow/payables'
+import {
+  checkBalance,
+  groupByRecipient,
+  type PayableKind,
+  type PayableToGroup,
+} from './grouping'
 import { formatOrderNumber, nextNumber } from './sequence'
 
 /**
  * Órdenes de desembolso.
  *
  * Una orden es una instrucción de transferencia: cuánto dinero sale, a qué
- * empresa receptora, por qué trabajadores y de qué semana. Se crean solas al
- * aprobar, agrupando por (semana + empresa receptora).
+ * empresa receptora, por qué pagables y de qué semana. Se crean solas al
+ * aprobar, agrupando por (semana + empresa receptora). Un pagable puede ser
+ * una persona, una cuadrilla (se le paga a su contratista) o un equipo rentado
+ * (se le paga a su proveedor).
  *
  * Igual que el resto de servicios, los errores de uso vuelven como mensaje.
  */
@@ -21,8 +30,20 @@ export interface OrderResult {
   orderNumbers?: readonly string[]
 }
 
+/** Qué pagables entran a una operación, por tipo. */
+export interface PayableSelection {
+  workerPayrollIds?: readonly string[]
+  crewPayrollIds?: readonly string[]
+  equipmentPayrollIds?: readonly string[]
+}
+
 /** Estados en los que todavía se puede decidir a dónde va el dinero. */
 const ASSIGNABLE = ['DRAFT', 'PREPARED', 'REJECTED', 'PENDING_APPROVAL'] as const
+type AssignableStatus = (typeof ASSIGNABLE)[number]
+
+function isAssignable(status: string): boolean {
+  return ASSIGNABLE.includes(status as AssignableStatus)
+}
 
 // ─────────────────────────────────────────────────────────────
 // Asignar empresa receptora
@@ -35,19 +56,23 @@ export interface AssignResult {
 }
 
 /**
- * Asigna la empresa receptora a una o varias nóminas.
+ * Asigna la empresa receptora a uno o varios pagables, del tipo que sean.
  *
- * Sirve igual para una persona que para cincuenta: es la misma operación. Lo
+ * Sirve igual para una persona que para cincuenta, o para una cuadrilla. Lo
  * que no se puede es reasignar algo ya aprobado — ahí ya existe una orden de
  * desembolso, y cambiarla por debajo dejaría el documento diciendo una cosa y
- * la base otra. Para eso se devuelve la nómina, que ya queda registrado.
+ * la base otra. Para eso se devuelve el pagable, que ya queda registrado.
  */
-export async function assignRecipient(
+export async function assignRecipientToPayables(
   user: CurrentUser,
-  workerPayrollIds: readonly string[],
+  selection: PayableSelection,
   recipientId: string,
 ): Promise<AssignResult> {
-  if (workerPayrollIds.length === 0) {
+  const workerIds = [...(selection.workerPayrollIds ?? [])]
+  const crewIds = [...(selection.crewPayrollIds ?? [])]
+  const equipmentIds = [...(selection.equipmentPayrollIds ?? [])]
+
+  if (workerIds.length + crewIds.length + equipmentIds.length === 0) {
     return { ok: false, message: 'No marcaste a nadie.', assigned: 0 }
   }
 
@@ -65,19 +90,36 @@ export async function assignRecipient(
     }
   }
 
-  const payrolls = await prisma.workerPayroll.findMany({
-    where: { id: { in: [...workerPayrollIds] }, companyId: user.companyId },
-    include: { worker: true },
-  })
+  const [workers, crews, equipment] = await Promise.all([
+    workerIds.length > 0
+      ? prisma.workerPayroll.findMany({
+          where: { id: { in: workerIds }, companyId: user.companyId },
+          include: { worker: true },
+        })
+      : [],
+    crewIds.length > 0
+      ? prisma.crewPayroll.findMany({
+          where: { id: { in: crewIds }, companyId: user.companyId },
+        })
+      : [],
+    equipmentIds.length > 0
+      ? prisma.equipmentPayroll.findMany({
+          where: { id: { in: equipmentIds }, companyId: user.companyId },
+        })
+      : [],
+  ])
 
-  const blocked = payrolls.filter(
-    (payroll) => !ASSIGNABLE.includes(payroll.status as (typeof ASSIGNABLE)[number]),
-  )
-  const assignable = payrolls.filter((payroll) =>
-    ASSIGNABLE.includes(payroll.status as (typeof ASSIGNABLE)[number]),
-  )
+  const assignableWorkers = workers.filter((row) => isAssignable(row.status))
+  const assignableCrews = crews.filter((row) => isAssignable(row.status))
+  const assignableEquipment = equipment.filter((row) => isAssignable(row.status))
 
-  if (assignable.length === 0) {
+  const blocked =
+    workers.length + crews.length + equipment.length -
+    (assignableWorkers.length + assignableCrews.length + assignableEquipment.length)
+  const assigned =
+    assignableWorkers.length + assignableCrews.length + assignableEquipment.length
+
+  if (assigned === 0) {
     return {
       ok: false,
       message:
@@ -86,42 +128,192 @@ export async function assignRecipient(
     }
   }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.workerPayroll.updateMany({
-      where: { id: { in: assignable.map((payroll) => payroll.id) } },
-      data: {
-        paymentRecipientId: recipientId,
-        recipientAssignedById: user.id,
-        recipientAssignedAt: new Date(),
-      },
-    })
+  const stamp = {
+    paymentRecipientId: recipientId,
+    recipientAssignedById: user.id,
+    recipientAssignedAt: new Date(),
+  }
 
+  const names = [
+    ...assignableWorkers.map((row) => row.worker.displayName),
+    ...assignableCrews.map((row) => `Cuadrilla ${row.crewNameSnapshot}`),
+    ...assignableEquipment.map((row) => `Equipo ${row.equipmentNameSnapshot}`),
+  ]
+
+  await prisma.$transaction(async (tx) => {
+    if (assignableWorkers.length > 0) {
+      await tx.workerPayroll.updateMany({
+        where: { id: { in: assignableWorkers.map((row) => row.id) } },
+        data: stamp,
+      })
+    }
+    if (assignableCrews.length > 0) {
+      await tx.crewPayroll.updateMany({
+        where: { id: { in: assignableCrews.map((row) => row.id) } },
+        data: stamp,
+      })
+    }
+    if (assignableEquipment.length > 0) {
+      await tx.equipmentPayroll.updateMany({
+        where: { id: { in: assignableEquipment.map((row) => row.id) } },
+        data: stamp,
+      })
+    }
+
+    const first = assignableWorkers[0] ?? assignableCrews[0] ?? assignableEquipment[0]
     await tx.auditLog.create({
       data: {
         companyId: user.companyId,
         userId: user.id,
         userEmailSnapshot: user.email,
         action: 'RECIPIENT_ASSIGNED',
-        entityType: 'WorkerPayroll',
-        entityId: assignable[0]!.id,
-        payrollWeekId: assignable[0]!.payrollWeekId,
+        entityType: assignableWorkers.length > 0 ? 'WorkerPayroll' : assignableCrews.length > 0 ? 'CrewPayroll' : 'EquipmentPayroll',
+        entityId: first!.id,
+        payrollWeekId: first!.payrollWeekId,
         newValueJson: {
           recipient: recipient.name,
           recipientId,
-          workers: assignable.map((payroll) => payroll.worker.displayName),
+          workers: names,
         },
         changedFields: ['paymentRecipientId'],
-        reason: `Empresa receptora «${recipient.name}» asignada a ${assignable.length} persona(s)`,
+        reason: `Empresa receptora «${recipient.name}» asignada a ${assigned} pagable(s)`,
       },
     })
   })
 
   const message =
-    blocked.length === 0
-      ? `${assignable.length} persona(s) se pagarán con fondos a «${recipient.name}».`
-      : `${assignable.length} asignada(s) a «${recipient.name}». ${blocked.length} quedaron fuera: ya están aprobadas o pagadas.`
+    blocked === 0
+      ? `${assigned} se pagarán con fondos a «${recipient.name}».`
+      : `${assigned} asignada(s) a «${recipient.name}». ${blocked} quedaron fuera: ya están aprobadas o pagadas.`
 
-  return { ok: true, message, assigned: assignable.length }
+  return { ok: true, message, assigned }
+}
+
+/** Puerta de compatibilidad: asignación solo de personas, la firma original. */
+export async function assignRecipient(
+  user: CurrentUser,
+  workerPayrollIds: readonly string[],
+  recipientId: string,
+): Promise<AssignResult> {
+  return assignRecipientToPayables(user, { workerPayrollIds }, recipientId)
+}
+
+// ─────────────────────────────────────────────────────────────
+// Cargar pagables como filas agrupables
+// ─────────────────────────────────────────────────────────────
+
+interface LoadedPayables {
+  rows: PayableToGroup[]
+  weeks: Map<string, { label: string; year: number; startDate: Date; endDate: Date }>
+  preparedById: string | null
+  /** contratista de cada CrewPayroll, para el pago. */
+  contractorByCrewPayroll: Map<string, string | null>
+}
+
+/**
+ * Trae los pagables aprobados y sin orden, ya con su forma de agrupación.
+ *
+ * El `crewLabel` de cada persona sale de las líneas de SU nómina esa semana
+ * (el dato ya congelado), no de su cuadrilla "actual": el desglose de una
+ * orden vieja debe decir dónde trabajó ESA semana.
+ */
+async function loadApprovedPayables(
+  companyId: string,
+  selection: PayableSelection,
+): Promise<LoadedPayables> {
+  const [workers, crews] = await Promise.all([
+    (selection.workerPayrollIds?.length ?? 0) > 0
+      ? prisma.workerPayroll.findMany({
+          where: {
+            id: { in: [...selection.workerPayrollIds!] },
+            companyId,
+            status: { in: ['APPROVED', 'READY_TO_PAY'] },
+            disbursementItem: null,
+          },
+          include: { worker: true, payrollWeek: true, paymentRecipient: true },
+        })
+      : [],
+    (selection.crewPayrollIds?.length ?? 0) > 0
+      ? prisma.crewPayroll.findMany({
+          where: {
+            id: { in: [...selection.crewPayrollIds!] },
+            companyId,
+            status: { in: ['APPROVED', 'READY_TO_PAY'] },
+            disbursementItem: null,
+          },
+          include: { payrollWeek: true, paymentRecipient: true },
+        })
+      : [],
+  ])
+
+  const lines =
+    workers.length > 0
+      ? await prisma.payrollLine.findMany({
+          where: { workerPayrollId: { in: workers.map((row) => row.id) }, crewId: { not: null } },
+          select: { workerPayrollId: true, crewId: true },
+        })
+      : []
+  const crewIds = [...new Set(lines.map((line) => line.crewId!))]
+  const crewNames = new Map(
+    (
+      await prisma.crew.findMany({ where: { id: { in: crewIds } }, select: { id: true, name: true } })
+    ).map((crew) => [crew.id, crew.name]),
+  )
+  const crewsOfPayroll = new Map<string, Set<string>>()
+  for (const line of lines) {
+    const set = crewsOfPayroll.get(line.workerPayrollId) ?? new Set<string>()
+    const name = crewNames.get(line.crewId!)
+    if (name) set.add(name)
+    crewsOfPayroll.set(line.workerPayrollId, set)
+  }
+
+  const rows: PayableToGroup[] = [
+    ...workers.map((payroll) => ({
+      kind: 'WORKER' as PayableKind,
+      payableId: payroll.id,
+      refId: payroll.workerId,
+      name: payroll.worker.displayName,
+      crewLabel: (() => {
+        const names = [...(crewsOfPayroll.get(payroll.id) ?? [])].sort((a, b) =>
+          a.localeCompare(b, 'es'),
+        )
+        return names.length > 0 ? names.join(' / ') : null
+      })(),
+      payrollWeekId: payroll.payrollWeekId,
+      amount: payroll.netPay.toFixed(2),
+      recipientId: payroll.paymentRecipientId,
+      recipientName: payroll.paymentRecipient?.name ?? null,
+    })),
+    ...crews.map((payroll) => ({
+      kind: 'CREW' as PayableKind,
+      payableId: payroll.id,
+      refId: payroll.crewId,
+      name: `Cuadrilla ${payroll.crewNameSnapshot}${payroll.contractorNameSnapshot ? ` → ${payroll.contractorNameSnapshot}` : ''}`,
+      crewLabel: payroll.crewNameSnapshot,
+      payrollWeekId: payroll.payrollWeekId,
+      amount: payroll.productionTotal.toFixed(2),
+      recipientId: payroll.paymentRecipientId,
+      recipientName: payroll.paymentRecipient?.name ?? null,
+    })),
+  ]
+
+  const weeks = new Map<string, { label: string; year: number; startDate: Date; endDate: Date }>()
+  for (const payroll of workers) {
+    weeks.set(payroll.payrollWeekId, payroll.payrollWeek)
+  }
+  for (const payroll of crews) {
+    weeks.set(payroll.payrollWeekId, payroll.payrollWeek)
+  }
+
+  return {
+    rows,
+    weeks,
+    preparedById:
+      workers.find((row) => row.preparedById)?.preparedById ??
+      crews.find((row) => row.preparedById)?.preparedById ??
+      null,
+    contractorByCrewPayroll: new Map(crews.map((row) => [row.id, row.contractorId])),
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -140,7 +332,7 @@ export interface PreviewGroup {
 
 export interface ApprovalPreview {
   groups: readonly PreviewGroup[]
-  unassigned: ReadonlyArray<{ workerPayrollId: string; workerName: string }>
+  unassigned: ReadonlyArray<{ payableId: string; name: string }>
   grandTotal: string
   balanced: boolean
   balanceMessage: string | null
@@ -148,36 +340,67 @@ export interface ApprovalPreview {
 
 /**
  * Lo que verá quien aprueba antes de confirmar: cuánto sale hacia cada empresa
- * receptora, con nombre y monto de cada persona.
+ * receptora, con nombre y monto de cada pagable.
  */
 export async function previewApproval(
   companyId: string,
-  workerPayrollIds: readonly string[],
+  selection: PayableSelection,
 ): Promise<ApprovalPreview> {
-  const payrolls = await prisma.workerPayroll.findMany({
-    where: { id: { in: [...workerPayrollIds] }, companyId },
-    include: { worker: true, payrollWeek: true, paymentRecipient: true },
-  })
+  const workerIds = [...(selection.workerPayrollIds ?? [])]
+  const crewIds = [...(selection.crewPayrollIds ?? [])]
 
-  const toGroup: PayrollToGroup[] = payrolls.map((payroll) => ({
-    workerPayrollId: payroll.id,
-    workerId: payroll.workerId,
-    workerName: payroll.worker.displayName,
-    payrollWeekId: payroll.payrollWeekId,
-    netPay: payroll.netPay.toFixed(2),
-    recipientId: payroll.paymentRecipientId,
-    recipientName: payroll.paymentRecipient?.name ?? null,
-  }))
+  const [workers, crews] = await Promise.all([
+    workerIds.length > 0
+      ? prisma.workerPayroll.findMany({
+          where: { id: { in: workerIds }, companyId },
+          include: { worker: true, payrollWeek: true, paymentRecipient: true },
+        })
+      : [],
+    crewIds.length > 0
+      ? prisma.crewPayroll.findMany({
+          where: { id: { in: crewIds }, companyId },
+          include: { payrollWeek: true, paymentRecipient: true },
+        })
+      : [],
+  ])
+
+  const toGroup: PayableToGroup[] = [
+    ...workers.map((payroll) => ({
+      kind: 'WORKER' as PayableKind,
+      payableId: payroll.id,
+      refId: payroll.workerId,
+      name: payroll.worker.displayName,
+      crewLabel: null,
+      payrollWeekId: payroll.payrollWeekId,
+      amount: payroll.netPay.toFixed(2),
+      recipientId: payroll.paymentRecipientId,
+      recipientName: payroll.paymentRecipient?.name ?? null,
+    })),
+    ...crews.map((payroll) => ({
+      kind: 'CREW' as PayableKind,
+      payableId: payroll.id,
+      refId: payroll.crewId,
+      name: `Cuadrilla ${payroll.crewNameSnapshot}`,
+      crewLabel: payroll.crewNameSnapshot,
+      payrollWeekId: payroll.payrollWeekId,
+      amount: payroll.productionTotal.toFixed(2),
+      recipientId: payroll.paymentRecipientId,
+      recipientName: payroll.paymentRecipient?.name ?? null,
+    })),
+  ]
 
   const { groups, unassigned, grandTotal } = groupByRecipient(toGroup)
 
-  const approvedTotal = payrolls.reduce<Cents>(
-    (accumulator, payroll) => add(accumulator, toCents(payroll.netPay.toFixed(2))),
+  const approvedTotal = toGroup.reduce<Cents>(
+    (accumulator, row) => add(accumulator, toCents(row.amount)),
     ZERO,
   )
   const balance = checkBalance(approvedTotal, groups)
 
-  const weekById = new Map(payrolls.map((payroll) => [payroll.payrollWeekId, payroll.payrollWeek]))
+  const weekById = new Map([
+    ...workers.map((payroll) => [payroll.payrollWeekId, payroll.payrollWeek] as const),
+    ...crews.map((payroll) => [payroll.payrollWeekId, payroll.payrollWeek] as const),
+  ])
 
   return {
     groups: groups.map((group) => {
@@ -191,19 +414,19 @@ export async function previewApproval(
           ? `${week.startDate.toISOString().slice(0, 10)} → ${week.endDate.toISOString().slice(0, 10)}`
           : '',
         workers: group.items.map((item) => ({
-          name: item.workerName,
+          name: item.name,
           amount: toDecimalString(item.amount),
         })),
         total: toDecimalString(group.total),
       }
     }),
-    unassigned,
+    unassigned: unassigned.map((row) => ({ payableId: row.payableId, name: row.name })),
     grandTotal: toDecimalString(grandTotal),
-    // Con gente sin asignar nunca cuadra: esa plata no está repartida.
+    // Con pagables sin asignar nunca cuadra: esa plata no está repartida.
     balanced: balance.balanced && unassigned.length === 0,
     balanceMessage:
       unassigned.length > 0
-        ? `${unassigned.length} persona(s) no tienen empresa receptora. Asígnaselas antes de aprobar.`
+        ? `${unassigned.length} pagable(s) no tienen empresa receptora. Asígnaselas antes de aprobar.`
         : balance.message,
   }
 }
@@ -213,64 +436,44 @@ export async function previewApproval(
 // ─────────────────────────────────────────────────────────────
 
 /**
- * Crea las órdenes de desembolso de un conjunto de nóminas ya aprobadas.
+ * Crea las órdenes de desembolso de un conjunto de pagables ya aprobados.
  *
- * Idempotente: una nómina que ya está en una orden no entra en otra. Si ya hay
- * una orden abierta para esa semana y esa receptora, se le agregan las nuevas;
+ * Idempotente: un pagable que ya está en una orden no entra en otra. Si ya hay
+ * una orden abierta para esa semana y esa receptora, se le agregan los nuevos;
  * si la que existe ya tiene dinero desembolsado, se crea una nueva con su
  * propio consecutivo, porque lo que ya salió del banco no se toca.
  */
 export async function generateOrders(
   user: CurrentUser,
-  workerPayrollIds: readonly string[],
+  selection: PayableSelection,
 ): Promise<OrderResult> {
-  const payrolls = await prisma.workerPayroll.findMany({
-    where: {
-      id: { in: [...workerPayrollIds] },
-      companyId: user.companyId,
-      status: { in: ['APPROVED', 'READY_TO_PAY'] },
-      disbursementItem: null,
-    },
-    include: { worker: true, payrollWeek: true, paymentRecipient: true },
-  })
+  const loaded = await loadApprovedPayables(user.companyId, selection)
 
-  if (payrolls.length === 0) {
+  if (loaded.rows.length === 0) {
     return { ok: true, message: 'No había nada nuevo por agrupar.', orderNumbers: [] }
   }
 
-  const withoutRecipient = payrolls.filter((payroll) => !payroll.paymentRecipientId)
+  const withoutRecipient = loaded.rows.filter((row) => !row.recipientId)
   if (withoutRecipient.length > 0) {
     return {
       ok: false,
       message: `No se pueden generar las órdenes: ${withoutRecipient
-        .map((payroll) => payroll.worker.displayName)
+        .map((row) => row.name)
         .join(', ')} no tienen empresa receptora.`,
     }
   }
 
   const company = await prisma.company.findUniqueOrThrow({ where: { id: user.companyId } })
 
-  const { groups } = groupByRecipient(
-    payrolls.map((payroll) => ({
-      workerPayrollId: payroll.id,
-      workerId: payroll.workerId,
-      workerName: payroll.worker.displayName,
-      payrollWeekId: payroll.payrollWeekId,
-      netPay: payroll.netPay.toFixed(2),
-      recipientId: payroll.paymentRecipientId,
-      recipientName: payroll.paymentRecipient?.name ?? null,
-    })),
-  )
+  const { groups } = groupByRecipient(loaded.rows)
 
   const created: string[] = []
-  const weekById = new Map(payrolls.map((payroll) => [payroll.payrollWeekId, payroll.payrollWeek]))
-  const preparedBy = payrolls.find((payroll) => payroll.preparedById)?.preparedById ?? null
-  const preparer = preparedBy
-    ? await prisma.user.findUnique({ where: { id: preparedBy }, select: { name: true } })
+  const preparer = loaded.preparedById
+    ? await prisma.user.findUnique({ where: { id: loaded.preparedById }, select: { name: true } })
     : null
 
   for (const group of groups) {
-    const week = weekById.get(group.payrollWeekId)
+    const week = loaded.weeks.get(group.payrollWeekId)
     if (!week) continue
 
     const recipient = await prisma.paymentRecipient.findUniqueOrThrow({
@@ -289,10 +492,14 @@ export async function generateOrders(
 
       const items = group.items.map((item) => ({
         companyId: user.companyId,
-        workerPayrollId: item.workerPayrollId,
-        workerId: item.workerId,
-        itemNameSnapshot: item.workerName,
+        itemNameSnapshot: item.name,
+        crewLabelSnapshot: item.crewLabel,
         amount: toDecimalString(item.amount),
+        ...(item.kind === 'WORKER'
+          ? { workerPayrollId: item.payableId, workerId: item.refId }
+          : {}),
+        ...(item.kind === 'CREW' ? { crewPayrollId: item.payableId } : {}),
+        ...(item.kind === 'EQUIPMENT' ? { equipmentPayrollId: item.payableId } : {}),
       }))
 
       if (open) {
@@ -361,10 +568,10 @@ export async function generateOrders(
             orderNumber,
             recipient: recipient.name,
             total: toDecimalString(group.total),
-            workers: group.items.map((item) => item.workerName),
+            workers: group.items.map((item) => item.name),
           },
           changedFields: ['orderNumber', 'totalAmount'],
-          reason: `Orden ${orderNumber} · ${group.items.length} persona(s) · $${toDecimalString(group.total)}`,
+          reason: `Orden ${orderNumber} · ${group.items.length} pagable(s) · $${toDecimalString(group.total)}`,
         },
       })
 
@@ -396,28 +603,53 @@ export interface PayOrderInput {
   notes?: string | null
   differenceReason?: string | null
   /**
-   * A quiénes cubre esta transferencia. Vacío = a todos los que faltan.
-   * Sirve cuando el dinero llegó en dos giros.
+   * Renglones de la orden que cubre esta transferencia. Vacío = todos los que
+   * faltan. Sirve cuando el dinero llegó en dos giros.
    */
-  workerPayrollIds?: readonly string[]
+  itemIds?: readonly string[]
+}
+
+type OrderItemWithPayables = Prisma.DisbursementOrderItemGetPayload<{
+  include: {
+    workerPayroll: { include: { worker: true } }
+    crewPayroll: true
+    equipmentPayroll: true
+  }
+}>
+
+function itemStatus(item: OrderItemWithPayables): string {
+  return (
+    item.workerPayroll?.status ??
+    item.crewPayroll?.status ??
+    item.equipmentPayroll?.status ??
+    'PAID'
+  )
 }
 
 /**
  * Registra la transferencia de una orden.
  *
- * Se crea un pago por trabajador — así se conservan los comprobantes, las
- * diferencias y los ajustes que ya existen por persona — pero todos comparten
- * la referencia bancaria y quedan colgados de la misma orden.
+ * Se crea un pago por renglón — así se conservan los comprobantes, las
+ * diferencias y los ajustes que ya existen por beneficiario — pero todos
+ * comparten la referencia bancaria y quedan colgados de la misma orden. El
+ * beneficiario depende del pagable: la persona, el CONTRATISTA de la
+ * cuadrilla, o el PROVEEDOR del equipo (BR-121).
  *
- * La regla dura: **lo transferido tiene que ser exactamente la suma de las
- * personas que se marcaron**. Si no coincide, no se registra nada. Un número
+ * La regla dura: **lo transferido tiene que ser exactamente la suma de los
+ * renglones que se marcaron**. Si no coincide, no se registra nada. Un número
  * que no cuadra con nadie hace imposible saber a quién le llegó.
  */
 export async function payOrder(user: CurrentUser, input: PayOrderInput): Promise<OrderResult> {
   const order = await prisma.disbursementOrder.findFirst({
     where: { id: input.orderId, companyId: user.companyId },
     include: {
-      items: { include: { workerPayroll: { include: { worker: true } } } },
+      items: {
+        include: {
+          workerPayroll: { include: { worker: true } },
+          crewPayroll: true,
+          equipmentPayroll: true,
+        },
+      },
       recipient: true,
     },
   })
@@ -430,26 +662,20 @@ export async function payOrder(user: CurrentUser, input: PayOrderInput): Promise
     return { ok: false, message: `La orden ${order.orderNumber} está anulada.` }
   }
 
-  // Hoy los renglones pagables por aquí son de personas; cuadrillas y equipos
-  // se conectan en la fase de órdenes mixtas.
   const pending = order.items.filter(
-    (item) =>
-      item.workerPayroll !== null &&
-      !['PAID', 'RECONCILED', 'CLOSED'].includes(item.workerPayroll.status),
+    (item) => !['PAID', 'RECONCILED', 'CLOSED'].includes(itemStatus(item)),
   )
   if (pending.length === 0) {
-    return { ok: false, message: 'Todas las personas de esta orden ya están pagadas.' }
+    return { ok: false, message: 'Todo lo de esta orden ya está pagado.' }
   }
 
   const selectedIds = new Set(
-    input.workerPayrollIds && input.workerPayrollIds.length > 0
-      ? input.workerPayrollIds
-      : pending.map((item) => item.workerPayrollId!),
+    input.itemIds && input.itemIds.length > 0 ? input.itemIds : pending.map((item) => item.id),
   )
-  const selected = pending.filter((item) => selectedIds.has(item.workerPayrollId!))
+  const selected = pending.filter((item) => selectedIds.has(item.id))
 
   if (selected.length === 0) {
-    return { ok: false, message: 'No marcaste a nadie de esta orden.' }
+    return { ok: false, message: 'No marcaste ningún renglón de esta orden.' }
   }
 
   const expected = selected.reduce<Cents>(
@@ -462,7 +688,7 @@ export async function payOrder(user: CurrentUser, input: PayOrderInput): Promise
     return {
       ok: false,
       message:
-        `Marcaste ${selected.length} persona(s) que suman $${toDecimalString(expected)}, ` +
+        `Marcaste ${selected.length} renglón(es) que suman $${toDecimalString(expected)}, ` +
         `pero escribiste $${toDecimalString(paying)}. ` +
         'Los dos números tienen que coincidir: si transferiste otra cantidad, marca exactamente a quiénes cubre.',
     }
@@ -473,7 +699,7 @@ export async function payOrder(user: CurrentUser, input: PayOrderInput): Promise
     return {
       ok: false,
       message:
-        `Esta transferencia cubre ${selected.length} de ${order.items.length} personas. ` +
+        `Esta transferencia cubre ${selected.length} de ${order.items.length} renglones. ` +
         'Escribe por qué van aparte: quien revise después necesita saberlo.',
     }
   }
@@ -496,15 +722,43 @@ export async function payOrder(user: CurrentUser, input: PayOrderInput): Promise
     }
   }
 
+  const workerIds = selected
+    .filter((item) => item.workerPayrollId)
+    .map((item) => item.workerPayrollId!)
+  const crewIds = selected.filter((item) => item.crewPayrollId).map((item) => item.crewPayrollId!)
+  const equipmentIds = selected
+    .filter((item) => item.equipmentPayrollId)
+    .map((item) => item.equipmentPayrollId!)
+
   // Primero la transición. Si esta persona no puede pagar esto, no se crea nada.
-  const ids = selected.map((item) => item.workerPayrollId!)
-  const started = await applyTransition(user, ids, 'START_PAYMENT', null)
-  if (started.moved === 0) {
-    return { ok: false, message: started.skipped[0]?.reason ?? 'No se pudo iniciar el pago.' }
+  const skipped: string[] = []
+  let moved = 0
+  if (workerIds.length > 0) {
+    const started = await applyTransition(user, workerIds, 'START_PAYMENT', null)
+    moved += started.moved
+    skipped.push(...started.skipped.map((row) => `${row.workerName}: ${row.reason}`))
   }
-  if (started.skipped.length > 0) {
-    const detail = started.skipped.map((row) => `${row.workerName}: ${row.reason}`).join(' · ')
-    return { ok: false, message: `No se registró nada. ${detail}` }
+  if (crewIds.length > 0) {
+    const started = await applyPayableTransition(user, 'CREW', crewIds, 'START_PAYMENT', null)
+    moved += started.moved
+    skipped.push(...started.skipped.map((row) => `${row.name}: ${row.reason}`))
+  }
+  if (equipmentIds.length > 0) {
+    const started = await applyPayableTransition(
+      user,
+      'EQUIPMENT',
+      equipmentIds,
+      'START_PAYMENT',
+      null,
+    )
+    moved += started.moved
+    skipped.push(...started.skipped.map((row) => `${row.name}: ${row.reason}`))
+  }
+  if (moved === 0) {
+    return { ok: false, message: skipped[0] ?? 'No se pudo iniciar el pago.' }
+  }
+  if (skipped.length > 0) {
+    return { ok: false, message: `No se registró nada. ${skipped.join(' · ')}` }
   }
 
   const count = await prisma.payment.count({ where: { companyId: user.companyId } })
@@ -514,31 +768,62 @@ export async function payOrder(user: CurrentUser, input: PayOrderInput): Promise
 
   await prisma.$transaction(async (tx) => {
     for (const [index, item] of selected.entries()) {
-      const payment = await tx.payment.create({
-        data: {
-          companyId: user.companyId,
-          paymentNumber: `PAY-${String(count + index + 1).padStart(5, '0')}`,
-          payeeType: 'WORKER',
-          workerId: item.workerId!,
-          payrollWeekId: order.payrollWeekId,
-          disbursementOrderId: order.id,
-          approvedAmount: item.amount,
-          amountPaid: item.amount,
-          paymentDate,
-          method: input.method,
-          reference,
-          notes: input.notes?.trim() || null,
-          status: 'PAID',
-          paidById: user.id,
-          paidAt: now,
-          bankAccountLast4: order.recipient.bankAccountLast4,
-        },
-      })
+      const base = {
+        companyId: user.companyId,
+        paymentNumber: `PAY-${String(count + index + 1).padStart(5, '0')}`,
+        payrollWeekId: order.payrollWeekId,
+        disbursementOrderId: order.id,
+        approvedAmount: item.amount,
+        amountPaid: item.amount,
+        paymentDate,
+        method: input.method,
+        reference,
+        notes: input.notes?.trim() || null,
+        status: 'PAID' as const,
+        paidById: user.id,
+        paidAt: now,
+        bankAccountLast4: order.recipient.bankAccountLast4,
+      }
 
-      await tx.workerPayroll.update({
-        where: { id: item.workerPayrollId! },
-        data: { paymentId: payment.id },
-      })
+      if (item.workerPayrollId) {
+        const payment = await tx.payment.create({
+          data: { ...base, payeeType: 'WORKER', workerId: item.workerId! },
+        })
+        await tx.workerPayroll.update({
+          where: { id: item.workerPayrollId },
+          data: { paymentId: payment.id },
+        })
+      } else if (item.crewPayrollId) {
+        /*
+         * El beneficiario legal es el CONTRATISTA de la cuadrilla (la puerta
+         * de APPROVE garantiza que existe). La receptora es el conducto por
+         * donde pasa la plata; el contratista es quien la cobra.
+         */
+        const payment = await tx.payment.create({
+          data: {
+            ...base,
+            payeeType: 'CONTRACTOR',
+            contractorId: item.crewPayroll!.contractorId!,
+          },
+        })
+        await tx.crewPayroll.update({
+          where: { id: item.crewPayrollId },
+          data: { paymentId: payment.id },
+        })
+      } else if (item.equipmentPayrollId) {
+        // Un equipo jamás recibe pagos: cobra su proveedor — BR-121.
+        const payment = await tx.payment.create({
+          data: {
+            ...base,
+            payeeType: 'VENDOR',
+            vendorId: item.equipmentPayroll!.vendorId!,
+          },
+        })
+        await tx.equipmentPayroll.update({
+          where: { id: item.equipmentPayrollId },
+          data: { paymentId: payment.id },
+        })
+      }
     }
 
     const paidSoFar = add(toCents(order.amountPaid.toFixed(2)), paying)
@@ -587,13 +872,19 @@ export async function payOrder(user: CurrentUser, input: PayOrderInput): Promise
     })
   })
 
-  await applyTransition(user, ids, 'CONFIRM_PAYMENT', null)
+  if (workerIds.length > 0) await applyTransition(user, workerIds, 'CONFIRM_PAYMENT', null)
+  if (crewIds.length > 0) {
+    await applyPayableTransition(user, 'CREW', crewIds, 'CONFIRM_PAYMENT', null)
+  }
+  if (equipmentIds.length > 0) {
+    await applyPayableTransition(user, 'EQUIPMENT', equipmentIds, 'CONFIRM_PAYMENT', null)
+  }
 
   return {
     ok: true,
     message:
       `${order.orderNumber} · $${toDecimalString(paying)} a «${order.recipientNameSnapshot}» ` +
-      `· ${selected.length} persona(s)` +
+      `· ${selected.length} renglón(es)` +
       (partial ? `. Quedan ${order.items.length - selected.length} por pagar en esta orden.` : '.'),
     orderNumbers: [order.orderNumber],
   }

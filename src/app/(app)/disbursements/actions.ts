@@ -47,7 +47,7 @@ export async function payOrderAction(
 
   if (!parsed.success) return parsed.error.issues[0]?.message ?? 'Faltan datos del pago.'
 
-  const selected = formData.getAll('workerPayrollId').map(String).filter(Boolean)
+  const selected = formData.getAll('itemId').map(String).filter(Boolean)
 
   const result = await payOrder(user, {
     orderId: parsed.data.orderId,
@@ -58,7 +58,7 @@ export async function payOrderAction(
     amountPaid: parsed.data.amountPaid,
     notes: parsed.data.notes ?? null,
     differenceReason: parsed.data.differenceReason ?? null,
-    workerPayrollIds: selected,
+    itemIds: selected,
   })
 
   revalidateAll()

@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { assertCan, requireUser } from '@/lib/auth/rbac'
 import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
-import { assignRecipient, generateOrders } from '@/lib/disbursement/orders'
+import { assignRecipientToPayables, generateOrders } from '@/lib/disbursement/orders'
 import { createRecipient } from '@/lib/disbursement/recipients'
 import { applyTransition } from '@/lib/payroll/workflow/service'
 import { applyPayableTransition } from '@/lib/payroll/workflow/payables'
@@ -20,22 +20,40 @@ import type { WorkflowAction } from '@/lib/payroll/workflow'
 async function run(action: WorkflowAction, formData: FormData): Promise<string> {
   const user = await requireUser()
   const ids = formData.getAll('payrollId').map(String).filter(Boolean)
+  const crewIds = formData.getAll('crewPayrollId').map(String).filter(Boolean)
   const reason = String(formData.get('reason') ?? '').trim() || null
 
-  if (ids.length === 0) return 'No marcaste ninguna nómina.'
+  if (ids.length === 0 && crewIds.length === 0) return 'No marcaste ninguna nómina.'
 
-  const result = await applyTransition(user, ids, action, reason)
+  const result =
+    ids.length > 0
+      ? await applyTransition(user, ids, action, reason)
+      : { moved: 0, skipped: [] as Array<{ workerName: string; reason: string }> }
+  const crews =
+    crewIds.length > 0
+      ? await applyPayableTransition(user, 'CREW', crewIds, action, reason)
+      : { moved: 0, skipped: [] as Array<{ name: string; reason: string }> }
+
+  const moved = result.moved + crews.moved
+  const allSkipped = [
+    ...result.skipped.map((row) => `${row.workerName}: ${row.reason}`),
+    ...crews.skipped.map((row) => `${row.name}: ${row.reason}`),
+  ]
 
   /*
    * Aprobar y ordenar el desembolso son el mismo acto.
    *
    * Si se dejaran separados, una nómina podría quedar aprobada sin que nadie
    * sepa a quién transferirle, que es exactamente el hueco que este flujo
-   * viene a tapar. Se generan aquí, agrupadas por semana y empresa receptora.
+   * viene a tapar. Se generan aquí, agrupadas por semana y empresa receptora —
+   * personas y cuadrillas juntas.
    */
   let orders = ''
-  if (action === 'APPROVE' && result.moved > 0) {
-    const generated = await generateOrders(user, ids)
+  if (action === 'APPROVE' && moved > 0) {
+    const generated = await generateOrders(user, {
+      workerPayrollIds: ids,
+      crewPayrollIds: crewIds,
+    })
     if (generated.ok && generated.orderNumbers && generated.orderNumbers.length > 0) {
       orders = ` ${generated.message}`
     } else if (!generated.ok) {
@@ -51,17 +69,20 @@ async function run(action: WorkflowAction, formData: FormData): Promise<string> 
     action as 'APPROVE' | 'REJECT' | 'RETURN'
   ]
 
-  if (result.skipped.length === 0) {
-    return `LISTO|${result.moved} nómina(s) ${verb}(s).${orders}`
+  const what =
+    crews.moved > 0
+      ? `${result.moved} nómina(s) y ${crews.moved} cuadrilla(s)`
+      : `${result.moved} nómina(s)`
+
+  if (allSkipped.length === 0) {
+    return `LISTO|${what} ${verb}(s).${orders}`
   }
 
-  const detail = result.skipped
-    .map((row) => `${row.workerName}: ${row.reason}`)
-    .join(' · ')
+  const detail = allSkipped.join(' · ')
 
-  return result.moved === 0
+  return moved === 0
     ? `Nada se movió. ${detail}`
-    : `PARCIAL|${result.moved} ${verb}(s).${orders} Quedaron fuera → ${detail}`
+    : `PARCIAL|${what} ${verb}(s).${orders} Quedaron fuera → ${detail}`
 }
 
 /**
@@ -76,11 +97,16 @@ export async function assignRecipientAction(
 ): Promise<string> {
   const user = await assertCan('payroll:approve')
   const ids = formData.getAll('payrollId').map(String).filter(Boolean)
+  const crewIds = formData.getAll('crewPayrollId').map(String).filter(Boolean)
   const recipientId = String(formData.get('recipientId') ?? '')
 
   if (!recipientId) return 'Escoge la empresa receptora.'
 
-  const result = await assignRecipient(user, ids, recipientId)
+  const result = await assignRecipientToPayables(
+    user,
+    { workerPayrollIds: ids, crewPayrollIds: crewIds },
+    recipientId,
+  )
   revalidatePath('/approvals')
   return result.ok ? `LISTO|${result.message}` : result.message
 }
@@ -96,6 +122,7 @@ export async function createAndAssignRecipient(
 ): Promise<string> {
   const user = await assertCan('payroll:approve')
   const ids = formData.getAll('payrollId').map(String).filter(Boolean)
+  const crewIds = formData.getAll('crewPayrollId').map(String).filter(Boolean)
 
   const created = await createRecipient(user, {
     name: String(formData.get('name') ?? ''),
@@ -116,13 +143,17 @@ export async function createAndAssignRecipient(
     return created.message
   }
 
-  if (ids.length === 0) {
+  if (ids.length === 0 && crewIds.length === 0) {
     revalidatePath('/approvals')
     revalidatePath('/recipients')
     return `LISTO|${created.message}`
   }
 
-  const assigned = await assignRecipient(user, ids, created.recipientId)
+  const assigned = await assignRecipientToPayables(
+    user,
+    { workerPayrollIds: ids, crewPayrollIds: crewIds },
+    created.recipientId,
+  )
   revalidatePath('/approvals')
   revalidatePath('/recipients')
 

@@ -16,7 +16,10 @@ import { PrismaClient } from '@prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import { databaseUrl } from '../src/lib/db/url'
 import { currentRoster, removeFromRoster, setRoster } from '../src/lib/payroll/roster'
-import { applyTransition, invalidateIfStale } from '../src/lib/payroll/workflow/service'
+import { applyTransition, currentHash, invalidateIfStale } from '../src/lib/payroll/workflow/service'
+import { applyPayableTransition } from '../src/lib/payroll/workflow/payables'
+import { syncCrewPayrolls } from '../src/lib/payroll/crews/service'
+import { assignRecipientToPayables } from '../src/lib/disbursement/orders'
 import { calculateWorkerPayroll } from '../src/lib/payroll/engine/index'
 import {
   assignRecipient,
@@ -65,6 +68,14 @@ async function cleanup() {
   await prisma.$executeRawUnsafe('ALTER TABLE equipment_payroll DISABLE TRIGGER equipment_payroll_immutable')
   try {
     await prisma.auditLog.deleteMany({ where: { companyId: PREFIX } })
+    // Los renglones de orden apuntan a las liquidaciones con FK RESTRICT:
+    // primero se borran los renglones, después las liquidaciones.
+    await prisma.disbursementDocument.deleteMany({ where: { companyId: PREFIX } })
+    await prisma.disbursementOrderItem.deleteMany({ where: { companyId: PREFIX } })
+    await prisma.disbursementOrder.deleteMany({ where: { companyId: PREFIX } })
+    // Los pagos ANTES que contratistas/proveedores: borrar al beneficiario
+    // primero pondría el pago en nulo y saltaría payment_single_payee.
+    await prisma.payment.deleteMany({ where: { companyId: PREFIX } })
     await prisma.production.deleteMany({ where: { companyId: PREFIX } })
     await prisma.crewPayroll.deleteMany({ where: { companyId: PREFIX } })
     await prisma.equipmentPayroll.deleteMany({ where: { companyId: PREFIX } })
@@ -74,15 +85,11 @@ async function cleanup() {
     await prisma.contractor.deleteMany({ where: { companyId: PREFIX } })
     await prisma.equipment.deleteMany({ where: { companyId: PREFIX } })
     await prisma.vendor.deleteMany({ where: { companyId: PREFIX } })
-    await prisma.disbursementDocument.deleteMany({ where: { companyId: PREFIX } })
-    await prisma.disbursementOrderItem.deleteMany({ where: { companyId: PREFIX } })
-    await prisma.disbursementOrder.deleteMany({ where: { companyId: PREFIX } })
     await prisma.paymentRecipient.deleteMany({ where: { companyId: PREFIX } })
     await prisma.$executeRawUnsafe('DELETE FROM document_sequence WHERE "companyId" = $1', PREFIX)
     await prisma.workEntry.deleteMany({ where: { companyId: PREFIX } })
   await prisma.payrollLine.deleteMany({ where: { workerPayroll: { companyId: PREFIX } } })
   await prisma.exception.deleteMany({ where: { companyId: PREFIX } })
-  await prisma.payment.deleteMany({ where: { companyId: PREFIX } })
   await prisma.workerPayroll.deleteMany({ where: { companyId: PREFIX } })
   await prisma.payrollWeekMember.deleteMany({ where: { companyId: PREFIX } })
   await prisma.payrollWeek.deleteMany({ where: { companyId: PREFIX } })
@@ -284,7 +291,7 @@ async function main() {
   const assigned = await assignRecipient(rafael, [payroll.id], recipient.recipientId!)
   check('se le asigna a la persona', assigned.assigned === 1, assigned.message)
 
-  const preview = await previewApproval(PREFIX, [payroll.id])
+  const preview = await previewApproval(PREFIX, { workerPayrollIds: [payroll.id] })
   check('el resumen cuadra con lo aprobado', preview.balanced && preview.grandTotal === '1000.00',
     `${preview.grandTotal} · ${preview.balanceMessage ?? ''}`)
 
@@ -321,7 +328,7 @@ async function main() {
 
   // ── 6. Orden de desembolso
   console.log('\n6. Orden de desembolso')
-  const generated = await generateOrders(rafael, [payroll.id])
+  const generated = await generateOrders(rafael, { workerPayrollIds: [payroll.id] })
   check('se genera la orden al aprobar', generated.ok, generated.message)
 
   const order = await prisma.disbursementOrder.findFirst({
@@ -457,6 +464,105 @@ async function main() {
     workerId: sinTarifa.id, amount: '160', effectiveFrom: '2026-07-20',
   })
   check('una vigencia que empieza antes de la actual se rechaza', !solapada.ok, solapada.message)
+
+  // ── 11. Cuadrilla: producción → deuda con el contratista → orden → pago
+  console.log('\n11. Cuadrilla que se paga al contratista')
+  const contractor = await prisma.contractor.create({
+    data: { companyId: PREFIX, name: 'Contratista Flow' },
+  })
+  const crew = await prisma.crew.create({
+    data: { companyId: PREFIX, code: 'FC1', name: 'Cuadrilla Flow' },
+  })
+  await prisma.production.create({
+    data: {
+      companyId: PREFIX, payrollWeekId: week.id, crewId: crew.id,
+      productionDate: new Date('2026-07-21T00:00:00Z'),
+      unitCode: 'FIBER', unitLabel: 'Fibra', quantity: '8500.00',
+      appliedPrice: '0.5', amount: '4250.00',
+    },
+  })
+
+  await syncCrewPayrolls(PREFIX, week.id)
+  const crewPayable = await prisma.crewPayroll.findUniqueOrThrow({
+    where: {
+      companyId_payrollWeekId_crewId: {
+        companyId: PREFIX, payrollWeekId: week.id, crewId: crew.id,
+      },
+    },
+  })
+  check('calcular convierte la producción en deuda con el contratista',
+    crewPayable.productionTotal.toFixed(2) === '4250.00', crewPayable.productionTotal.toFixed(2))
+
+  await applyPayableTransition(leo, 'CREW', [crewPayable.id], 'SUBMIT')
+  await assignRecipientToPayables(rafael, { crewPayrollIds: [crewPayable.id] }, recipient.recipientId!)
+
+  const sinContratista = await applyPayableTransition(rafael, 'CREW', [crewPayable.id], 'APPROVE')
+  check('sin contratista NO se aprueba: no hay a quién pagarle',
+    sinContratista.moved === 0 && (sinContratista.skipped[0]?.reason ?? '').includes('contratista'),
+    sinContratista.skipped[0]?.reason)
+
+  await applyPayableTransition(rafael, 'CREW', [crewPayable.id], 'REJECT', 'Ponerle el contratista')
+  await prisma.crew.update({ where: { id: crew.id }, data: { contractorId: contractor.id } })
+  await syncCrewPayrolls(PREFIX, week.id)
+  await applyPayableTransition(leo, 'CREW', [crewPayable.id], 'SUBMIT')
+  const crewApproved = await applyPayableTransition(rafael, 'CREW', [crewPayable.id], 'APPROVE')
+  check('con contratista y receptora, Rafael la aprueba', crewApproved.moved === 1,
+    crewApproved.skipped[0]?.reason)
+
+  const crewOrders = await generateOrders(rafael, { crewPayrollIds: [crewPayable.id] })
+  check('se genera la orden de la cuadrilla', crewOrders.ok && (crewOrders.orderNumbers?.length ?? 0) > 0,
+    crewOrders.message)
+  const crewItem = await prisma.disbursementOrderItem.findUniqueOrThrow({
+    where: { crewPayrollId: crewPayable.id },
+    include: { order: true },
+  })
+  check('el renglón congela nombre y cuadrilla',
+    crewItem.itemNameSnapshot.includes('Cuadrilla Flow') && crewItem.crewLabelSnapshot === 'Cuadrilla Flow')
+
+  const crewPay = await payOrder(tesoreria, {
+    orderId: crewItem.order.id, paymentDate: '2026-07-26', method: 'ZELLE',
+    reference: 'FLOW-REF-2', amountPaid: '4250.00',
+  })
+  check('tesorería paga la orden de la cuadrilla', crewPay.ok, crewPay.message)
+
+  const crewPayment = await prisma.payment.findFirst({
+    where: { companyId: PREFIX, disbursementOrderId: crewItem.order.id },
+  })
+  check('el pago queda a nombre del CONTRATISTA',
+    crewPayment?.payeeType === 'CONTRACTOR' && crewPayment?.contractorId === contractor.id)
+
+  const paidCrew = await prisma.crewPayroll.findUniqueOrThrow({ where: { id: crewPayable.id } })
+  check('la liquidación de la cuadrilla queda pagada', paidCrew.status === 'PAID')
+
+  // ── 12. Días de control: anotan, no pagan
+  console.log('\n12. Días de control de la gente del crew')
+  const miembro = await prisma.worker.create({
+    data: {
+      companyId: PREFIX, code: 'FW4', firstName: 'Miembro', lastName: 'Crew',
+      displayName: 'MIEMBRO CREW', defaultCrewId: crew.id,
+    },
+  })
+  await prisma.workEntry.create({
+    data: {
+      companyId: PREFIX, payrollWeekId: week.id, workerId: miembro.id,
+      workDate: new Date('2026-07-21T00:00:00Z'), dayType: 'FULL_DAY',
+      isControlOnly: true, crewId: crew.id,
+    },
+  })
+  check('el día de control NO lo mete a la nómina de personal',
+    !(await currentRoster(PREFIX, week.id)).includes(miembro.id))
+
+  const huellaAntes = await currentHash(payroll.id)
+  await prisma.workEntry.create({
+    data: {
+      companyId: PREFIX, payrollWeekId: week.id, workerId: worker.id,
+      workDate: new Date('2026-07-25T00:00:00Z'), dayType: 'FULL_DAY',
+      isControlOnly: true, crewId: crew.id,
+    },
+  })
+  const huellaDespues = await currentHash(payroll.id)
+  check('un día de control del mismo trabajador NO cambia su huella de aprobación',
+    huellaAntes === huellaDespues)
 
   await cleanup()
 

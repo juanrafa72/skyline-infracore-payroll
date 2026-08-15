@@ -18,11 +18,13 @@ function payroll(
   weekId = 'week-1',
 ) {
   return {
-    workerPayrollId: id,
-    workerId: `w-${id}`,
-    workerName: name,
+    kind: 'WORKER' as const,
+    payableId: id,
+    refId: `w-${id}`,
+    name,
+    crewLabel: null,
     payrollWeekId: weekId,
-    netPay: net,
+    amount: net,
     recipientId,
     recipientName,
   }
@@ -70,7 +72,7 @@ describe('agrupar por empresa receptora', () => {
     ])
 
     expect(result.groups).toHaveLength(1)
-    expect(result.unassigned).toEqual([{ workerPayrollId: '2', workerName: 'Beto' }])
+    expect(result.unassigned).toEqual([{ payableId: '2', kind: 'WORKER', name: 'Beto' }])
     // El total agrupado NO incluye a quien no tiene destino.
     expect(toDecimalString(result.grandTotal)).toBe('500.00')
   })
@@ -88,7 +90,7 @@ describe('agrupar por empresa receptora', () => {
       payroll('1', 'Zoe', '10.00', 'r1'),
       payroll('2', 'Ana', '10.00', 'r1'),
     ])
-    expect(result.groups[0]!.items.map((item) => item.workerName)).toEqual(['Ana', 'Zoe'])
+    expect(result.groups[0]!.items.map((item) => item.name)).toEqual(['Ana', 'Zoe'])
   })
 })
 

@@ -4,6 +4,14 @@ import { Kpi } from '@/components/ui/metrics'
 import { assertCan } from '@/lib/auth/rbac'
 import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
+import {
+  type Cents,
+  ZERO,
+  add,
+  subtract,
+  toCents,
+  toDecimalString,
+} from '@/lib/payroll/engine/money'
 import { toIso } from '@/lib/payroll/week'
 import { ApprovalPanel } from './ApprovalPanel'
 import { toggleSelfApproval } from './actions'
@@ -24,7 +32,7 @@ export default async function ApprovalsPage() {
   })
   const selfApprovalOn = selfApprovalSetting?.value === 'true'
 
-  const [pending, recipients] = await Promise.all([
+  const [pending, pendingCrews, recipients] = await Promise.all([
     prisma.workerPayroll.findMany({
       where: { companyId: company.id, status: 'PENDING_APPROVAL' },
       include: {
@@ -37,6 +45,11 @@ export default async function ApprovalsPage() {
       },
       orderBy: [{ payrollWeek: { startDate: 'desc' } }, { worker: { displayName: 'asc' } }],
     }),
+    prisma.crewPayroll.findMany({
+      where: { companyId: company.id, status: 'PENDING_APPROVAL' },
+      include: { payrollWeek: true, paymentRecipient: true },
+      orderBy: [{ payrollWeek: { startDate: 'desc' } }, { crewNameSnapshot: 'asc' }],
+    }),
     prisma.paymentRecipient.findMany({
       where: { companyId: company.id, active: true },
       orderBy: { name: 'asc' },
@@ -44,7 +57,7 @@ export default async function ApprovalsPage() {
     }),
   ])
 
-  if (pending.length === 0) {
+  if (pending.length === 0 && pendingCrews.length === 0) {
     return (
       <>
         <PageHeader title="Aprobaciones" subtitle={company.displayName} />
@@ -56,8 +69,13 @@ export default async function ApprovalsPage() {
     )
   }
 
-  // Semana anterior de cada persona, para ver si algo se salió de lo normal.
-  const weekIds = [...new Set(pending.map((row) => row.payrollWeekId))]
+  // Semana anterior de cada pagable, para ver si algo se salió de lo normal.
+  const weekIds = [
+    ...new Set([
+      ...pending.map((row) => row.payrollWeekId),
+      ...pendingCrews.map((row) => row.payrollWeekId),
+    ]),
+  ]
   const weeks = await prisma.payrollWeek.findMany({ where: { id: { in: weekIds } } })
   const previousByWeek = new Map<string, string>()
   for (const week of weeks) {
@@ -88,11 +106,73 @@ export default async function ApprovalsPage() {
     previousPayrolls.map((row) => [`${row.payrollWeekId}:${row.workerId}`, row]),
   )
 
+  /*
+   * Lo mismo para las cuadrillas: receptora sugerida de la semana pasada y
+   * préstamos vivos del crew o de su contratista. El préstamo es solo un
+   * AVISO — el descuento automático dentro de la liquidación queda para
+   * después; por ahora quien aprueba lo ve y decide.
+   */
+  const previousCrewPayrolls = await prisma.crewPayroll.findMany({
+    where: {
+      companyId: company.id,
+      payrollWeekId: { in: [...previousByWeek.values()] },
+      crewId: { in: pendingCrews.map((row) => row.crewId) },
+    },
+    select: {
+      crewId: true,
+      payrollWeekId: true,
+      paymentRecipientId: true,
+      paymentRecipient: { select: { name: true, active: true } },
+    },
+  })
+  const previousCrewByKey = new Map(
+    previousCrewPayrolls.map((row) => [`${row.payrollWeekId}:${row.crewId}`, row]),
+  )
+
+  const crewAdvances =
+    pendingCrews.length > 0
+      ? await prisma.advance.findMany({
+          where: {
+            companyId: company.id,
+            status: { not: 'CANCELLED' },
+            OR: [
+              { crewId: { in: pendingCrews.map((row) => row.crewId) } },
+              {
+                contractorId: {
+                  in: pendingCrews
+                    .map((row) => row.contractorId)
+                    .filter((id): id is string => id !== null),
+                },
+              },
+            ],
+          },
+          include: { recoveries: true },
+        })
+      : []
+
+  const loanBalanceFor = (crewId: string, contractorId: string | null): string | null => {
+    let balance = ZERO
+    for (const advance of crewAdvances) {
+      const matches =
+        advance.crewId === crewId ||
+        (contractorId !== null && advance.contractorId === contractorId)
+      if (!matches) continue
+      const amount = toCents(advance.amount.toFixed(2))
+      const recovered = advance.recoveries.reduce<Cents>(
+        (sum, row) => add(sum, toCents(row.amount.toFixed(2))),
+        ZERO,
+      )
+      if (amount > recovered) balance = add(balance, subtract(amount, recovered))
+    }
+    if (balance === ZERO) return null
+    return toDecimalString(balance)
+  }
+
   const exceptions = await prisma.exception.findMany({
     where: {
       companyId: company.id,
       status: 'OPEN',
-      entityId: { in: pending.map((row) => row.id) },
+      entityId: { in: [...pending.map((row) => row.id), ...pendingCrews.map((row) => row.id)] },
     },
   })
   const exceptionsByPayroll = new Map<string, typeof exceptions>()
@@ -157,6 +237,40 @@ export default async function ApprovalsPage() {
     }
   })
 
+  const crewRows = pendingCrews.map((payroll) => {
+    const previousId = previousByWeek.get(payroll.payrollWeekId)
+    const previous = previousId
+      ? previousCrewByKey.get(`${previousId}:${payroll.crewId}`)
+      : undefined
+    const suggestion =
+      !payroll.paymentRecipientId &&
+      previous?.paymentRecipientId &&
+      previous.paymentRecipient?.active
+        ? { id: previous.paymentRecipientId, name: previous.paymentRecipient.name }
+        : null
+    const own = exceptionsByPayroll.get(payroll.id) ?? []
+
+    return {
+      id: payroll.id,
+      name: payroll.crewNameSnapshot,
+      contractorName: payroll.contractorNameSnapshot,
+      hasContractor: payroll.contractorId !== null,
+      weekId: payroll.payrollWeekId,
+      weekLabel: `${payroll.payrollWeek.label} · ${payroll.payrollWeek.year}`,
+      period: `${toIso(payroll.payrollWeek.startDate)} → ${toIso(payroll.payrollWeek.endDate)}`,
+      productionCount: payroll.productionCount,
+      total: payroll.productionTotal.toFixed(2),
+      recipientId: payroll.paymentRecipientId,
+      recipientName: payroll.paymentRecipient?.name ?? null,
+      suggestedRecipientId: suggestion?.id ?? null,
+      suggestedRecipientName: suggestion?.name ?? null,
+      loanBalance: loanBalanceFor(payroll.crewId, payroll.contractorId),
+      preparedByMe: payroll.preparedById === user.id && !selfApprovalOn,
+      wasInvalidated: payroll.approvalInvalidatedAt !== null,
+      exceptions: own.map((row) => ({ level: row.level, title: row.title, detail: row.detail })),
+    }
+  })
+
   const totals = rows.reduce(
     (accumulator, row) => ({
       gross: accumulator.gross + Number(row.gross),
@@ -165,6 +279,7 @@ export default async function ApprovalsPage() {
     }),
     { gross: 0, deductions: 0, net: 0 },
   )
+  const crewTotal = crewRows.reduce((sum, row) => sum + Number(row.total), 0)
 
   const flagged = rows.filter(
     (row) =>
@@ -189,13 +304,26 @@ export default async function ApprovalsPage() {
     current.count += 1
     byWeek.set(row.weekLabel, current)
   }
+  for (const row of crewRows) {
+    const current = byWeek.get(row.weekLabel) ?? {
+      label: row.weekLabel,
+      period: row.period,
+      net: 0,
+      count: 0,
+    }
+    current.net += Number(row.total)
+    current.count += 1
+    byWeek.set(row.weekLabel, current)
+  }
   const weeksInView = [...byWeek.values()]
 
   return (
     <>
       <PageHeader
         title="Aprobaciones"
-        subtitle={`${rows.length} nómina(s) esperando · ${company.displayName}`}
+        subtitle={`${rows.length} nómina(s)${
+          crewRows.length > 0 ? ` y ${crewRows.length} cuadrilla(s)` : ''
+        } esperando · ${company.displayName}`}
       />
 
       {/* Qué semana se está aprobando, bien visible */}
@@ -226,10 +354,13 @@ export default async function ApprovalsPage() {
       </div>
 
       <section className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Kpi label="Personas" value={String(rows.length)} />
-        <Kpi label="Bruto" value={`$${money(totals.gross)}`} />
+        <Kpi
+          label={crewRows.length > 0 ? 'Personas + cuadrillas' : 'Personas'}
+          value={crewRows.length > 0 ? `${rows.length} + ${crewRows.length}` : String(rows.length)}
+        />
+        <Kpi label="Bruto personas" value={`$${money(totals.gross)}`} />
         <Kpi label="Descuentos" value={`$${money(totals.deductions)}`} />
-        <Kpi label="Neto a aprobar" value={`$${money(totals.net)}`} />
+        <Kpi label="Total a aprobar" value={`$${money(totals.net + crewTotal)}`} />
       </section>
 
       {flagged > 0 ? (
@@ -294,7 +425,12 @@ export default async function ApprovalsPage() {
         </div>
       ) : null}
 
-      <ApprovalPanel rows={rows} threshold={VARIANCE_THRESHOLD} recipients={recipients} />
+      <ApprovalPanel
+        rows={rows}
+        crewRows={crewRows}
+        threshold={VARIANCE_THRESHOLD}
+        recipients={recipients}
+      />
 
       <p className="mt-5 text-xs text-[var(--muted)]">
         Al aprobar se congela una huella de todo lo que afecta el pago. Si después alguien

@@ -53,12 +53,15 @@ const EMPTY: NewRecipient = {
 export function AssignRecipient({
   recipients,
   selectedIds,
+  selectedCrewIds,
   selectedCount,
   choice,
   onChoiceChange,
 }: {
   recipients: readonly RecipientOption[]
   selectedIds: readonly string[]
+  /** Liquidaciones de cuadrilla marcadas: viajan en el mismo clic. */
+  selectedCrewIds: readonly string[]
   selectedCount: number
   choice: string
   onChoiceChange: (recipientId: string) => void
@@ -79,6 +82,7 @@ export function AssignRecipient({
   function withSelection(): FormData {
     const data = new FormData()
     for (const id of selectedIds) data.append('payrollId', id)
+    for (const id of selectedCrewIds) data.append('crewPayrollId', id)
     return data
   }
 

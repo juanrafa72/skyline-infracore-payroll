@@ -1,7 +1,7 @@
 import type { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db/client'
 import type { CurrentUser } from '@/lib/auth/rbac'
-import { canDetach, detachFromOrder } from '@/lib/disbursement/detach'
+import { canDetach, canDetachPayable, detachFromOrder, detachPayable } from '@/lib/disbursement/detach'
 import { toIso } from '@/lib/payroll/week'
 import {
   approvalIsStale,
@@ -224,14 +224,15 @@ const crewDelegate: PayableDelegate = {
   async update(tx, id, data) {
     await tx.crewPayroll.update({ where: { id }, data })
   },
-  /*
-   * Fase B conecta los pagables de cuadrilla a las órdenes de desembolso.
-   * Hoy no pueden estar en ninguna, así que no hay nada de qué soltarse.
-   */
-  async canDetach() {
-    return { ok: true }
+  async canDetach(id) {
+    const result = await canDetachPayable({ kind: 'CREW', payableId: id })
+    return result.ok
+      ? { ok: true }
+      : { ok: false, reason: result.reason ?? 'Ya tiene dinero desembolsado.' }
   },
-  async detach() {},
+  async detach(tx, id, why) {
+    await detachPayable(tx, { kind: 'CREW', payableId: id }, why)
+  },
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -285,10 +286,15 @@ const equipmentDelegate: PayableDelegate = {
   async update(tx, id, data) {
     await tx.equipmentPayroll.update({ where: { id }, data })
   },
-  async canDetach() {
-    return { ok: true }
+  async canDetach(id) {
+    const result = await canDetachPayable({ kind: 'EQUIPMENT', payableId: id })
+    return result.ok
+      ? { ok: true }
+      : { ok: false, reason: result.reason ?? 'Ya tiene dinero desembolsado.' }
   },
-  async detach() {},
+  async detach(tx, id, why) {
+    await detachPayable(tx, { kind: 'EQUIPMENT', payableId: id }, why)
+  },
 }
 
 const DELEGATES: Record<PayableKind, PayableDelegate> = {

@@ -2,17 +2,25 @@ import type { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db/client'
 
 /**
- * Sacar una nómina de su orden de desembolso cuando deja de estar aprobada.
+ * Sacar un pagable de su orden de desembolso cuando deja de estar aprobado.
  *
  * Existe por un hueco real: si alguien devuelve una nómina que ya está dentro
- * de una orden, o si la aprobación se cae sola porque cambió un día, la orden
- * se quedaría con el monto viejo. Tesorería vería un total que ya no
- * corresponde a nadie y transferiría de más o de menos, sin que nada avisara.
+ * de una orden, o si la aprobación se cae sola porque cambió algo, la orden se
+ * quedaría con el monto viejo. Tesorería vería un total que ya no corresponde
+ * a nadie y transferiría de más o de menos, sin que nada avisara.
  *
- * Regla: mientras la orden no haya movido dinero, la nómina sale y la orden se
- * recalcula. Si ya movió dinero, la nómina NO se puede devolver — eso se
- * corrige con un ajuste o una reversión, que quedan registrados.
+ * Regla: mientras la orden no haya movido dinero, el pagable sale y la orden
+ * se recalcula. Si ya movió dinero, NO se puede devolver — eso se corrige con
+ * un ajuste o una reversión, que quedan registrados.
+ *
+ * Sirve igual para personas, cuadrillas y equipos: cada uno tiene su columna
+ * única en el renglón de la orden.
  */
+
+export type PayableRef =
+  | { kind: 'WORKER'; payableId: string }
+  | { kind: 'CREW'; payableId: string }
+  | { kind: 'EQUIPMENT'; payableId: string }
 
 export interface DetachResult {
   ok: boolean
@@ -23,12 +31,21 @@ export interface DetachResult {
   orderEmptied?: boolean
 }
 
-/** ¿Se puede sacar esta nómina de su orden? Sin tocar nada. */
-export async function canDetach(workerPayrollId: string): Promise<DetachResult> {
-  const item = await prisma.disbursementOrderItem.findUnique({
-    where: { workerPayrollId },
-    include: { order: true },
-  })
+type ItemFinder = Prisma.TransactionClient | typeof prisma
+
+async function findItem(db: ItemFinder, ref: PayableRef) {
+  const where =
+    ref.kind === 'WORKER'
+      ? { workerPayrollId: ref.payableId }
+      : ref.kind === 'CREW'
+        ? { crewPayrollId: ref.payableId }
+        : { equipmentPayrollId: ref.payableId }
+  return db.disbursementOrderItem.findUnique({ where, include: { order: true } })
+}
+
+/** ¿Se puede sacar este pagable de su orden? Sin tocar nada. */
+export async function canDetachPayable(ref: PayableRef): Promise<DetachResult> {
+  const item = await findItem(prisma, ref)
   if (!item) return { ok: true }
 
   if (item.order.status === 'PAID' || item.order.status === 'PARTIALLY_PAID') {
@@ -45,20 +62,17 @@ export async function canDetach(workerPayrollId: string): Promise<DetachResult> 
 }
 
 /**
- * Saca la nómina de su orden y recalcula el total.
+ * Saca el pagable de su orden y recalcula el total.
  *
  * Si la orden se queda sin nadie, se anula con el motivo: dejarla en cero
  * haría que tesorería viera una transferencia de $0 sin explicación.
  */
-export async function detachFromOrder(
+export async function detachPayable(
   tx: Prisma.TransactionClient,
-  workerPayrollId: string,
+  ref: PayableRef,
   why: string,
 ): Promise<DetachResult> {
-  const item = await tx.disbursementOrderItem.findUnique({
-    where: { workerPayrollId },
-    include: { order: true },
-  })
+  const item = await findItem(tx, ref)
   if (!item) return { ok: true }
 
   if (item.order.status === 'PAID' || item.order.status === 'PARTIALLY_PAID') {
@@ -97,4 +111,18 @@ export async function detachFromOrder(
   })
 
   return { ok: true, orderNumber: item.order.orderNumber }
+}
+
+// Puertas de compatibilidad para el camino de personas, que existía primero.
+
+export async function canDetach(workerPayrollId: string): Promise<DetachResult> {
+  return canDetachPayable({ kind: 'WORKER', payableId: workerPayrollId })
+}
+
+export async function detachFromOrder(
+  tx: Prisma.TransactionClient,
+  workerPayrollId: string,
+  why: string,
+): Promise<DetachResult> {
+  return detachPayable(tx, { kind: 'WORKER', payableId: workerPayrollId }, why)
 }

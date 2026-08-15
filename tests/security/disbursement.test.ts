@@ -269,7 +269,7 @@ describe('no se aprueba sin decir a dónde va el dinero', () => {
     const recipient = await newRecipient('Receptora Uno')
     await assignRecipient(approver, [ids[0]!], recipient)
 
-    const preview = await previewApproval(COMPANY, ids)
+    const preview = await previewApproval(COMPANY, { workerPayrollIds: ids })
 
     expect(preview.balanced).toBe(false)
     expect(preview.unassigned).toHaveLength(1)
@@ -281,7 +281,7 @@ describe('no se aprueba sin decir a dónde va el dinero', () => {
     const recipient = await newRecipient('Receptora Uno')
     await assignRecipient(approver, ids, recipient)
 
-    const preview = await previewApproval(COMPANY, ids)
+    const preview = await previewApproval(COMPANY, { workerPayrollIds: ids })
 
     expect(preview.balanced).toBe(true)
     expect(preview.grandTotal).toBe('350.50')
@@ -313,7 +313,7 @@ describe('generar las órdenes', () => {
 
   it('una receptora produce una orden con el total exacto', async () => {
     const { ids } = await approveAll(['100.00', '250.50'])
-    const result = await generateOrders(approver, ids)
+    const result = await generateOrders(approver, { workerPayrollIds: ids })
 
     expect(result.ok).toBe(true)
     const orders = await prisma.disbursementOrder.findMany({
@@ -328,7 +328,7 @@ describe('generar las órdenes', () => {
 
   it('dos receptoras producen dos órdenes, y juntas dan el total aprobado', async () => {
     const { ids } = await approveAll(['100.00', '200.00', '300.00'], [2])
-    await generateOrders(approver, ids)
+    await generateOrders(approver, { workerPayrollIds: ids })
 
     const orders = await prisma.disbursementOrder.findMany({ where: { companyId: COMPANY } })
     expect(orders).toHaveLength(2)
@@ -339,7 +339,7 @@ describe('generar las órdenes', () => {
 
   it('cada orden lleva un consecutivo distinto', async () => {
     const { ids } = await approveAll(['100.00', '200.00'], [1])
-    await generateOrders(approver, ids)
+    await generateOrders(approver, { workerPayrollIds: ids })
 
     const orders = await prisma.disbursementOrder.findMany({ where: { companyId: COMPANY } })
     const numbers = orders.map((order) => order.orderNumber)
@@ -349,8 +349,8 @@ describe('generar las órdenes', () => {
 
   it('generar dos veces no duplica nada', async () => {
     const { ids } = await approveAll(['100.00'])
-    await generateOrders(approver, ids)
-    const second = await generateOrders(approver, ids)
+    await generateOrders(approver, { workerPayrollIds: ids })
+    const second = await generateOrders(approver, { workerPayrollIds: ids })
 
     expect(second.orderNumbers).toEqual([])
     expect(await prisma.disbursementOrder.count({ where: { companyId: COMPANY } })).toBe(1)
@@ -359,7 +359,7 @@ describe('generar las órdenes', () => {
 
   it('congela los nombres para que el documento no cambie después', async () => {
     const { ids, one } = await approveAll(['100.00'])
-    await generateOrders(approver, ids)
+    await generateOrders(approver, { workerPayrollIds: ids })
 
     await prisma.paymentRecipient.update({
       where: { id: one },
@@ -374,7 +374,7 @@ describe('generar las órdenes', () => {
 
   it('guarda quién preparó y quién aprobó', async () => {
     const { ids } = await approveAll(['100.00'])
-    await generateOrders(approver, ids)
+    await generateOrders(approver, { workerPayrollIds: ids })
 
     const order = await prisma.disbursementOrder.findFirstOrThrow({ where: { companyId: COMPANY } })
     expect(order.preparedByName).toBe('Quien prepara')
@@ -397,7 +397,7 @@ describe('registrar el pago', () => {
     const recipient = await newRecipient('Receptora Uno')
     await assignRecipient(approver, ids, recipient)
     await applyTransition(approver, ids, 'APPROVE', null)
-    await generateOrders(approver, ids)
+    await generateOrders(approver, { workerPayrollIds: ids })
     const order = await prisma.disbursementOrder.findFirstOrThrow({
       where: { companyId: COMPANY },
       include: { items: true },
@@ -448,7 +448,7 @@ describe('registrar el pago', () => {
       ...base,
       orderId: order.id,
       amountPaid: first.amount.toFixed(2),
-      workerPayrollIds: [first.workerPayrollId!],
+      itemIds: [first.id],
     })
 
     expect(result.ok).toBe(false)
@@ -463,7 +463,7 @@ describe('registrar el pago', () => {
       ...base,
       orderId: order.id,
       amountPaid: first.amount.toFixed(2),
-      workerPayrollIds: [first.workerPayrollId!],
+      itemIds: [first.id],
       differenceReason: 'El segundo giro sale mañana',
     })
 
@@ -490,7 +490,7 @@ describe('registrar el pago', () => {
       ...base,
       orderId: order.id,
       amountPaid: first!.amount.toFixed(2),
-      workerPayrollIds: [first!.workerPayrollId!],
+      itemIds: [first!.id],
       differenceReason: 'primer giro',
     })
     const result = await payOrder(treasury, {
@@ -498,7 +498,7 @@ describe('registrar el pago', () => {
       reference: 'REF-2',
       orderId: order.id,
       amountPaid: second!.amount.toFixed(2),
-      workerPayrollIds: [second!.workerPayrollId!],
+      itemIds: [second!.id],
       differenceReason: 'segundo giro',
     })
 
@@ -516,7 +516,7 @@ describe('registrar el pago', () => {
     const other = await newRecipient('Receptora Dos')
     await assignRecipient(approver, otherIds, other)
     await applyTransition(approver, otherIds, 'APPROVE', null)
-    await generateOrders(approver, otherIds)
+    await generateOrders(approver, { workerPayrollIds: otherIds })
     const second = await prisma.disbursementOrder.findFirstOrThrow({
       where: { companyId: COMPANY, NOT: { id: order.id } },
     })
@@ -571,7 +571,7 @@ describe('lo que la base impide aunque el código falle', () => {
     const recipient = await newRecipient('Receptora Uno')
     await assignRecipient(approver, ids, recipient)
     await applyTransition(approver, ids, 'APPROVE', null)
-    await generateOrders(approver, ids)
+    await generateOrders(approver, { workerPayrollIds: ids })
     const order = await prisma.disbursementOrder.findFirstOrThrow({ where: { companyId: COMPANY } })
     await payOrder(treasury, {
       orderId: order.id,
@@ -645,7 +645,7 @@ describe('lo que la base impide aunque el código falle', () => {
     const recipient = await newRecipient('Receptora Uno')
     await assignRecipient(approver, ids, recipient)
     await applyTransition(approver, ids, 'APPROVE', null)
-    await generateOrders(approver, ids)
+    await generateOrders(approver, { workerPayrollIds: ids })
     const order = await prisma.disbursementOrder.findFirstOrThrow({ where: { companyId: COMPANY } })
 
     await expect(
@@ -663,7 +663,7 @@ describe('devolver una nómina que ya está en una orden', () => {
     const recipient = await newRecipient('Receptora Uno')
     await assignRecipient(approver, ids, recipient)
     await applyTransition(approver, ids, 'APPROVE', null)
-    await generateOrders(approver, ids)
+    await generateOrders(approver, { workerPayrollIds: ids })
     const order = await prisma.disbursementOrder.findFirstOrThrow({
       where: { companyId: COMPANY },
       include: { items: true },
@@ -726,7 +726,7 @@ describe('devolver una nómina que ya está en una orden', () => {
       method: 'WIRE',
       reference: 'REF-PARCIAL',
       amountPaid: first.amount.toFixed(2),
-      workerPayrollIds: [first.workerPayrollId!],
+      itemIds: [first.id],
       differenceReason: 'primer giro',
     })
 
@@ -749,7 +749,7 @@ describe('devolver una nómina que ya está en una orden', () => {
       data: { status: 'PENDING_APPROVAL', netPay: '150.00' },
     })
     await applyTransition(approver, [ids[0]!], 'APPROVE', null)
-    await generateOrders(approver, [ids[0]!])
+    await generateOrders(approver, { workerPayrollIds: [ids[0]!] })
 
     const reopened = await prisma.disbursementOrder.findUniqueOrThrow({
       where: { id: order.id },
@@ -767,7 +767,7 @@ describe('anular una orden', () => {
     const recipient = await newRecipient('Receptora Uno')
     await assignRecipient(approver, ids, recipient)
     await applyTransition(approver, ids, 'APPROVE', null)
-    await generateOrders(approver, ids)
+    await generateOrders(approver, { workerPayrollIds: ids })
     const order = await prisma.disbursementOrder.findFirstOrThrow({ where: { companyId: COMPANY } })
 
     expect((await cancelOrder(approver, order.id, '  ')).ok).toBe(false)
@@ -785,7 +785,7 @@ describe('anular una orden', () => {
     const recipient = await newRecipient('Receptora Uno')
     await assignRecipient(approver, ids, recipient)
     await applyTransition(approver, ids, 'APPROVE', null)
-    await generateOrders(approver, ids)
+    await generateOrders(approver, { workerPayrollIds: ids })
     const order = await prisma.disbursementOrder.findFirstOrThrow({ where: { companyId: COMPANY } })
     await payOrder(treasury, {
       orderId: order.id,
