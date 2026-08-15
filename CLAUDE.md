@@ -46,6 +46,11 @@ viven en `/docs`; este archivo es corto a propósito.
 13. **No adivinar reglas de dinero.** Si no se puede verificar: documentarla en
     `docs/BUSINESS_RULES.md` como `NEEDS BUSINESS CONFIRMATION`, hacerla
     configurable en `CompanySetting`, y usar el valor más conservador.
+14. **`CrewPayroll` y `EquipmentPayroll` son vehículos de PAGO, no de margen.**
+    El margen lee `Production` y los costos directos; **jamás** se emiten
+    líneas `BASE_PRODUCTION`/`BASE_PIECE` — cada pie se contaría dos veces.
+    Y los días de control (`WorkEntry.isControlOnly`) anotan, **no pagan**: no
+    entran al motor, al roster, al dashboard ni a las huellas de aprobación.
 
 ---
 
@@ -124,7 +129,21 @@ Al agregar una regla, va en el nivel puro.
   adivina** y reporta. Nunca paga cero en silencio.
 - **`engine/index.ts`** — `calculateWorkerPayroll`. Orden fijo:
   `basePay → additions → gross → deductions(prioridad) → net`.
-- **`payroll/workflow/`** — máquina de estados + huella de campos materiales.
+- **`payroll/workflow/`** — máquina de estados + huellas de campos materiales
+  (persona, cuadrilla y equipo). **`payables.ts` es el único motor de
+  transiciones**: un delegado por tipo de pagable aporta tabla, nombre, huella
+  y detach; la segregación, BR-180, los errores críticos y las puertas propias
+  (cuadrilla sin contratista, equipo sin proveedor) viven UNA sola vez ahí.
+  `service.ts` conserva `applyTransition` como puerta compatible para personas.
+- **`payroll/crews/`** y **`payroll/equipment/`** — liquidaciones semanales:
+  `syncCrewPayrolls` vuelve la producción deuda con el contratista y
+  `syncEquipmentPayrolls` vuelve los días deuda con el proveedor (días × costo
+  congelado), SOLO en estados editables; `reconcile*Week` invalida con rastro
+  lo aprobado cuando algo cambia. También los días de control y las vistas de
+  los bloques de la semana.
+- **`payroll/rates-status/`** — LA única respuesta a «¿quién tiene tarifa?»,
+  con el mismo `resolveRate` del motor. Antes convivían tres definiciones que
+  se contradecían; dashboard, paso 1 de la semana y `/worker-rates` usan esta.
 - **`margin/`** — el otro lado del negocio. `rates.ts` resuelve la tarifa de
   VENTA con la misma precedencia que la de costo; `index.ts` calcula
   venta − costo = margen, y devuelve `null` en el porcentaje cuando la venta
@@ -143,13 +162,18 @@ Al agregar una regla, va en el nivel puro.
   logo y **tipografía**. Infracore titula en mayúscula pesada con Saira y rotula
   en monoespaciada; Skyline titula en minúscula con Inter. Con un estilo fijo,
   una se vería como la otra. Sale de la compañía de la sesión, nunca de la URL.
-- **`disbursement/`** — a dónde va el dinero. `grouping.ts` (puro) agrupa por
-  semana y empresa receptora y exige que las órdenes sumen **exactamente** lo
-  aprobado; `orders.ts` genera las órdenes al aprobar y registra el pago;
-  `detach.ts` saca a alguien de una orden sin pagar cuando se devuelve su
-  nómina, y lo impide si el dinero ya salió.
+- **`disbursement/`** — a dónde va el dinero. `grouping.ts` (puro) agrupa
+  pagables de los TRES tipos por semana y empresa receptora y exige que las
+  órdenes sumen **exactamente** lo aprobado; cada renglón de orden referencia
+  exactamente UN pagable (CHECK uno-de-tres) con nombre y cuadrilla congelados.
+  `orders.ts` genera órdenes mixtas al aprobar y registra el pago con su
+  beneficiario legal (persona / CONTRATISTA / PROVEEDOR — `payment_single_payee`
+  lo respalda); la selección de pago parcial va por RENGLÓN (`itemIds`).
+  `detach.ts` (`detachPayable`) saca cualquier pagable de una orden sin pagar
+  cuando se devuelve, y lo impide si el dinero ya salió.
 - **`pdf/`** — generador de PDF propio, sin dependencias. El desprendible de
-  contabilidad lleva el detalle por trabajador, nunca solo el total.
+  contabilidad lleva el detalle por renglón **agrupado por cuadrilla con
+  subtotales** (desde snapshots), nunca solo el total.
 - **`payroll/period.ts`** — diario, semanal, catorcenal, quincenal, mensual, y
   cortes fuera de calendario para liquidar a quien se retira.
 - **`payroll/week.ts`** — la semana va domingo a sábado y se numera como
@@ -157,19 +181,25 @@ Al agregar una regla, va en el nivel puro.
 
 ### Protecciones en la base, no en el código
 
-Once triggers y veintitrés restricciones, repartidas en dos migraciones:
+Trece triggers y ~30 restricciones, en cuatro migraciones:
 `20260812233000_guardrails` (audit log append-only, nómina pagada inmutable,
 tarifas sin solape, condonación con aprobador, adicional sin nota, pago mayor al
-aprobado) y `20260813202556_disbursement_orders` (orden pagada inmutable,
-renglones congelados, receptora con historial no se borra, diferencia sin
-explicar rechazada).
+aprobado, `payment_single_payee`), `20260813202556_disbursement_orders` (orden
+pagada inmutable, renglones congelados, receptora con historial no se borra,
+diferencia sin explicar rechazada), `20260815010700_crew_equipment_payables`
+(liquidaciones de cuadrilla y equipo pagadas inmutables, nombres congelados no
+vacíos, montos ≥ 0) y `20260815013000_order_items_one_of_three` (un renglón =
+exactamente UN pagable; FKs RESTRICT).
 
 Se verifican con SQL crudo, saltándose la aplicación:
-`tests/security/db-guardrails.test.ts` y `tests/security/disbursement.test.ts`.
-Para limpiar datos de prueba hay que desactivar los triggers un momento —
-`ALTER TABLE ... DISABLE TRIGGER` dentro de un `try/finally`. Es un privilegio
-que la aplicación nunca tiene; si un `cleanup` empieza a fallar, casi siempre es
-un trigger nuevo que falta desactivar ahí.
+`tests/security/db-guardrails.test.ts`, `tests/security/disbursement.test.ts` y
+`tests/security/payables-db.test.ts`. Para limpiar datos de prueba hay que
+desactivar los triggers un momento — `ALTER TABLE ... DISABLE TRIGGER` dentro de
+un `try/finally`. Es un privilegio que la aplicación nunca tiene; si un
+`cleanup` empieza a fallar, casi siempre es un trigger nuevo que falta
+desactivar ahí. Las suites corren **en secuencia** (`fileParallelism: false` en
+`vitest.config.mts`): dos archivos contra la base real chocaban al apagar
+candados en paralelo y fallaban "a veces" — no volver a paralelizarlas.
 
 ### Fronteras entre proveedores — no cruzarlas
 
@@ -377,7 +407,8 @@ cronograma.
 
 Ver `docs/IMPLEMENTATION_PLAN.md`. Reglas por tema en `docs/BUSINESS_RULES.md`:
 desembolsos §19 (BR-180…194), venta y margen §20 (BR-200…208), producción §21
-(BR-210…215), préstamos §22 (BR-220…228), extras de la semana §23 (BR-230…236).
+(BR-210…215), préstamos §22 (BR-220…228), extras de la semana §23 (BR-230…236),
+cuadrillas y equipos como pagables §24 (BR-240…249).
 
 ### Datos que el negocio tiene que resolver
 
