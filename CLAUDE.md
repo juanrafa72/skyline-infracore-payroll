@@ -158,6 +158,14 @@ Al agregar una regla, va en el nivel puro.
 - **`payroll/estimate.ts`** — lo que va sumando la rejilla mientras se marca.
   Puro y en centavos aunque solo alimente una barra: es dinero que alguien mira
   para decidir.
+- **`payroll/home.ts`** — lo que responde «¿qué hago ahora?». `weekFocus` elige
+  la semana donde ESTÁ el trabajo (la última con días propios o liquidaciones),
+  no la del calendario, y jamás una de las 149 del Excel (sus días son
+  `sourceType: IMPORT`); `pendingBoard` junta en un solo sitio todo lo que
+  espera a alguien. Los pasos cuentan los TRES pagables.
+- **`components/shell/FlowSteps.tsx`** — la tira «marcar días · calcular ·
+  aprobar · pagar» que llevan Nómina, Aprobar y Pagar, y el bloque «lo que
+  sigue». Un paso sin permiso se ve pero no enlaza.
 - **`payroll/grid.ts`** — qué proyecto le toca a cada día: `proyecto:<id>` para
   toda la semana, `proyectodia:<id>:<fecha>` para un día suelto, y el día manda
   (BR-115). El proyecto de un día decide a quién se le factura, así que la
@@ -176,6 +184,11 @@ Al agregar una regla, va en el nivel puro.
   `orders.ts` genera órdenes mixtas al aprobar y registra el pago con su
   beneficiario legal (persona / CONTRATISTA / PROVEEDOR — `payment_single_payee`
   lo respalda); la selección de pago parcial va por RENGLÓN (`itemIds`).
+  **`payOrder` es el ÚNICO camino por el que sale dinero** (BR-196): la
+  pantalla que pagaba persona por persona se retiró porque no tocaba la orden
+  —el dinero salía y la orden seguía abierta—. Como cada renglón se paga
+  completo, ya no se generan `Variance`: una diferencia hoy es una orden
+  `PARTIALLY_PAID` con su motivo.
   `detach.ts` (`detachPayable`) saca cualquier pagable de una orden sin pagar
   cuando se devuelve, y lo impide si el dinero ya salió.
 - **`pdf/`** — generador de PDF propio, sin dependencias. El desprendible de
@@ -369,7 +382,16 @@ netlify deploy --prod
 ## Estado
 
 **365 pruebas · 54 tablas · 17 migraciones · 21+ pantallas** · `check`, `smoke`
-(30) y `flow` (71) en verde. 153 reglas de negocio documentadas.
+(31) y `flow` (81) en verde. 156 reglas de negocio documentadas.
+
+**La navegación se rehízo el 15/08** (pedido de Rafael: «visualmente lo veo
+enredado»). Cuatro cosas: se entra por **«Esta semana»** —qué falta y un botón
+grande— en vez de por el tablero de cifras; el menú quedó con lo de **cada
+semana** arriba y todo lo demás detrás de **Catálogos**; las pantallas del
+camino llevan la **tira de 4 pasos** y un «siguiente paso» que respeta el rol;
+y **pagar es una sola pantalla** (antes eran dos, y la de personas no
+actualizaba la orden — BR-196). La etiqueta del menú siempre es el título de
+la pantalla: si dicen palabras distintas, uno cree que se equivocó de sitio.
 
 El proceso completo, probado de punta a punta, para LOS TRES pagables (persona,
 cuadrilla, equipo rentado): marcar días y proyecto → calcular → revisar →

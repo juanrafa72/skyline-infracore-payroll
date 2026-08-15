@@ -72,7 +72,7 @@ async function run(action: WorkflowAction, formData: FormData): Promise<string> 
   }
 
   revalidatePath('/approvals')
-  revalidatePath('/payments')
+  revalidatePath('/disbursements')
 
   const verb = { APPROVE: 'aprobada', REJECT: 'rechazada', RETURN: 'devuelta' }[
     action as 'APPROVE' | 'REJECT' | 'RETURN'

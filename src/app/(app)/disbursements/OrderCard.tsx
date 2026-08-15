@@ -7,6 +7,7 @@ import {
   cancelOrderAction,
   payOrderAction,
   sendToAccountingAction,
+  returnItemsAction,
 } from './actions'
 
 export interface OrderWorker {
@@ -78,6 +79,7 @@ export function OrderCard({ data, canPay }: { data: OrderCardData; canPay: boole
   const pending = data.workers.filter((worker) => !worker.paid)
   const [open, setOpen] = useState(data.workers.length <= COLLAPSE_OVER)
   const [paying, setPaying] = useState(false)
+  const [returning, setReturning] = useState(false)
   const [extras, setExtras] = useState(false)
   const [selected, setSelected] = useState<ReadonlySet<string>>(
     () => new Set(pending.map((worker) => worker.itemId)),
@@ -87,8 +89,9 @@ export function OrderCard({ data, canPay }: { data: OrderCardData; canPay: boole
   const [proofResult, attachProof] = useActionState(attachProofAction, null)
   const [sendResult, send] = useActionState(sendToAccountingAction, null)
   const [cancelResult, cancel] = useActionState(cancelOrderAction, null)
+  const [returnResult, returnItems, returningNow] = useActionState(returnItemsAction, null)
 
-  const message = payResult ?? proofResult ?? sendResult ?? cancelResult
+  const message = payResult ?? proofResult ?? sendResult ?? cancelResult ?? returnResult
   const ok = message?.startsWith('LISTO|')
 
   /* Lo que suman los marcados, en centavos: es lo que hay que transferir. */
@@ -225,11 +228,14 @@ export function OrderCard({ data, canPay }: { data: OrderCardData; canPay: boole
                       className="flex items-center justify-between gap-3 border-b border-[var(--border)] py-1.5 text-sm last:border-0"
                     >
                       <span className="flex items-center gap-2">
-                        {paying && !worker.paid ? (
+                        {/* Las mismas casillas sirven para pagar y para
+                            devolver: nunca están los dos modos a la vez, y un
+                            campo solo puede pertenecer a UN formulario. */}
+                        {(paying || returning) && !worker.paid ? (
                           <input
                             type="checkbox"
                             name="itemId"
-                            form={`pay-${data.id}`}
+                            form={returning ? `return-${data.id}` : `pay-${data.id}`}
                             value={worker.itemId}
                             checked={selected.has(worker.itemId)}
                             onChange={() => toggle(worker.itemId)}
@@ -303,10 +309,26 @@ export function OrderCard({ data, canPay }: { data: OrderCardData; canPay: boole
         {canPay && !settled && pending.length > 0 ? (
           <button
             type="button"
-            onClick={() => setPaying((value) => !value)}
+            onClick={() => {
+              setReturning(false)
+              setPaying((value) => !value)
+            }}
             className="h-9 rounded-md bg-[var(--accent)] px-3.5 text-sm font-medium text-white hover:opacity-90"
           >
             {paying ? 'Cancelar' : 'Registrar pago'}
+          </button>
+        ) : null}
+
+        {!settled && pending.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => {
+              setPaying(false)
+              setReturning((value) => !value)
+            }}
+            className="h-9 rounded-md border border-amber-300 px-3 text-sm text-amber-800 hover:bg-amber-50"
+          >
+            {returning ? 'Cancelar' : 'Devolver a aprobación'}
           </button>
         ) : null}
 
@@ -379,6 +401,36 @@ export function OrderCard({ data, canPay }: { data: OrderCardData; canPay: boole
             <span className="text-xs text-[var(--muted)]">
               Después de esto la orden queda cerrada: los montos ya no se pueden cambiar.
             </span>
+          </div>
+        </form>
+      ) : null}
+
+      {/* ── Devolver a aprobación ────────────────────────────── */}
+      {returning && !settled ? (
+        <form
+          id={`return-${data.id}`}
+          action={returnItems}
+          className="border-t border-amber-300 bg-amber-50 p-4"
+        >
+          <p className="mb-2 text-sm text-amber-900">
+            <strong>{selected.size}</strong> renglón(es) marcado(s). Salen de esta orden y vuelven
+            a la mesa de quien aprueba con tu motivo. Lo que ya se pagó no se devuelve: se corrige
+            con un ajuste.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <input
+              name="returnReason"
+              required
+              placeholder="Por qué lo devuelves"
+              className="h-9 min-w-[240px] flex-1 rounded-md border border-amber-300 bg-[var(--surface)] px-2.5 text-sm"
+            />
+            <button
+              type="submit"
+              disabled={returningNow || selected.size === 0}
+              className="h-9 rounded-md bg-amber-700 px-4 text-sm font-medium text-white hover:opacity-90 disabled:opacity-45"
+            >
+              {returningNow ? 'Devolviendo…' : 'Devolver a aprobación'}
+            </button>
           </div>
         </form>
       ) : null}

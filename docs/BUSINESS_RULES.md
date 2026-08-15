@@ -223,6 +223,9 @@ de Skyline puede pagarse enviando fondos a un subcontratista, a una agencia o a
 | BR-193 | El PDF de la orden debe traer el detalle completo por trabajador, no solo el total. Un soporte que solo diga «empresa + monto» no explica por qué salió el dinero. | CONFIRMED |
 | BR-194 | Se registra quién asignó la receptora, quién la creó, quién aprobó, quién pagó, cuándo, con qué referencia y a quién se le envió el soporte. | CONFIRMED |
 | BR-195 | Cada renglón dice **contra qué** se paga —días de la persona, registros de producción de la cuadrilla, días × costo del equipo— junto al monto: en el resumen previo a aprobar, en el centro de pagos y en el PDF de contabilidad. Aprobar un número sin saber a cuántos días equivale es aprobar a ciegas. El texto se **congela** en el renglón de la orden (`itemDetailSnapshot`, BR-186); las órdenes emitidas antes de que existiera salen sin él — no se inventa. | CONFIRMED (Rafael, 2026-08-15) |
+| BR-196 | El pago se registra **únicamente desde la orden de desembolso**. Existía una segunda puerta que pagaba persona por persona sin tocar la orden: el dinero salía y la orden seguía abierta, invitando a pagar dos veces. Una sola puerta, y la orden siempre refleja lo transferido. | CONFIRMED (Rafael, 2026-08-15) |
+| BR-197 | Tesorería puede **devolver a aprobación** renglones que todavía no se han pagado —persona, cuadrilla o equipo— con motivo escrito: el renglón sale de la orden, el total se recalcula y la orden que queda vacía se anula (BR-191). Lo pagado no se devuelve: se corrige con un ajuste. | CONFIRMED |
+| BR-198 | Lo que quedó **aprobado sin orden** se agrupa desde la pantalla de pago, pero lo hace quien **aprueba**, no quien paga: agrupar es la última parte del acto de aprobar y quien paga no decide a qué empresa receptora va nada (extiende BR-181). | CONFIRMED |
 
 ---
 

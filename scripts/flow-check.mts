@@ -813,6 +813,58 @@ async function main() {
     pendientes.some((item) => item.key === 'equipos'),
     pendientes.map((item) => item.key).join(', ') || 'ninguno')
 
+  // ── 16. Devolver un renglón a aprobación desde la orden
+  console.log('\n16. Devolver a aprobación desde la orden')
+  const week31 = await prisma.payrollWeek.create({
+    data: {
+      companyId: PREFIX, year: 2026, weekNumber: 31,
+      startDate: new Date('2026-07-26T00:00:00Z'),
+      endDate: new Date('2026-08-01T00:00:00Z'),
+      label: 'Semana 31',
+    },
+  })
+  await prisma.production.create({
+    data: {
+      companyId: PREFIX, payrollWeekId: week31.id, crewId: crew.id,
+      productionDate: new Date('2026-07-28T00:00:00Z'),
+      unitCode: 'FIBER', unitLabel: 'Fibra', quantity: '2000.00',
+      appliedPrice: '0.5', amount: '1000.00',
+    },
+  })
+  await syncCrewPayrolls(PREFIX, week31.id)
+  const devuelta = await prisma.crewPayroll.findUniqueOrThrow({
+    where: {
+      companyId_payrollWeekId_crewId: {
+        companyId: PREFIX, payrollWeekId: week31.id, crewId: crew.id,
+      },
+    },
+  })
+  await applyPayableTransition(leo, 'CREW', [devuelta.id], 'SUBMIT')
+  await assignRecipientToPayables(rafael, { crewPayrollIds: [devuelta.id] }, recipient.recipientId!)
+  await applyPayableTransition(rafael, 'CREW', [devuelta.id], 'APPROVE')
+  const ordenNueva = await generateOrders(rafael, { crewPayrollIds: [devuelta.id] })
+  check('se genera la orden de la semana 31', ordenNueva.ok, ordenNueva.message)
+  const itemNuevo = await prisma.disbursementOrderItem.findUniqueOrThrow({
+    where: { crewPayrollId: devuelta.id },
+    include: { order: true },
+  })
+
+  const returned = await applyPayableTransition(
+    tesoreria, 'CREW', [devuelta.id], 'RETURN', 'La producción estaba mal medida',
+  )
+  check('tesorería devuelve un renglón que todavía no se ha pagado',
+    returned.moved === 1, returned.skipped[0]?.reason)
+  const afterReturn = await prisma.crewPayroll.findUniqueOrThrow({ where: { id: devuelta.id } })
+  check('la liquidación vuelve a la mesa de quien aprueba',
+    afterReturn.status === 'PENDING_APPROVAL', afterReturn.status)
+  check('el renglón sale de la orden',
+    (await prisma.disbursementOrderItem.findUnique({ where: { crewPayrollId: devuelta.id } })) === null)
+  const orderAfter = await prisma.disbursementOrder.findUniqueOrThrow({
+    where: { id: itemNuevo.order.id },
+  })
+  check('la orden que se queda sin renglones se anula sola (BR-191)',
+    orderAfter.status === 'CANCELLED', orderAfter.status)
+
   await cleanup()
 
   console.log(`\n${passed}/${passed + failed} comprobaciones correctas`)

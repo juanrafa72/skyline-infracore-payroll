@@ -7,6 +7,7 @@ import { prisma } from '@/lib/db/client'
 import { ESTADO_ORDEN, METODO_PAGO, TIPO_DOCUMENTO, label } from '@/lib/payroll/labels'
 import { toIso } from '@/lib/payroll/week'
 import { OrderCard, type OrderCardData } from './OrderCard'
+import { Orphans } from './Orphans'
 
 export const dynamic = 'force-dynamic'
 
@@ -22,21 +23,74 @@ export default async function DisbursementsPage() {
   const company = await getActiveCompany()
 
   /*
-   * Nóminas aprobadas que NO están en ninguna orden.
+   * Liquidaciones aprobadas que NO están en ninguna orden.
    *
-   * Pasa con las que se aprobaron antes de que existieran las órdenes, y
-   * pasaría si alguna se colara sin agrupar. Es plata aprobada que no aparece
-   * en esta pantalla: callarlo sería esconder dinero pendiente.
+   * Normalmente no existen: la orden nace sola al aprobar. Pasa con las que se
+   * aprobaron antes de que existieran las órdenes, o si un reparto no cuadró.
+   * Es plata aprobada que no aparece en esta pantalla: callarlo sería esconder
+   * dinero pendiente, así que se listan con el botón para agruparlas.
    */
-  const orphans = await prisma.workerPayroll.findMany({
-    where: {
-      companyId: company.id,
-      status: { in: ['APPROVED', 'READY_TO_PAY'] },
-      disbursementItem: null,
-    },
-    include: { worker: true, payrollWeek: true, paymentRecipient: true },
-    orderBy: [{ payrollWeek: { startDate: 'desc' } }, { worker: { displayName: 'asc' } }],
-  })
+  const [orphanWorkers, orphanCrews, orphanEquipment] = await Promise.all([
+    prisma.workerPayroll.findMany({
+      where: {
+        companyId: company.id,
+        status: { in: ['APPROVED', 'READY_TO_PAY'] },
+        disbursementItem: null,
+      },
+      include: { worker: true, payrollWeek: true, paymentRecipient: true },
+      orderBy: [{ payrollWeek: { startDate: 'desc' } }, { worker: { displayName: 'asc' } }],
+    }),
+    prisma.crewPayroll.findMany({
+      where: {
+        companyId: company.id,
+        status: { in: ['APPROVED', 'READY_TO_PAY'] },
+        disbursementItem: null,
+      },
+      include: { payrollWeek: true, paymentRecipient: true },
+    }),
+    prisma.equipmentPayroll.findMany({
+      where: {
+        companyId: company.id,
+        status: { in: ['APPROVED', 'READY_TO_PAY'] },
+        disbursementItem: null,
+      },
+      include: { payrollWeek: true, paymentRecipient: true },
+    }),
+  ])
+
+  const orphans = [
+    ...orphanWorkers.map((row) => ({
+      id: row.id,
+      name: row.worker.displayName,
+      weekLabel: row.payrollWeek.label,
+      recipientName: row.paymentRecipient?.name ?? null,
+      amount: row.netPay.toFixed(2),
+    })),
+    ...orphanCrews.map((row) => ({
+      id: row.id,
+      name: `Cuadrilla ${row.crewNameSnapshot}`,
+      weekLabel: row.payrollWeek.label,
+      recipientName: row.paymentRecipient?.name ?? null,
+      amount: row.productionTotal.toFixed(2),
+    })),
+    ...orphanEquipment.map((row) => ({
+      id: row.id,
+      name: `Equipo ${row.equipmentNameSnapshot}`,
+      weekLabel: row.payrollWeek.label,
+      recipientName: row.paymentRecipient?.name ?? null,
+      amount: row.totalAmount.toFixed(2),
+    })),
+  ]
+
+  const [recent, openVariances] = await Promise.all([
+    prisma.payment.findMany({
+      where: { companyId: company.id, status: 'PAID' },
+      include: { worker: true, contractor: true, vendor: true, payrollWeek: true },
+      orderBy: { paidAt: 'desc' },
+      take: 15,
+    }),
+    prisma.variance.count({ where: { companyId: company.id, status: 'OPEN' } }),
+  ])
 
   const orders = await prisma.disbursementOrder.findMany({
     where: { companyId: company.id },
@@ -120,7 +174,11 @@ export default async function DisbursementsPage() {
         <Kpi label="Órdenes por pagar" value={String(open.length)} />
         <Kpi label="Total a transferir" value={`$${money(pendingTotal)}`} />
         <Kpi label="Empresas receptoras" value={String(recipientCount)} />
-        <Kpi label="Trabajadores cubiertos" value={String(pendingWorkers)} />
+        <Kpi
+          label="Renglones por pagar"
+          value={String(pendingWorkers)}
+          hint="personas, cuadrillas y equipos"
+        />
       </section>
 
       <div className="mb-5 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-sm">
@@ -136,35 +194,11 @@ export default async function DisbursementsPage() {
       </div>
 
       {orphans.length > 0 ? (
-        <section className="mb-5 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-          <p className="font-semibold">
-            {orphans.length} nómina(s) aprobada(s) sin orden de desembolso · $
-            {money(orphans.reduce((sum, row) => sum + Number(row.netPay), 0))}
-          </p>
-          <p className="mt-1">
-            Son de antes de que existieran las órdenes, o quedaron sin agrupar. No están perdidas
-            —siguen en la pantalla de <strong>Pagar</strong>— pero aquí no se ven, así que se
-            avisan para que nadie las dé por pagadas.
-          </p>
-          <ul className="mt-2 space-y-0.5 text-xs">
-            {orphans.slice(0, 12).map((row) => (
-              <li key={row.id} className="flex flex-wrap justify-between gap-2">
-                <span>
-                  {row.worker.displayName} · {row.payrollWeek.label} ·{' '}
-                  {row.paymentRecipient?.name ?? 'sin empresa receptora'}
-                </span>
-                <span className="tabular-nums">${money(row.netPay)}</span>
-              </li>
-            ))}
-          </ul>
-          {orphans.length > 12 ? (
-            <p className="mt-1 text-xs">y {orphans.length - 12} más.</p>
-          ) : null}
-          <p className="mt-2 text-xs">
-            Para que entren aquí: devuélvelas a aprobación, asígnales empresa receptora y
-            apruébalas de nuevo. Todo queda registrado.
-          </p>
-        </section>
+        <Orphans
+          rows={orphans}
+          total={money(orphans.reduce((sum, row) => sum + Number(row.amount), 0))}
+          canGenerate={user.permissions.has('payroll:approve')}
+        />
       ) : null}
 
       {open.length === 0 && closed.length === 0 && orphans.length === 0 ? (
@@ -192,6 +226,65 @@ export default async function DisbursementsPage() {
               <OrderCard key={card.id} data={card} canPay={canPay} />
             ))}
           </div>
+        </section>
+      ) : null}
+
+      {/* ── Pagos registrados ────────────────────────────────────
+          Vivían en otra pantalla. Quien acaba de transferir quiere ver que
+          quedó registrado sin cambiar de sitio. */}
+      {recent.length > 0 ? (
+        <section className="mt-8">
+          <h2 className="brand-label mb-3 text-[var(--muted)]">Pagos registrados</h2>
+          <div className="overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+            <table className="w-full border-collapse text-sm">
+              <thead className="bg-[var(--hover)]">
+                <tr>
+                  {['Pago', 'A quién', 'Semana', 'Método', 'Referencia', 'Monto'].map(
+                    (header, index) => (
+                      <th
+                        key={header}
+                        className={`px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)] ${
+                          index >= 5 ? 'text-right' : 'text-left'
+                        }`}
+                      >
+                        {header}
+                      </th>
+                    ),
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                {recent.map((payment) => (
+                  <tr key={payment.id} className="border-t border-[var(--border)]">
+                    <td className="px-3 py-2 font-mono text-xs">{payment.paymentNumber}</td>
+                    <td className="px-3 py-2">
+                      {payment.worker?.displayName ??
+                        payment.contractor?.name ??
+                        payment.vendor?.name ??
+                        '—'}
+                    </td>
+                    <td className="px-3 py-2 text-[var(--muted)]">
+                      {payment.payrollWeek?.label ?? '—'}
+                    </td>
+                    <td className="px-3 py-2">
+                      {payment.method ? label(METODO_PAGO, payment.method) : '—'}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs">{payment.reference}</td>
+                    <td className="px-3 py-2 text-right font-semibold tabular-nums">
+                      ${money(payment.amountPaid)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {openVariances > 0 ? (
+            <p className="mt-2 text-xs text-amber-800">
+              {openVariances} diferencia(s) abierta(s) de pagos anteriores: se pagó menos de lo
+              aprobado y quedó registrado. Hoy no puede volver a pasar — una orden se paga por
+              renglones completos.
+            </p>
+          ) : null}
         </section>
       ) : null}
     </>
