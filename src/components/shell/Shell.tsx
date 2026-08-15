@@ -6,44 +6,46 @@ import { usePathname } from 'next/navigation'
 import { useState } from 'react'
 import { brandVariables, type Brand } from '@/lib/brand'
 
+/*
+ * El menú.
+ *
+ * Arriba, y solo arriba, lo que se toca CADA SEMANA, en el orden en que se
+ * hace: la semana, los días, la producción, aprobar, pagar. Todo lo que se
+ * toca una vez al mes —gente, cuadrillas, proyectos, clientes, tarifas— vive
+ * detrás de una sola puerta, «Catálogos».
+ *
+ * Antes eran veinte entradas en tres grupos y lo diario competía con lo que
+ * casi nunca se abre; encontrar el paso siguiente costaba más que hacerlo.
+ *
+ * La etiqueta de cada ítem es EL MISMO texto que el título de su pantalla. Si
+ * el menú dice una palabra y la pantalla otra, uno cree que se equivocó de
+ * sitio.
+ */
 const NAV: ReadonlyArray<{
   group: string
   items: ReadonlyArray<{ href: string; label: string; permission?: string }>
 }> = [
   {
-    group: 'Mi trabajo',
+    group: 'Cada semana',
     items: [
-      { href: '/dashboard', label: 'Dashboard', permission: 'dashboard:view' },
-      { href: '/inicio', label: 'Paso a paso' },
+      { href: '/inicio', label: 'Esta semana' },
       { href: '/payroll', label: 'Nómina' },
+      { href: '/production', label: 'Producción', permission: 'payroll:view' },
       { href: '/approvals', label: 'Aprobar', permission: 'payroll:approve' },
-      { href: '/disbursements', label: 'Desembolsos', permission: 'payment:view' },
-      { href: '/payments', label: 'Pagar', permission: 'payment:execute' },
-    ],
-  },
-  {
-    group: 'Mis listas',
-    items: [
-      { href: '/workers', label: 'Mi gente', permission: 'worker:view' },
-      { href: '/worker-rates', label: 'Tarifas faltantes', permission: 'rate:view' },
-      { href: '/recipients', label: 'Empresas receptoras', permission: 'payroll:approve' },
-      { href: '/crews', label: 'Cuadrillas', permission: 'crew:manage' },
-      { href: '/contractors', label: 'Contratistas', permission: 'contractor:manage' },
-      { href: '/equipment', label: 'Equipos', permission: 'payroll:view' },
-      { href: '/advances', label: 'Préstamos', permission: 'advance:view' },
-      { href: '/projects', label: 'Proyectos', permission: 'project:manage' },
-      { href: '/customers', label: 'Clientes', permission: 'project:manage' },
-      { href: '/billing-rates', label: 'Tarifas de venta', permission: 'rate:view' },
+      { href: '/disbursements', label: 'Pagar', permission: 'payment:view' },
     ],
   },
   {
     group: 'Consultar',
     items: [
-      { href: '/production', label: 'Producción', permission: 'payroll:view' },
+      { href: '/dashboard', label: 'Números', permission: 'dashboard:view' },
       { href: '/margin', label: 'Rentabilidad', permission: 'dashboard:view' },
       { href: '/reports', label: 'Reportes', permission: 'payroll:view' },
-      { href: '/users', label: 'Usuarios', permission: 'user:manage' },
     ],
+  },
+  {
+    group: 'Configurar',
+    items: [{ href: '/catalogos', label: 'Catálogos' }],
   },
 ]
 

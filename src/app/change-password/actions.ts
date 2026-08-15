@@ -56,5 +56,5 @@ export async function changePassword(
     }),
   ])
 
-  redirect('/dashboard')
+  redirect('/inicio')
 }

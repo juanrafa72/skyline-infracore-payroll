@@ -1,12 +1,12 @@
 import { redirect } from 'next/navigation'
 
 /**
- * Entrar a la aplicación lleva al Dashboard.
+ * Entrar a la aplicación lleva a «Esta semana».
  *
- * Es lo primero que se ve al abrir una compañía: los números antes que las
- * tareas. `/inicio` sigue existiendo, con el paso a paso guiado, para quien
- * viene a trabajar la nómina y no a mirar cifras.
+ * Quien abre esto viene a trabajar la nómina, no a mirar cifras: lo primero
+ * tiene que ser en qué va la semana y qué falta. Los números siguen ahí, en su
+ * propia pantalla, para cuando se quiera analizar.
  */
 export default function Root() {
-  redirect('/dashboard')
+  redirect('/inicio')
 }

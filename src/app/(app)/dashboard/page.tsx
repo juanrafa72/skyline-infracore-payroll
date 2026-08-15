@@ -107,7 +107,7 @@ export default async function DashboardPage({
   return (
     <>
       <PageHeader
-        title="Dashboard"
+        title="Números"
         subtitle={`${company.legalName} · ${range.from} → ${range.to}`}
       />
 

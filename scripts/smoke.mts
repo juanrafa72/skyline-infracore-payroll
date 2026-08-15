@@ -54,6 +54,7 @@ const ROUTES = [
   '/',
   '/inicio',
   '/dashboard',
+  '/catalogos',
   '/workers',
   '/workers/new',
   '/worker-rates',

@@ -22,7 +22,7 @@ export default async function LoginPage({
         </div>
 
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
-          <LoginForm returnTo={volver ?? '/dashboard'} />
+          <LoginForm returnTo={volver ?? '/inicio'} />
         </div>
 
         <p className="mt-4 text-center text-xs text-[var(--muted)]">
