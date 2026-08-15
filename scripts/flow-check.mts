@@ -34,6 +34,7 @@ import { toCents, toDecimalString } from '../src/lib/payroll/engine/money'
 import { DEFAULT_SETTINGS } from '../src/lib/payroll/engine/types'
 import { periodOf } from '../src/lib/payroll/period'
 import { ratesStatus, saveMissingRate } from '../src/lib/payroll/rates-status/service'
+import { pendingBoard, weekFocus } from '../src/lib/payroll/home'
 import type { CurrentUser } from '../src/lib/auth/rbac'
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl() }) })
@@ -795,6 +796,22 @@ async function main() {
     projectStale && afterProject.status === 'PENDING_APPROVAL', afterProject.status)
   check('y el neto sigue siendo el mismo: lo que cambió fue a quién se le cobra',
     afterProject.netPay.toFixed(2) === '750.00', afterProject.netPay.toFixed(2))
+
+  // ── 15. Dónde se para la pantalla de entrada
+  console.log('\n15. La pantalla de entrada')
+  const focus = await weekFocus(PREFIX)
+  check('se para en la semana donde está el trabajo, no en la del calendario',
+    focus.weekId === week.id, `${focus.label} (hoy es otra semana)`)
+  check('cuenta los tres pagables juntos, no solo personas',
+    focus.calculated >= 3, `${focus.calculated} liquidación(es)`)
+  check('ve lo que está esperando aprobación',
+    focus.pendingApproval >= 2, String(focus.pendingApproval))
+  check('ve lo que ya se pagó', focus.paid >= 3, String(focus.paid))
+
+  const pendientes = await pendingBoard(PREFIX, '2026-07-19')
+  check('el tablero de pendientes avisa del equipo sin costo diario',
+    pendientes.some((item) => item.key === 'equipos'),
+    pendientes.map((item) => item.key).join(', ') || 'ninguno')
 
   await cleanup()
 
