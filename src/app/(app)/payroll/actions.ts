@@ -23,6 +23,7 @@ import { toIso } from '@/lib/payroll/week'
 import { invalidateIfStale } from '@/lib/payroll/workflow/service'
 import { currentRoster, removeFromRoster, setRoster } from '@/lib/payroll/roster'
 import { addExtra, removeExtra } from '@/lib/payroll/extras/service'
+import { saveControlDays, syncCrewPayrolls } from '@/lib/payroll/crews/service'
 
 /**
  * Abre un período de pago.
@@ -168,16 +169,37 @@ export async function saveWorkEntries(formData: FormData) {
     ).map((worker) => [worker.id, worker]),
   )
 
+  /*
+   * Días de control de cuadrilla ya anotados: la rejilla de personal ni los
+   * muestra ni los toca. Sin este candado, marcar un día aquí CONVERTIRÍA en
+   * silencio un día de control (que no paga) en un día pagado — la restricción
+   * única de la base los haría chocar en la misma fila.
+   */
+  const controlDays = new Set(
+    (
+      await prisma.workEntry.findMany({
+        where: { companyId: company.id, payrollWeekId: week.id, isControlOnly: true },
+        select: { workerId: true, workDate: true },
+      })
+    ).map((entry) => `${entry.workerId}:${toIso(entry.workDate)}`),
+  )
+
   let saved = 0
   let cleared = 0
+  let skippedControl = 0
 
   await prisma.$transaction(async (tx) => {
     for (const { workerId, date, value } of operations.values()) {
       const workDate = new Date(`${date}T00:00:00Z`)
 
+      if (controlDays.has(`${workerId}:${date}`)) {
+        skippedControl += 1
+        continue
+      }
+
       if (value === '') {
         const deleted = await tx.workEntry.deleteMany({
-          where: { companyId: company.id, workerId, workDate },
+          where: { companyId: company.id, workerId, workDate, isControlOnly: false },
         })
         cleared += deleted.count
         continue
@@ -240,7 +262,7 @@ export async function saveWorkEntries(formData: FormData) {
         entityType: 'PayrollWeek',
         entityId: week.id,
         payrollWeekId: week.id,
-        newValueJson: { saved, cleared },
+        newValueJson: { saved, cleared, skippedControl },
         changedFields: ['workEntries'],
       },
     })
@@ -282,7 +304,8 @@ export async function calculateWeek(formData: FormData) {
   const week = await prisma.payrollWeek.findFirst({
     where: { id: weekId, companyId: company.id },
     include: {
-      workEntries: { include: { worker: true } },
+      // Los días de control de cuadrilla NO pagan: el motor jamás los ve.
+      workEntries: { where: { isControlOnly: false }, include: { worker: true } },
     },
   })
   if (!week) throw new Error('Semana no encontrada')
@@ -494,6 +517,13 @@ export async function calculateWeek(formData: FormData) {
     })
   }
 
+  /*
+   * Las cuadrillas se liquidan aquí mismo: su producción de la semana se vuelve
+   * deuda con el contratista, con el mismo botón que calcula a las personas.
+   * Solo toca liquidaciones editables — igual que arriba.
+   */
+  await syncCrewPayrolls(company.id, week.id)
+
   revalidatePath(`/payroll/${weekId}`)
 }
 
@@ -603,6 +633,40 @@ export async function copyPreviousWeek(formData: FormData) {
 
   revalidatePath(`/payroll/${weekId}`)
   redirect(`/payroll/${weekId}`)
+}
+
+/**
+ * Guarda los días de control de las cuadrillas de la semana.
+ *
+ * `controlmember:<workerId>` = crewId (el universo que la pantalla mostró);
+ * `controlday:<workerId>:<fecha>` = casilla marcada. Lo demás lo decide el
+ * servicio: crear lo marcado, quitar lo desmarcado, y JAMÁS pisar un día
+ * pagado.
+ */
+export async function saveCrewControlDays(
+  _previous: string | null,
+  formData: FormData,
+): Promise<string> {
+  const user = await assertCan('payroll:edit')
+  const weekId = String(formData.get('weekId') ?? '')
+
+  const workers: Array<{ workerId: string; crewId: string }> = []
+  const marked: Array<{ workerId: string; date: string }> = []
+
+  for (const [key, raw] of formData.entries()) {
+    if (key.startsWith('controlmember:')) {
+      const workerId = key.slice('controlmember:'.length)
+      const crewId = String(raw)
+      if (workerId && crewId) workers.push({ workerId, crewId })
+    } else if (key.startsWith('controlday:')) {
+      const [, workerId, date] = key.split(':')
+      if (workerId && date) marked.push({ workerId, date })
+    }
+  }
+
+  const result = await saveControlDays(user, weekId, { workers, marked })
+  revalidatePath(`/payroll/${weekId}`)
+  return result.ok ? `LISTO|${result.message}` : result.message
 }
 
 export async function createWorkerWithRate(

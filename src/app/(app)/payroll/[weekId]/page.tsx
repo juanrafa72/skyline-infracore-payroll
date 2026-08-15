@@ -13,6 +13,8 @@ import { RunningTotal } from './RunningTotal'
 import { RemoveWorker } from './RemoveWorker'
 import { SubmitWeek } from './SubmitWeek'
 import { AddWorkerInline, ChooseWorkers } from './ChooseWorkers'
+import { CrewsBlock } from './CrewsBlock'
+import { weekCrewViews } from '@/lib/payroll/crews/service'
 import { ESTADO_NOMINA, TIPO_TARIFA, label } from '@/lib/payroll/labels'
 import { DayCell } from './DayCell'
 
@@ -69,7 +71,8 @@ export default async function WeekPage({
     status: 'ACTIVE' as const,
     OR: [
       { id: { in: addedIds.length > 0 ? addedIds : ['-'] } },
-      { workEntries: { some: { payrollWeekId: week.id } } },
+      // Un día de control de cuadrilla no mete a nadie a la nómina de personal.
+      { workEntries: { some: { payrollWeekId: week.id, isControlOnly: false } } },
     ],
   }
 
@@ -78,7 +81,11 @@ export default async function WeekPage({
       where: workerFilter,
       orderBy: { displayName: 'asc' },
     }),
-    prisma.workEntry.findMany({ where: { companyId: company.id, payrollWeekId: week.id } }),
+    prisma.workEntry.findMany({
+      // La rejilla de personal solo ve días que pagan; los de control viven
+      // en el bloque de cuadrillas.
+      where: { companyId: company.id, payrollWeekId: week.id, isControlOnly: false },
+    }),
     prisma.workerPayroll.findMany({
       where: { companyId: company.id, payrollWeekId: week.id },
       include: { worker: true, lines: true },
@@ -108,9 +115,48 @@ export default async function WeekPage({
     orderBy: [{ productionDate: 'asc' }],
   })
 
-  const productionCost = production.reduce((sum, row) => sum + Number(row.amount), 0)
-  const productionRevenue = production.reduce((sum, row) => sum + Number(row.revenue ?? 0), 0)
-  const productionWithoutSale = production.filter((row) => row.revenue === null).length
+  /*
+   * Bloque de cuadrillas: producción agrupada por crew + su liquidación
+   * (deuda con el contratista) + los días de control de su gente.
+   */
+  const crewViews = await weekCrewViews(company.id, week.id)
+  const productionByCrew = new Map<string, typeof production>()
+  const looseProduction: typeof production = []
+  for (const row of production) {
+    if (row.crewId) {
+      const list = productionByCrew.get(row.crewId) ?? []
+      list.push(row)
+      productionByCrew.set(row.crewId, list)
+    } else {
+      looseProduction.push(row)
+    }
+  }
+  const productionRow = (row: (typeof production)[number]) => ({
+    id: row.id,
+    label: row.unitLabel,
+    quantity: `${Number(row.quantity).toLocaleString('en-US')} ${row.unitOfMeasure.toLowerCase()}${
+      row.project ? ` · ${row.project.name}` : ''
+    }`,
+    cost: row.amount.toFixed(2),
+    revenue: row.revenue === null ? null : row.revenue.toFixed(2),
+    margin: row.revenue === null ? null : (Number(row.revenue) - Number(row.amount)).toFixed(2),
+  })
+  const crewsForBlock = crewViews.map((view) => ({
+    crewId: view.crewId,
+    crewName: view.crewName,
+    contractorName: view.contractorName,
+    hasContractor: view.hasContractor,
+    payable: view.payable
+      ? {
+          total: view.payable.total,
+          count: view.payable.count,
+          statusLabel: label(ESTADO_NOMINA, view.payable.status),
+        }
+      : null,
+    members: view.members,
+    controlDays: view.controlDays,
+    production: (productionByCrew.get(view.crewId) ?? []).map(productionRow),
+  }))
 
   const showChooser = workers.length === 0 || filters.paso === 'personas'
 
@@ -152,6 +198,7 @@ export default async function WeekPage({
         companyId: company.id,
         payrollWeekId: previousWeek.id,
         projectId: { not: null },
+        isControlOnly: false,
         workerId: { in: workers.map((worker) => worker.id) },
       },
       select: { workerId: true, projectId: true },
@@ -271,72 +318,13 @@ export default async function WeekPage({
         />
       </div>
 
-      {production.length > 0 ? (
-        <section className="mb-6 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-          <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-[var(--border)] p-3.5">
-            <div>
-              <h2 className="text-sm font-semibold">Producción de esta misma semana</h2>
-              <p className="mt-0.5 text-xs text-[var(--muted)]">
-                Trabajo pagado por lo construido, no por día. Se suma a lo de arriba: en el mismo
-                corte puede haber días por jornal y días por producción.
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-lg font-semibold tabular-nums">${money(productionCost)}</p>
-              <p className="text-xs text-[var(--muted)]">
-                {production.length} registro(s) · costo
-              </p>
-            </div>
-          </div>
-
-          <ul className="divide-y divide-[var(--border)]">
-            {production.map((row) => {
-              const margin = row.revenue === null ? null : Number(row.revenue) - Number(row.amount)
-              return (
-                <li key={row.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3.5 py-2 text-sm">
-                  <span className="min-w-[150px] flex-1">
-                    <strong>{row.crew?.name ?? 'sin cuadrilla'}</strong> · {row.unitLabel}
-                    <span className="text-[var(--muted)]">
-                      {' '}
-                      · {Number(row.quantity).toLocaleString('en-US')} {row.unitOfMeasure.toLowerCase()}
-                      {row.project ? ` · ${row.project.name}` : ''}
-                    </span>
-                  </span>
-                  <span className="tabular-nums text-[var(--muted)]">
-                    {row.revenue === null ? 'sin venta' : `venta $${money(row.revenue)}`}
-                  </span>
-                  <span className="tabular-nums">costo ${money(row.amount)}</span>
-                  <span
-                    className={`min-w-[90px] text-right font-semibold tabular-nums ${
-                      margin !== null && margin < 0 ? 'text-red-700' : ''
-                    }`}
-                  >
-                    {margin === null ? '—' : `$${money(margin)}`}
-                  </span>
-                </li>
-              )
-            })}
-          </ul>
-
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t-2 border-[var(--border)] px-3.5 py-2.5 text-sm">
-            <span className="font-semibold uppercase tracking-wide">Total producción</span>
-            <span className="tabular-nums">
-              {productionWithoutSale === 0 ? (
-                <>
-                  venta ${money(productionRevenue)} · costo ${money(productionCost)} ·{' '}
-                  <strong>deja ${money(productionRevenue - productionCost)}</strong>
-                </>
-              ) : (
-                <>
-                  costo ${money(productionCost)} ·{' '}
-                  <span className="text-amber-700">
-                    {productionWithoutSale} sin precio de venta
-                  </span>
-                </>
-              )}
-            </span>
-          </div>
-        </section>
+      {crewsForBlock.length > 0 || looseProduction.length > 0 ? (
+        <CrewsBlock
+          weekId={week.id}
+          shortDays={days.map((iso) => ({ iso, label: shortDay(iso) }))}
+          crews={crewsForBlock}
+          loose={looseProduction.map(productionRow)}
+        />
       ) : null}
 
       {showChooser ? (
@@ -663,8 +651,21 @@ export default async function WeekPage({
                 name: payroll.worker.displayName,
                 net: payroll.netPay.toFixed(2),
               }))}
+            crews={crewViews
+              .filter(
+                (view) =>
+                  view.payable && ['PREPARED', 'REJECTED'].includes(view.payable.status),
+              )
+              .map((view) => ({
+                id: view.payable!.id,
+                name: view.crewName,
+                net: view.payable!.total,
+              }))}
             blockedByErrors={critical.length}
-            alreadySent={payrolls.filter((payroll) => payroll.status === 'PENDING_APPROVAL').length}
+            alreadySent={
+              payrolls.filter((payroll) => payroll.status === 'PENDING_APPROVAL').length +
+              crewViews.filter((view) => view.payable?.status === 'PENDING_APPROVAL').length
+            }
           />
         </>
       )}

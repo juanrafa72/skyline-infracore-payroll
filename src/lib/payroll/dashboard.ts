@@ -29,7 +29,7 @@ export interface Activity {
 }
 
 export async function activityIn(companyId: string, from: string, to: string): Promise<Activity> {
-  const where = { companyId, workDate: { gte: utc(from), lte: utc(to) } }
+  const where = { companyId, workDate: { gte: utc(from), lte: utc(to) }, isControlOnly: false }
 
   const [byType, people] = await Promise.all([
     prisma.workEntry.groupBy({ by: ['dayType'], where, _count: { _all: true } }),
@@ -91,7 +91,8 @@ export async function daysWithPayroll(
     where: {
       companyId,
       workDate: { gte: utc(from), lte: utc(to) },
-      dayType: { in: ['FULL_DAY', 'HALF_DAY', 'HOURLY'] },
+      dayType: { in: ["FULL_DAY", "HALF_DAY", "HOURLY"] },
+      isControlOnly: false,
       payrollWeek: { payrolls: { some: {} } },
     },
   })
@@ -124,6 +125,7 @@ async function breakdownBy(
       companyId,
       workDate: { gte: utc(range.from), lte: utc(range.to) },
       dayType: { in: ['FULL_DAY', 'HALF_DAY', 'HOURLY'] },
+      isControlOnly: false,
     },
     select: { operationId: true, projectId: true, crewId: true, workerId: true },
   })
@@ -222,6 +224,7 @@ export async function weeklyTrend(companyId: string, weeks: number): Promise<Tre
         companyId,
         payrollWeekId: { in: ids },
         dayType: { in: ['FULL_DAY', 'HALF_DAY', 'HOURLY'] },
+        isControlOnly: false,
       },
       _count: { _all: true },
     }),
@@ -230,6 +233,7 @@ export async function weeklyTrend(companyId: string, weeks: number): Promise<Tre
         companyId,
         payrollWeekId: { in: ids },
         dayType: { in: ['FULL_DAY', 'HALF_DAY', 'HOURLY'] },
+        isControlOnly: false,
       },
       select: { payrollWeekId: true, workerId: true },
       distinct: ['payrollWeekId', 'workerId'],
@@ -283,6 +287,8 @@ export async function controlSignals(companyId: string): Promise<ControlSignals>
       where: {
         companyId,
         dayType: { in: ['FULL_DAY', 'HALF_DAY', 'HOURLY'] },
+        // Un día de control jamás tendrá nómina: no es un pendiente.
+        isControlOnly: false,
         payrollWeek: { payrolls: { none: {} } },
       },
     }),

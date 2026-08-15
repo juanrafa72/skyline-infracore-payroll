@@ -7,6 +7,7 @@ import { prisma } from '@/lib/db/client'
 import { assignRecipient, generateOrders } from '@/lib/disbursement/orders'
 import { createRecipient } from '@/lib/disbursement/recipients'
 import { applyTransition } from '@/lib/payroll/workflow/service'
+import { applyPayableTransition } from '@/lib/payroll/workflow/payables'
 import type { WorkflowAction } from '@/lib/payroll/workflow'
 
 /**
@@ -146,17 +147,40 @@ export async function returnPayrolls(_previous: string | null, formData: FormDat
 export async function submitWeek(_previous: string | null, formData: FormData): Promise<string> {
   const user = await requireUser()
   const ids = formData.getAll('payrollId').map(String).filter(Boolean)
-  if (ids.length === 0) return 'No hay nóminas calculadas para enviar.'
+  const crewIds = formData.getAll('crewPayrollId').map(String).filter(Boolean)
+  if (ids.length === 0 && crewIds.length === 0) {
+    return 'No hay nóminas calculadas para enviar.'
+  }
 
-  const result = await applyTransition(user, ids, 'SUBMIT', null)
+  const result =
+    ids.length > 0
+      ? await applyTransition(user, ids, 'SUBMIT', null)
+      : { moved: 0, skipped: [] as Array<{ workerName: string; reason: string }> }
+
+  // Las liquidaciones de cuadrilla viajan en el mismo envío: mismo motor,
+  // delegado distinto.
+  const crews =
+    crewIds.length > 0
+      ? await applyPayableTransition(user, 'CREW', crewIds, 'SUBMIT', null)
+      : { moved: 0, skipped: [] as Array<{ name: string; reason: string }> }
+
   revalidatePath('/payroll')
   revalidatePath('/approvals')
 
-  if (result.skipped.length === 0) {
-    return `LISTO|${result.moved} nómina(s) enviada(s) a aprobación.`
-  }
-  const detail = result.skipped.map((row) => `${row.workerName}: ${row.reason}`).join(' · ')
-  return result.moved === 0 ? `Nada se envió. ${detail}` : `PARCIAL|${result.moved} enviada(s). ${detail}`
+  const moved = result.moved + crews.moved
+  const skipped = [
+    ...result.skipped.map((row) => `${row.workerName}: ${row.reason}`),
+    ...crews.skipped.map((row) => `${row.name}: ${row.reason}`),
+  ]
+
+  const summary =
+    crews.moved > 0
+      ? `${result.moved} nómina(s) y ${crews.moved} cuadrilla(s) enviada(s) a aprobación.`
+      : `${result.moved} nómina(s) enviada(s) a aprobación.`
+
+  if (skipped.length === 0) return `LISTO|${summary}`
+  const detail = skipped.join(' · ')
+  return moved === 0 ? `Nada se envió. ${detail}` : `PARCIAL|${summary} Quedaron fuera → ${detail}`
 }
 
 /**

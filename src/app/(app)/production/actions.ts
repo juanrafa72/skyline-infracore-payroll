@@ -7,6 +7,10 @@ import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
 import { multiplyQuantity, toCents, toDecimalString } from '@/lib/payroll/engine'
 import { periodOf } from '@/lib/payroll/period'
+import { reconcileCrewWeek } from '@/lib/payroll/crews/service'
+
+/** Estados en los que la liquidación de la cuadrilla ya no admite cambios. */
+const CREW_FROZEN = ['PAYMENT_IN_PROCESS', 'PAID', 'RECONCILED', 'CLOSED']
 
 /**
  * Registra producción de una cuadrilla.
@@ -59,25 +63,62 @@ export async function recordProduction(_previous: string | null, formData: FormD
     ? multiplyQuantity(toCents(pricing.salePricePerUnit.toString()), parsed.data.quantity)
     : null
 
-  const period = periodOf(date, 'WEEKLY')
-  const week = await prisma.payrollWeek.upsert({
+  /*
+   * La producción se cuelga de la semana EXISTENTE que contiene la fecha (así
+   * cae en el mismo corte que los días de la gente, aunque el corte no sea
+   * semanal). Solo si no hay ninguna se abre una con el período por defecto de
+   * la compañía — antes estaba 'WEEKLY' a la fuerza.
+   */
+  const dateUtc = new Date(`${date}T00:00:00Z`)
+  const containing = await prisma.payrollWeek.findFirst({
     where: {
-      companyId_year_weekNumber: {
+      companyId: company.id,
+      isOffCycle: false,
+      startDate: { lte: dateUtc },
+      endDate: { gte: dateUtc },
+    },
+    orderBy: { startDate: 'desc' },
+  })
+
+  const period = periodOf(date, company.defaultPayPeriod)
+  const week =
+    containing ??
+    (await prisma.payrollWeek.upsert({
+      where: {
+        companyId_year_weekNumber: {
+          companyId: company.id,
+          year: period.year,
+          weekNumber: period.periodNumber,
+        },
+      },
+      update: {},
+      create: {
         companyId: company.id,
         year: period.year,
         weekNumber: period.periodNumber,
+        startDate: new Date(`${period.startDate}T00:00:00Z`),
+        endDate: new Date(`${period.endDate}T00:00:00Z`),
+        label: period.label,
+      },
+    }))
+
+  /*
+   * Si la liquidación de esa cuadrilla en esa semana ya movió dinero, aquí no
+   * se agrega nada: lo pagado se corrige con un ajuste que deja rastro, no
+   * cambiando el pasado.
+   */
+  const payable = await prisma.crewPayroll.findUnique({
+    where: {
+      companyId_payrollWeekId_crewId: {
+        companyId: company.id,
+        payrollWeekId: week.id,
+        crewId: pricing.crewId,
       },
     },
-    update: {},
-    create: {
-      companyId: company.id,
-      year: period.year,
-      weekNumber: period.periodNumber,
-      startDate: new Date(`${period.startDate}T00:00:00Z`),
-      endDate: new Date(`${period.endDate}T00:00:00Z`),
-      label: period.label,
-    },
   })
+  if (payable && CREW_FROZEN.includes(payable.status)) {
+    return `La liquidación de ${pricing.crew.name} en ${week.label} ya está pagada o en pago. No se puede agregar producción: corrígelo con un ajuste.`
+  }
 
   const actor = await assertCan('payroll:create')
 
@@ -124,20 +165,54 @@ export async function recordProduction(_previous: string | null, formData: FormD
     },
   })
 
+  /*
+   * La liquidación de la cuadrilla se realinea de una vez; si estaba aprobada,
+   * la aprobación se cae con rastro (jamás se corrige en silencio) y vuelve a
+   * la mesa de quien aprueba.
+   */
+  await reconcileCrewWeek(company.id, week.id)
+
   revalidatePath('/production')
   revalidatePath('/margin')
+  revalidatePath('/approvals')
+  revalidatePath(`/payroll/${week.id}`)
   return `LISTO|${pricing.unitLabel}|${parsed.data.quantity}|${toDecimalString(amount)}|${
     revenue === null ? '' : toDecimalString(revenue)
   }`
 }
 
-export async function deleteProduction(formData: FormData) {
+/**
+ * Borra un registro de producción — con las mismas guardas que crearlo.
+ *
+ * Hasta ahora borraba SIN ninguna guarda: se podía desaparecer producción de
+ * una semana ya pagada sin que nada avisara. Ahora lo pagado se protege y lo
+ * aprobado se invalida con rastro.
+ */
+export async function deleteProduction(
+  _previous: string | null,
+  formData: FormData,
+): Promise<string> {
   const actor = await assertCan('payroll:edit')
   const company = await getActiveCompany()
   const id = String(formData.get('id') ?? '')
 
   const record = await prisma.production.findFirst({ where: { id, companyId: company.id } })
-  if (!record) throw new Error('Registro no encontrado')
+  if (!record) return 'Ese registro de producción no existe.'
+
+  if (record.payrollWeekId && record.crewId) {
+    const payable = await prisma.crewPayroll.findUnique({
+      where: {
+        companyId_payrollWeekId_crewId: {
+          companyId: company.id,
+          payrollWeekId: record.payrollWeekId,
+          crewId: record.crewId,
+        },
+      },
+    })
+    if (payable && CREW_FROZEN.includes(payable.status)) {
+      return `La liquidación de esa cuadrilla ya está pagada o en pago. No se puede borrar su producción: corrígelo con un ajuste.`
+    }
+  }
 
   await prisma.$transaction(async (tx) => {
     await tx.production.delete({ where: { id } })
@@ -159,5 +234,13 @@ export async function deleteProduction(formData: FormData) {
     })
   })
 
+  if (record.payrollWeekId) {
+    await reconcileCrewWeek(company.id, record.payrollWeekId)
+    revalidatePath(`/payroll/${record.payrollWeekId}`)
+  }
+
   revalidatePath('/production')
+  revalidatePath('/margin')
+  revalidatePath('/approvals')
+  return 'LISTO|Registro borrado. La liquidación de la cuadrilla quedó realineada.'
 }

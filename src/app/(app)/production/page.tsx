@@ -5,7 +5,7 @@ import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
 import { toIso, weekRangeOf } from '@/lib/payroll/week'
 import { ProductionForm } from './ProductionForm'
-import { deleteProduction } from './actions'
+import { DeleteProductionButton } from './DeleteButton'
 
 export const dynamic = 'force-dynamic'
 
@@ -163,15 +163,7 @@ export default async function ProductionPage({
                         ${money(record.amount)}
                       </td>
                       <td className="px-3 py-2 text-right">
-                        <form action={deleteProduction}>
-                          <input type="hidden" name="id" value={record.id} />
-                          <button
-                            type="submit"
-                            className="rounded border border-[var(--border)] px-1.5 py-0.5 text-xs text-[var(--muted)] hover:border-red-300 hover:text-red-700"
-                          >
-                            borrar
-                          </button>
-                        </form>
+                        <DeleteProductionButton id={record.id} />
                       </td>
                     </tr>
                   ))}

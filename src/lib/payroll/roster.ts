@@ -40,7 +40,8 @@ export async function setRoster(
    * alguien está el botón de quitar, donde la intención sí es inequívoca.
    */
   const withDays = await prisma.workEntry.findMany({
-    where: { companyId, payrollWeekId: week.id },
+    // Los días de control de cuadrilla no meten a nadie a la nómina de personal.
+    where: { companyId, payrollWeekId: week.id, isControlOnly: false },
     select: { workerId: true },
     distinct: ['workerId'],
   })
@@ -185,7 +186,9 @@ export async function currentRoster(companyId: string, weekId: string): Promise<
       select: { workerId: true },
     }),
     prisma.workEntry.findMany({
-      where: { companyId, payrollWeekId: weekId },
+      // Un día de control no hace que la persona "esté" en la nómina de
+      // personal: al contratista se le paga, a ella no.
+      where: { companyId, payrollWeekId: weekId, isControlOnly: false },
       select: { workerId: true },
       distinct: ['workerId'],
     }),

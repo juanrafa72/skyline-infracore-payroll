@@ -11,18 +11,23 @@ import { submitWeek } from '../../approvals/actions'
  */
 export function SubmitWeek({
   payrolls,
+  crews,
   blockedByErrors,
   alreadySent,
 }: {
   payrolls: ReadonlyArray<{ id: string; name: string; net: string }>
+  /** Liquidaciones de cuadrilla listas para viajar en el mismo envío. */
+  crews: ReadonlyArray<{ id: string; name: string; net: string }>
   blockedByErrors: number
   alreadySent: number
 }) {
   const [result, action] = useActionState(submitWeek, null)
   const ok = result?.startsWith('LISTO|')
-  const total = payrolls.reduce((sum, row) => sum + Number(row.net), 0)
+  const total =
+    payrolls.reduce((sum, row) => sum + Number(row.net), 0) +
+    crews.reduce((sum, row) => sum + Number(row.net), 0)
 
-  if (payrolls.length === 0) {
+  if (payrolls.length === 0 && crews.length === 0) {
     return (
       <div className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-sm">
         {alreadySent > 0 ? (
@@ -55,10 +60,21 @@ export function SubmitWeek({
 
       <p className="text-sm font-semibold">Enviar a aprobación</p>
       <p className="mt-1 text-xs text-[var(--muted)]">
-        {payrolls.length} nómina(s) · $
+        {payrolls.length} nómina(s)
+        {crews.length > 0 ? ` + ${crews.length} cuadrilla(s)` : ''} · $
         {total.toLocaleString('en-US', { minimumFractionDigits: 2 })} en total. Una vez enviadas
         no las puedes editar hasta que quien aprueba las devuelva.
       </p>
+
+      {crews.length > 0 ? (
+        <ul className="mt-1.5 text-xs text-[var(--muted)]">
+          {crews.map((crew) => (
+            <li key={crew.id}>
+              Cuadrilla {crew.name} · ${Number(crew.net).toLocaleString('en-US', { minimumFractionDigits: 2 })} al contratista
+            </li>
+          ))}
+        </ul>
+      ) : null}
 
       {blockedByErrors > 0 ? (
         <p className="mt-3 rounded-md border border-red-300 bg-red-50 p-2.5 text-sm text-red-700">
@@ -69,11 +85,14 @@ export function SubmitWeek({
           {payrolls.map((payroll) => (
             <input key={payroll.id} type="hidden" name="payrollId" value={payroll.id} />
           ))}
+          {crews.map((crew) => (
+            <input key={crew.id} type="hidden" name="crewPayrollId" value={crew.id} />
+          ))}
           <button
             type="submit"
             className="h-9 rounded-md bg-[var(--accent)] px-4 text-sm font-medium text-white hover:opacity-90"
           >
-            Enviar {payrolls.length} a aprobación
+            Enviar {payrolls.length + crews.length} a aprobación
           </button>
         </form>
       )}
