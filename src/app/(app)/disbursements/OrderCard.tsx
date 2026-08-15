@@ -100,6 +100,31 @@ export function OrderCard({ data, canPay }: { data: OrderCardData; canPay: boole
   const settled = data.status === 'PAID' || data.status === 'CANCELLED'
   const partial = selected.size !== pending.length
 
+  /*
+   * Desglose por cuadrilla — pedido expreso del negocio. Sale del snapshot
+   * congelado al generar la orden, jamás de un join vivo: el desglose de una
+   * orden pagada dice lo que decía el día que se pagó.
+   */
+  const grouped = useMemo(() => {
+    const map = new Map<string, OrderWorker[]>()
+    for (const worker of data.workers) {
+      const key = worker.crewLabel ?? 'Sin cuadrilla'
+      const list = map.get(key) ?? []
+      list.push(worker)
+      map.set(key, list)
+    }
+    return [...map.entries()].sort(([a], [b]) => {
+      if (a === 'Sin cuadrilla') return 1
+      if (b === 'Sin cuadrilla') return -1
+      return a.localeCompare(b, 'es')
+    })
+  }, [data.workers])
+  const showGroups = grouped.length > 1 || grouped[0]?.[0] !== 'Sin cuadrilla'
+  const subtotalOf = (members: readonly OrderWorker[]) =>
+    toDecimalString(
+      members.reduce((accumulator, worker) => add(accumulator, toCents(worker.amount)), ZERO),
+    )
+
   const toggle = (id: string) => {
     setSelected((previous) => {
       const next = new Set(previous)
@@ -136,7 +161,7 @@ export function OrderCard({ data, canPay }: { data: OrderCardData; canPay: boole
         <div className="text-right">
           <p className="text-2xl font-semibold tabular-nums">${currency(data.total)}</p>
           <p className="text-sm text-[var(--muted)]">
-            {data.workers.length} trabajador{data.workers.length === 1 ? '' : 'es'}
+            {data.workers.length} renglón{data.workers.length === 1 ? '' : 'es'}
           </p>
           <span
             className={`mt-1 inline-block rounded border px-2 py-0.5 text-xs font-medium ${
@@ -173,40 +198,56 @@ export function OrderCard({ data, canPay }: { data: OrderCardData; canPay: boole
           onClick={() => setOpen((value) => !value)}
           className="flex w-full items-center justify-between px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-[var(--muted)] hover:bg-[var(--hover)]"
         >
-          <span>Trabajadores incluidos</span>
+          <span>Detalle del desembolso — por cuadrilla y concepto</span>
           <span>{open ? '−' : `+ ver los ${data.workers.length}`}</span>
         </button>
 
         {open ? (
-          <ul className="px-4 pb-1">
-            {data.workers.map((worker) => (
-              <li
-                key={worker.itemId}
-                className="flex items-center justify-between gap-3 border-b border-[var(--border)] py-1.5 text-sm last:border-0"
-              >
-                <span className="flex items-center gap-2">
-                  {paying && !worker.paid ? (
-                    <input
-                      type="checkbox"
-                      name="itemId"
-                      form={`pay-${data.id}`}
-                      value={worker.itemId}
-                      checked={selected.has(worker.itemId)}
-                      onChange={() => toggle(worker.itemId)}
-                      className="h-4 w-4"
-                    />
-                  ) : null}
-                  {worker.name}
-                  {worker.paid ? (
-                    <span className="rounded border border-emerald-300 bg-emerald-50 px-1.5 text-xs text-emerald-800">
-                      pagado
-                    </span>
-                  ) : null}
-                </span>
-                <span className="tabular-nums">${currency(worker.amount)}</span>
-              </li>
+          <div className="px-4 pb-1">
+            {grouped.map(([groupLabel, members]) => (
+              <div key={groupLabel}>
+                {showGroups ? (
+                  <div className="flex items-center justify-between gap-3 pt-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                      {groupLabel}
+                    </p>
+                    <p className="text-xs font-semibold tabular-nums text-[var(--muted)]">
+                      ${currency(subtotalOf(members))}
+                    </p>
+                  </div>
+                ) : null}
+                <ul>
+                  {members.map((worker) => (
+                    <li
+                      key={worker.itemId}
+                      className="flex items-center justify-between gap-3 border-b border-[var(--border)] py-1.5 text-sm last:border-0"
+                    >
+                      <span className="flex items-center gap-2">
+                        {paying && !worker.paid ? (
+                          <input
+                            type="checkbox"
+                            name="itemId"
+                            form={`pay-${data.id}`}
+                            value={worker.itemId}
+                            checked={selected.has(worker.itemId)}
+                            onChange={() => toggle(worker.itemId)}
+                            className="h-4 w-4"
+                          />
+                        ) : null}
+                        {worker.name}
+                        {worker.paid ? (
+                          <span className="rounded border border-emerald-300 bg-emerald-50 px-1.5 text-xs text-emerald-800">
+                            pagado
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="tabular-nums">${currency(worker.amount)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ))}
-          </ul>
+          </div>
         ) : null}
 
         <div className="flex items-center justify-between border-t-2 border-[var(--border)] px-4 py-2.5">

@@ -1,4 +1,5 @@
 import { PdfDocument, ellipsize } from './writer'
+import { type Cents, ZERO, add, toCents, toDecimalString } from '@/lib/payroll/engine/money'
 
 /**
  * Desprendible de una orden de desembolso.
@@ -21,7 +22,11 @@ export interface DisbursementPdfData {
   periodStart: string
   periodEnd: string
   createdAt: string
-  workers: ReadonlyArray<{ name: string; amount: string; paid: boolean }>
+  /**
+   * Renglones del desembolso. `group` es la cuadrilla congelada al generar la
+   * orden (null = sin cuadrilla); alimenta el desglose que pidió el negocio.
+   */
+  workers: ReadonlyArray<{ name: string; amount: string; paid: boolean; group: string | null }>
   total: string
   amountPaid: string
   preparedBy: string | null
@@ -71,7 +76,7 @@ export function renderDisbursementPdf(data: DisbursementPdfData): Buffer {
   if (data.recipientTaxId) {
     pdf.text(MARGIN, y, `Tax ID / EIN: ${data.recipientTaxId}`, { size: 9, gray: 0.4 })
   }
-  pdf.text(RIGHT, y, `${data.workers.length} trabajador(es)`, { size: 9, align: 'right', gray: 0.4 })
+  pdf.text(RIGHT, y, `${data.workers.length} renglón(es)`, { size: 9, align: 'right', gray: 0.4 })
   y += 22
 
   // ── Datos del movimiento ────────────────────────────────────
@@ -90,8 +95,10 @@ export function renderDisbursementPdf(data: DisbursementPdfData): Buffer {
   })
   y += 62
 
-  // ── Detalle por trabajador ──────────────────────────────────
-  pdf.text(MARGIN, y, 'TRABAJADORES INCLUIDOS EN ESTE DESEMBOLSO', {
+  // ── Detalle por cuadrilla y concepto ────────────────────────
+  // El desglose por crew fue pedido expreso del negocio: contabilidad tiene
+  // que ver de qué cuadrilla salió cada renglón, no solo la lista plana.
+  pdf.text(MARGIN, y, 'DETALLE DEL DESEMBOLSO — POR CUADRILLA Y CONCEPTO', {
     size: 8,
     bold: true,
     gray: 0.45,
@@ -102,7 +109,16 @@ export function renderDisbursementPdf(data: DisbursementPdfData): Buffer {
 
   const anyPaid = data.workers.some((worker) => worker.paid)
 
-  data.workers.forEach((worker, index) => {
+  const sorted = [...data.workers].sort((a, b) => {
+    const ga = a.group ?? '￿' // sin cuadrilla al final
+    const gb = b.group ?? '￿'
+    if (ga !== gb) return ga.localeCompare(gb, 'es')
+    return a.name.localeCompare(b.name, 'es')
+  })
+  const groupCount = new Set(sorted.map((worker) => worker.group ?? '')).size
+  const showGroups = groupCount > 1 || sorted.some((worker) => worker.group !== null)
+
+  const breakIfNeeded = () => {
     // Salto de página con el encabezado repetido: una lista larga tiene que
     // seguir leyéndose igual en la hoja 2.
     if (y > 720) {
@@ -114,7 +130,37 @@ export function renderDisbursementPdf(data: DisbursementPdfData): Buffer {
       pdf.line(MARGIN, y, RIGHT, y, 0.75)
       y += 14
     }
+  }
 
+  let currentGroup: string | null | undefined
+  let groupSubtotal: Cents = ZERO
+  const flushSubtotal = () => {
+    if (!showGroups || currentGroup === undefined) return
+    breakIfNeeded()
+    pdf.text(RIGHT - 110, y, 'subtotal', { size: 8, align: 'right', gray: 0.5 })
+    pdf.text(RIGHT, y, currency(toDecimalString(groupSubtotal)), {
+      size: 9,
+      bold: true,
+      align: 'right',
+    })
+    y += 14
+    groupSubtotal = ZERO
+  }
+
+  sorted.forEach((worker, index) => {
+    if (showGroups && worker.group !== currentGroup) {
+      flushSubtotal()
+      currentGroup = worker.group
+      breakIfNeeded()
+      pdf.text(MARGIN, y, ellipsize((worker.group ?? 'Sin cuadrilla').toUpperCase(), 400, 8.5), {
+        size: 8.5,
+        bold: true,
+        gray: 0.35,
+      })
+      y += 13
+    }
+
+    breakIfNeeded()
     pdf.text(MARGIN + 2, y, String(index + 1).padStart(2, '0'), { size: 8, gray: 0.55 })
     pdf.text(MARGIN + 24, y, ellipsize(worker.name, 330, 10), { size: 10 })
     if (anyPaid) {
@@ -125,9 +171,11 @@ export function renderDisbursementPdf(data: DisbursementPdfData): Buffer {
       })
     }
     pdf.text(RIGHT, y, currency(worker.amount), { size: 10, align: 'right' })
+    groupSubtotal = add(groupSubtotal, toCents(worker.amount))
     y += 15
     pdf.line(MARGIN, y - 5, RIGHT, y - 5, 0.92)
   })
+  flushSubtotal()
 
   y += 4
   pdf.line(MARGIN, y, RIGHT, y, 0.15, 1.2)

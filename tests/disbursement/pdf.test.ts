@@ -21,8 +21,8 @@ function data(overrides: Partial<DisbursementPdfData> = {}): DisbursementPdfData
     periodEnd: '2026-03-07',
     createdAt: '2026-03-08',
     workers: [
-      { name: 'Primera Persona', amount: '450.00', paid: false },
-      { name: 'Segunda Persona', amount: '312.50', paid: false },
+      { name: 'Primera Persona', amount: '450.00', paid: false, group: null },
+      { name: 'Segunda Persona', amount: '312.50', paid: false, group: null },
     ],
     total: '762.50',
     amountPaid: '0.00',
@@ -97,8 +97,8 @@ describe('desprendible de la orden de desembolso', () => {
           bankName: 'Banco de prueba',
           reference: 'REF-XYZ-123',
           workers: [
-            { name: 'Primera Persona', amount: '450.00', paid: true },
-            { name: 'Segunda Persona', amount: '312.50', paid: true },
+            { name: 'Primera Persona', amount: '450.00', paid: true, group: null },
+            { name: 'Segunda Persona', amount: '312.50', paid: true, group: null },
           ],
         }),
       ),
@@ -111,12 +111,52 @@ describe('desprendible de la orden de desembolso', () => {
     expect(pdf).toContain('Banco de prueba')
   })
 
+  it('desglosa por cuadrilla con subtítulos y subtotales — pedido del negocio', () => {
+    const pdf = readable(
+      renderDisbursementPdf(
+        data({
+          workers: [
+            { name: 'Ana Norte', amount: '200.00', paid: false, group: 'Cuadrilla Norte' },
+            { name: 'Beto Norte', amount: '300.00', paid: false, group: 'Cuadrilla Norte' },
+            { name: 'Carla Suelta', amount: '150.00', paid: false, group: null },
+          ],
+          total: '650.00',
+        }),
+      ),
+    )
+
+    expect(pdf).toContain('CUADRILLA NORTE')
+    expect(pdf).toContain('SIN CUADRILLA')
+    expect(pdf).toContain('subtotal')
+    // El subtotal de la cuadrilla: 200 + 300, en centavos exactos.
+    expect(pdf).toContain('$500.00')
+    // Todos los renglones siguen presentes.
+    expect(pdf).toContain('Ana Norte')
+    expect(pdf).toContain('Carla Suelta')
+  })
+
+  it('sin cuadrillas, la lista sale plana como siempre', () => {
+    const pdf = readable(
+      renderDisbursementPdf(
+        data({
+          workers: [
+            { name: 'Primera Persona', amount: '450.00', paid: false, group: null },
+            { name: 'Segunda Persona', amount: '312.50', paid: false, group: null },
+          ],
+        }),
+      ),
+    )
+
+    expect(pdf).not.toContain('SIN CUADRILLA')
+    expect(pdf).not.toContain('subtotal')
+  })
+
   it('los acentos y la ñ no se rompen', () => {
     const pdf = readable(
       renderDisbursementPdf(
         data({
           recipientName: 'Muñoz Construcción S.A.',
-          workers: [{ name: 'José Ramírez Peña', amount: '762.50', paid: false }],
+          workers: [{ name: 'José Ramírez Peña', amount: '762.50', paid: false, group: null }],
         }),
       ),
     )
@@ -127,7 +167,7 @@ describe('desprendible de la orden de desembolso', () => {
 
   it('los paréntesis en un nombre no rompen el archivo', () => {
     const pdf = renderDisbursementPdf(
-      data({ workers: [{ name: 'Empresa (antes Otra) \\ SAS', amount: '762.50', paid: false }] }),
+      data({ workers: [{ name: 'Empresa (antes Otra) \\ SAS', amount: '762.50', paid: false, group: null }] }),
     )
     const text = readable(pdf)
 
@@ -140,6 +180,7 @@ describe('desprendible de la orden de desembolso', () => {
       name: `Persona numero ${index + 1}`,
       amount: '100.00',
       paid: false,
+      group: null,
     }))
     const pdf = readable(renderDisbursementPdf(data({ workers, total: '9000.00' })))
 

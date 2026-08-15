@@ -13,11 +13,19 @@ export default async function PaymentsPage() {
   const user = await assertCan('payment:view')
   const company = await getActiveCompany()
 
-  const [ready, recent, openVariances] = await Promise.all([
+  const [ready, readyCrews, readyEquipment, recent, openVariances] = await Promise.all([
     prisma.workerPayroll.findMany({
       where: { companyId: company.id, status: { in: ['APPROVED', 'READY_TO_PAY'] } },
       include: { worker: true, payrollWeek: true },
       orderBy: [{ payrollWeek: { startDate: 'desc' } }, { worker: { displayName: 'asc' } }],
+    }),
+    prisma.crewPayroll.findMany({
+      where: { companyId: company.id, status: { in: ['APPROVED', 'READY_TO_PAY'] } },
+      select: { crewNameSnapshot: true, contractorNameSnapshot: true, productionTotal: true },
+    }),
+    prisma.equipmentPayroll.findMany({
+      where: { companyId: company.id, status: { in: ['APPROVED', 'READY_TO_PAY'] } },
+      select: { equipmentNameSnapshot: true, vendorNameSnapshot: true, totalAmount: true },
     }),
     prisma.payment.findMany({
       where: { companyId: company.id, status: 'PAID' },
@@ -29,6 +37,9 @@ export default async function PaymentsPage() {
   ])
 
   const total = ready.reduce((sum, row) => sum + Number(row.netPay), 0)
+  const crewEquipTotal =
+    readyCrews.reduce((sum, row) => sum + Number(row.productionTotal), 0) +
+    readyEquipment.reduce((sum, row) => sum + Number(row.totalAmount), 0)
   const canPay = user.permissions.has('payment:execute')
 
   return (
@@ -48,6 +59,31 @@ export default async function PaymentsPage() {
           hint={openVariances > 0 ? 'pagos por debajo de lo aprobado' : 'ninguna'}
         />
       </section>
+
+      {readyCrews.length > 0 || readyEquipment.length > 0 ? (
+        <div className="mb-5 rounded-lg border border-sky-300 bg-sky-50 p-3.5 text-sm text-sky-900">
+          <strong>
+            {readyCrews.length > 0 ? `${readyCrews.length} cuadrilla(s)` : ''}
+            {readyCrews.length > 0 && readyEquipment.length > 0 ? ' y ' : ''}
+            {readyEquipment.length > 0 ? `${readyEquipment.length} equipo(s)` : ''} aprobada(s) ·
+            ${money(crewEquipTotal)}.
+          </strong>{' '}
+          Se pagan por su orden de desembolso, en{' '}
+          <a href="/disbursements" className="underline">
+            Desembolsos
+          </a>
+          :{' '}
+          {[
+            ...readyCrews.map(
+              (row) => `${row.crewNameSnapshot}${row.contractorNameSnapshot ? ` (${row.contractorNameSnapshot})` : ''}`,
+            ),
+            ...readyEquipment.map(
+              (row) => `${row.equipmentNameSnapshot}${row.vendorNameSnapshot ? ` (${row.vendorNameSnapshot})` : ''}`,
+            ),
+          ].join(', ')}
+          .
+        </div>
+      ) : null}
 
       <div className="mb-5 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-sm">
         <p className="font-semibold">Qué se puede y qué no</p>

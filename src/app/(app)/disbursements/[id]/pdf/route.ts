@@ -22,7 +22,11 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     include: {
       items: {
         orderBy: { itemNameSnapshot: 'asc' },
-        include: { workerPayroll: { select: { status: true } } },
+        include: {
+          workerPayroll: { select: { status: true } },
+          crewPayroll: { select: { status: true } },
+          equipmentPayroll: { select: { status: true } },
+        },
       },
     },
   })
@@ -44,7 +48,10 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     workers: order.items.map((item) => ({
       name: item.itemNameSnapshot,
       amount: item.amount.toFixed(2),
-      paid: ['PAID', 'RECONCILED', 'CLOSED'].includes(item.workerPayroll?.status ?? ''),
+      paid: ['PAID', 'RECONCILED', 'CLOSED'].includes(
+        item.workerPayroll?.status ?? item.crewPayroll?.status ?? item.equipmentPayroll?.status ?? '',
+      ),
+      group: item.crewLabelSnapshot,
     })),
     total: order.totalAmount.toFixed(2),
     amountPaid: order.amountPaid.toFixed(2),

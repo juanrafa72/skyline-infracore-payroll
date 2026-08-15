@@ -353,7 +353,7 @@ async function main() {
     recipientTaxId: order!.recipientTaxIdSnapshot, weekLabel: order!.weekLabelSnapshot,
     periodStart: '2026-07-19', periodEnd: '2026-07-25', createdAt: '2026-07-26',
     workers: order!.items.map((item) => ({
-      name: item.itemNameSnapshot, amount: item.amount.toFixed(2), paid: false,
+      name: item.itemNameSnapshot, amount: item.amount.toFixed(2), paid: false, group: item.crewLabelSnapshot,
     })),
     total: order!.totalAmount.toFixed(2), amountPaid: '0.00',
     preparedBy: order!.preparedByName, approvedBy: order!.approvedByName,
