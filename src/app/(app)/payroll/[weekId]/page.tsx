@@ -22,7 +22,7 @@ import { EquipmentBlock } from './EquipmentBlock'
 import { weekCrewViews } from '@/lib/payroll/crews/service'
 import { contractorWeekView, suggestBreakdown } from '@/lib/payroll/contractors/service'
 import { weekEquipmentViews } from '@/lib/payroll/equipment/service'
-import { ESTADO_NOMINA, TIPO_TARIFA, label } from '@/lib/payroll/labels'
+import { ESTADO_NOMINA, TIPO_TARIFA, UNIDAD_MEDIDA, label } from '@/lib/payroll/labels'
 import { ProjectDays } from './ProjectDays'
 
 export const dynamic = 'force-dynamic'
@@ -149,7 +149,11 @@ export default async function WeekPage({
   const productionRow = (row: (typeof production)[number]) => ({
     id: row.id,
     label: row.unitLabel,
-    quantity: `${Number(row.quantity).toLocaleString('en-US')} ${row.unitOfMeasure.toLowerCase()}${
+    /*
+     * La unidad se muestra en español (`unitLabel`, «pies»), no el código
+     * (`unitOfMeasure`, «FOOT»): en pantalla se leía «10,000 foot».
+     */
+    quantity: `${Number(row.quantity).toLocaleString('en-US')} ${UNIDAD_MEDIDA[row.unitOfMeasure] ?? row.unitLabel}${
       row.project ? ` · ${row.project.name}` : ''
     }`,
     cost: row.amount.toFixed(2),
@@ -386,6 +390,21 @@ export default async function WeekPage({
 
   // Viene de guardar la rejilla: el botón del paso siguiente late.
   const recienGuardado = filters.guardado === 'dias'
+
+  /*
+   * Los proyectos que ya aparecen en esta semana, para ponerlos arriba en los
+   * selectores. Se juntan de los días de la gente, de los equipos y de la
+   * producción: los tres apuntan a la misma obra.
+   */
+  const proyectosDeLaSemana = [
+    ...new Set(
+      [
+        ...entries.map((entry) => entry.projectId),
+        ...equipmentViews.map((view) => view.defaultProjectId),
+        ...production.map((row) => row.projectId),
+      ].filter((id): id is string => !!id),
+    ),
+  ]
   // Con más de 16 días las casillas van dentro de su propio bloque, no como
   // columnas de la rejilla: `md:contents` solo sirve cuando sí son columnas.
   const inlineDays = days.length <= 16
@@ -615,6 +634,7 @@ export default async function WeekPage({
                       weekProjectId={weekProject}
                       days={gridDays}
                       projects={projects}
+                      usados={proyectosDeLaSemana}
                       inlineDays={inlineDays}
                       startPerDay={(projectsByWorker.get(worker.id)?.size ?? 0) > 1}
                     />
@@ -671,6 +691,7 @@ export default async function WeekPage({
               shortDays={days.map((iso) => ({ iso, label: shortDay(iso) }))}
               rows={equipmentRows}
               projects={projects.map((project) => ({ id: project.id, name: project.name }))}
+              projectsInUse={proyectosDeLaSemana}
             />
           ) : null}
 

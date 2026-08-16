@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { agruparProyectos } from '@/lib/payroll/project-order'
 import { DayCell } from './DayCell'
 
 /**
@@ -43,6 +44,7 @@ export function ProjectDays({
   weekProjectId,
   days,
   projects,
+  usados,
   inlineDays,
   startPerDay,
 }: {
@@ -51,6 +53,8 @@ export function ProjectDays({
   weekProjectId: string
   days: readonly GridDay[]
   projects: ReadonlyArray<{ id: string; name: string }>
+  /** Proyectos que ya aparecen en la semana: van arriba en el selector. */
+  usados: readonly string[]
   inlineDays: boolean
   /**
    * Arranca en modo por día. Viene en `true` cuando los días guardados ya
@@ -62,14 +66,36 @@ export function ProjectDays({
   const [perDay, setPerDay] = useState(startPerDay)
   const [weekChoice, setWeekChoice] = useState(weekProjectId)
 
+  /*
+   * Los proyectos de la semana, arriba.
+   *
+   * Son 21 y este selector sale en cada fila: en una semana de 40 personas son
+   * 40 listas de 21 pueblos. En la práctica se trabaja en dos o tres sitios,
+   * así que esos van primero y el resto queda debajo, separado.
+   */
+  const { enUso, resto } = agruparProyectos(projects, usados)
+
   const options = (
     <>
       <option value="">— sin proyecto —</option>
-      {projects.map((project) => (
-        <option key={project.id} value={project.id}>
-          {project.name}
-        </option>
-      ))}
+      {enUso.length > 0 ? (
+        <optgroup label="En esta semana">
+          {enUso.map((project) => (
+            <option key={project.id} value={project.id}>
+              {project.name}
+            </option>
+          ))}
+        </optgroup>
+      ) : null}
+      {resto.length > 0 ? (
+        <optgroup label={enUso.length > 0 ? 'Los demás' : 'Proyectos'}>
+          {resto.map((project) => (
+            <option key={project.id} value={project.id}>
+              {project.name}
+            </option>
+          ))}
+        </optgroup>
+      ) : null}
     </>
   )
 

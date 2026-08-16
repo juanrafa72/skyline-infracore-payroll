@@ -398,3 +398,14 @@ poder verificar contra lo que dice SharePoint.
 | BR-323 | El registro del envío se crea **siempre**, incluso si el correo falla: queda el consecutivo, a quién iba (con el correo **congelado**) y el motivo del fallo. Un envío fallido sin rastro se repite sin que nadie se entere. | CONFIRMED |
 | BR-324 | Un envío **ya realizado es inmutable** (trigger `report_dispatch_sent_is_immutable`): es la prueba de que el soporte salió. Para volver a mandarlo se hace un envío nuevo, con su propio consecutivo. | CONFIRMED |
 | BR-325 | **Sin cuenta de correo configurada, la aplicación NO dice que envió.** Queda en modo registro: numera, guarda a quién iba y avisa en pantalla que falta conectar la cuenta y que hay que mandar el PDF a mano. Marcar como enviado algo que no salió haría que contabilidad diera por recibido lo que nunca llegó. Las credenciales van en el entorno (`SMTP_*`), nunca en la base: una clave en la base termina copiada a un respaldo. | CONFIRMED |
+
+## 33. Que se vea simple (BR-330 – BR-333)
+
+Salieron de recorrer la aplicación como usuario, no de una especificación.
+
+| # | Regla | Estado |
+|---|-------|--------|
+| BR-330 | La lista de Nómina muestra **solo las semanas trabajadas aquí**; las 137 del archivo del Excel quedan detrás de «ver el archivo completo». La condición vive una sola vez (`week-scope.ts`) y la comparten la pantalla de entrada y la lista: si cada una la escribiera aparte, una podría considerar «con trabajo» lo que la otra manda al archivo. | CONFIRMED (Rafael, 2026-08-16) |
+| BR-331 | El bloque de equipos **abre en Rentados**, que es lo que se paga — salvo que no haya ninguno, porque una lista vacía sería peor. Con «Todos» de entrada había que pasar por encima de siete máquinas propias antes de llegar a la que genera una transferencia. | CONFIRMED |
+| BR-332 | El selector de proyecto pone arriba **los que ya se usan en la semana**, separados de los demás. Son 21 y el selector sale en cada fila: en una semana de 40 personas son 40 listas de 21 pueblos. Dentro de cada grupo el orden es alfabético y no cambia con cada marca — si cambiara, la posición dejaría de ser memoria muscular. | CONFIRMED |
+| BR-333 | Una liquidación **VACÍA** —cero días marcados, cero producción— no sale a aprobación ni se aprueba: aprobar la nada no ordena ningún pago y hace más fácil aprobar de corrido algo que sí importa. **VACÍA no es EN CERO**: a quien un préstamo le come todo el neto sí trabajó y su nómina recorre el flujo completo; y un equipo con días pero sin costo diario sí llega a aprobación, para frenarse ahí con su error crítico (BR-245). Cada tipo de pagable define qué es vacío para él (`isEmpty`). | CONFIRMED |

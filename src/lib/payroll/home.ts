@@ -19,6 +19,7 @@ import { prisma } from '@/lib/db/client'
 import { vencimientosPendientes } from '@/lib/equipment/records-service'
 import { cuantosFrenan } from '@/lib/payroll/exceptions/service'
 import { workersMissingRateCount } from '@/lib/payroll/rates-status/service'
+import { CON_TRABAJO_NUESTRO } from '@/lib/payroll/week-scope'
 import { toIso, weekRangeOf } from '@/lib/payroll/week'
 
 /** Estados que todavía no han salido de la mesa de quien prepara. */
@@ -64,16 +65,7 @@ export async function weekFocus(companyId: string): Promise<WeekFocus> {
    * pagar.
    */
   const week = await prisma.payrollWeek.findFirst({
-    where: {
-      companyId,
-      isOffCycle: false,
-      OR: [
-        { workEntries: { some: { sourceType: { not: 'IMPORT' }, isControlOnly: false } } },
-        { payrolls: { some: {} } },
-        { crewPayrolls: { some: {} } },
-        { equipmentPayrolls: { some: {} } },
-      ],
-    },
+    where: { companyId, isOffCycle: false, ...CON_TRABAJO_NUESTRO },
     orderBy: { startDate: 'desc' },
   })
 

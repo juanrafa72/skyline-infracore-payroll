@@ -1,16 +1,31 @@
+import Link from 'next/link'
 import { Badge, Button, Card, DataTable, EmptyState, Field, PageHeader, money } from '@/components/ui'
 import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
+import { CON_TRABAJO_NUESTRO } from '@/lib/payroll/week-scope'
 import { PAY_PERIOD_LABELS } from '@/lib/payroll/period'
 import { toIso } from '@/lib/payroll/week'
 import { openWeek } from './actions'
 
 export const dynamic = 'force-dynamic'
 
-export default async function PayrollPage() {
+export default async function PayrollPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ archivo?: string }>
+}) {
   const company = await getActiveCompany()
+  const { archivo } = await searchParams
+  const verArchivo = archivo === '1'
+
+  /*
+   * De 140 semanas, 137 son archivo del Excel: días importados que jamás
+   * generaron nómina (BR-153). Mezcladas, hay que bajar por 120 filas en
+   * $0.00 para llegar a la que se está trabajando. Se muestran solo las que
+   * tienen trabajo nuestro, y el archivo queda detrás de un enlace.
+   */
   const weeks = await prisma.payrollWeek.findMany({
-    where: { companyId: company.id },
+    where: verArchivo ? { companyId: company.id } : { companyId: company.id, ...CON_TRABAJO_NUESTRO },
     orderBy: [{ year: 'desc' }, { startDate: 'desc' }],
     include: {
       payrolls: true,
@@ -18,20 +33,31 @@ export default async function PayrollPage() {
     },
   })
 
+  const total = await prisma.payrollWeek.count({ where: { companyId: company.id } })
+  const enArchivo = total - (verArchivo ? total : weeks.length)
+
   const today = toIso(new Date())
 
   return (
     <>
-      <PageHeader title="Nómina" subtitle={company.displayName} />
+      <PageHeader
+        title="Nómina"
+        subtitle={
+          verArchivo
+            ? `${company.displayName} · todas las semanas, incluido el archivo del Excel`
+            : `${company.displayName} · las semanas que se han trabajado aquí`
+        }
+      />
 
       <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
+        <div>
         <DataTable
           rows={weeks}
           href={(week) => `/payroll/${week.id}`}
           empty={
             <EmptyState
-              title="Todavía no hay períodos abiertos"
-              hint="Abre uno con el formulario de la derecha para empezar a registrar días."
+              title="Todavía no se ha trabajado ninguna semana aquí"
+              hint="Abre un período con el formulario de la derecha y marca los días de la gente."
             />
           }
           columns={[
@@ -72,6 +98,30 @@ export default async function PayrollPage() {
             },
           ]}
         />
+
+        {/*
+          El archivo del Excel, detrás de un enlace. Son días importados que
+          jamás generaron nómina (BR-153): mirarlos sirve para consultar, no
+          para trabajar, y de primeras solo estorban.
+        */}
+        {verArchivo ? (
+          <p className="mt-3 text-sm text-[var(--muted)]">
+            Estás viendo <strong>todas</strong> las semanas, incluidas las que solo son archivo
+            del Excel. Sus días ya se pagaron por fuera: no hay que calcularlas.{' '}
+            <Link prefetch={false} href="/payroll" className="underline">
+              Ver solo lo trabajado aquí
+            </Link>
+          </p>
+        ) : enArchivo > 0 ? (
+          <p className="mt-3 text-sm text-[var(--muted)]">
+            Hay <strong>{enArchivo}</strong> semana(s) más que vinieron del Excel. Sus días ya se
+            pagaron por fuera, así que no aparecen aquí.{' '}
+            <Link prefetch={false} href="/payroll?archivo=1" className="underline">
+              Ver el archivo completo
+            </Link>
+          </p>
+        ) : null}
+        </div>
 
         <div className="space-y-4">
           <Card>

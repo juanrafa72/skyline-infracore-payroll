@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import { useActionState } from 'react'
+import { agruparProyectos } from '@/lib/payroll/project-order'
 import { saveEquipmentWeekDays } from '../actions'
 
 export interface EquipmentRow {
@@ -28,9 +29,9 @@ export interface ProjectOption {
 type Filtro = 'TODOS' | 'RENTED' | 'OWNED'
 
 const FILTROS: ReadonlyArray<{ value: Filtro; label: string }> = [
-  { value: 'TODOS', label: 'Todos' },
   { value: 'RENTED', label: 'Rentados' },
   { value: 'OWNED', label: 'Propios' },
+  { value: 'TODOS', label: 'Todos' },
 ]
 
 function currency(value: string): string {
@@ -59,16 +60,28 @@ export function EquipmentBlock({
   shortDays,
   rows,
   projects,
+  projectsInUse = [],
 }: {
   weekId: string
   shortDays: ReadonlyArray<{ iso: string; label: string }>
   rows: readonly EquipmentRow[]
   projects: readonly ProjectOption[]
+  /** Proyectos que ya aparecen en la semana: van arriba en el selector. */
+  projectsInUse?: readonly string[]
 }) {
   const [result, action, saving] = useActionState(saveEquipmentWeekDays, null)
   const ok = result !== null && result.startsWith('LISTO|')
 
-  const [filtro, setFiltro] = useState<Filtro>('TODOS')
+  /*
+   * Abre en RENTADOS, que es lo que se paga.
+   *
+   * Con «Todos» de entrada, una semana normal obliga a pasar por encima de
+   * siete máquinas propias —que no le deben nada a nadie— antes de llegar a la
+   * que sí genera una transferencia. Salvo que no haya ningún rentado: ahí
+   * mostrar una lista vacía sería peor.
+   */
+  const hayRentados = rows.some((row) => row.ownership === 'RENTED')
+  const [filtro, setFiltro] = useState<Filtro>(hayRentados ? 'RENTED' : 'TODOS')
 
   const visibles = useMemo(
     () => (filtro === 'TODOS' ? rows : rows.filter((row) => row.ownership === filtro)),
@@ -81,6 +94,12 @@ export function EquipmentBlock({
       propios: rows.filter((r) => r.ownership === 'OWNED').length,
     }),
     [rows],
+  )
+
+  // Los proyectos de la semana, arriba: son 21 y el selector sale en cada fila.
+  const grupos = useMemo(
+    () => agruparProyectos(projects, projectsInUse),
+    [projects, projectsInUse],
   )
 
   return (
@@ -215,11 +234,24 @@ export function EquipmentBlock({
                         className="h-8 w-full min-w-[120px] rounded border border-[var(--border)] bg-[var(--bg)] px-1 text-xs"
                       >
                         <option value="">— sin proyecto —</option>
-                        {projects.map((project) => (
-                          <option key={project.id} value={project.id}>
-                            {project.name}
-                          </option>
-                        ))}
+                        {grupos.enUso.length > 0 ? (
+                          <optgroup label="En esta semana">
+                            {grupos.enUso.map((project) => (
+                              <option key={project.id} value={project.id}>
+                                {project.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ) : null}
+                        {grupos.resto.length > 0 ? (
+                          <optgroup label={grupos.enUso.length > 0 ? 'Los demás' : 'Proyectos'}>
+                            {grupos.resto.map((project) => (
+                              <option key={project.id} value={project.id}>
+                                {project.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ) : null}
                       </select>
                     </td>
 

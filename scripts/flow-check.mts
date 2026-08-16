@@ -275,6 +275,34 @@ async function main() {
 
   // ── 4. Enviar y aprobar
   console.log('\n4. Enviar y aprobar')
+
+  /*
+   * Una liquidación en CERO no llega a la mesa de quien aprueba.
+   *
+   * Aparecían «CACIQUE1 · 0 días · $0.00» esperando visto bueno. Aprobar cero
+   * no ordena ningún pago: solo ensucia la lista y hace más fácil aprobar de
+   * corrido algo que sí importa.
+   */
+  const sinDias = await prisma.worker.create({
+    data: {
+      companyId: PREFIX, code: 'FW-CERO', firstName: 'Sin', lastName: 'Dias',
+      displayName: 'Sin Dias', defaultOperationId: operation.id,
+    },
+  })
+  const enCero = await prisma.workerPayroll.create({
+    data: {
+      companyId: PREFIX, payrollWeekId: week.id, workerId: sinDias.id,
+      status: 'PREPARED', daysFull: 0, daysHalf: 0, daysNoWork: 0,
+      basePay: '0.00', additionsTotal: '0.00', grossPay: '0.00',
+      deductionsTotal: '0.00', netPay: '0.00',
+    },
+  })
+  const ceroSubmit = await applyTransition(leo, [enCero.id], 'SUBMIT')
+  check('una liquidación en $0.00 NO sale a aprobación', ceroSubmit.moved === 0,
+    ceroSubmit.skipped[0]?.reason)
+  await prisma.workerPayroll.delete({ where: { id: enCero.id } })
+  await prisma.worker.delete({ where: { id: sinDias.id } })
+
   await applyTransition(leo, [payroll.id], 'SUBMIT')
   check('Leo la envía',
     (await prisma.workerPayroll.findUniqueOrThrow({ where: { id: payroll.id } })).status ===

@@ -77,3 +77,18 @@ export const TURNO: Record<string, string> = {
 export function label(dictionary: Record<string, string>, code: string): string {
   return dictionary[code] ?? code
 }
+
+/**
+ * Unidades de producción, en español.
+ *
+ * La base guarda el código (`FOOT`) y cada registro trae además su etiqueta
+ * libre (`unitLabel`: «pies», «Aerial Fiber»). En pantalla se leía «10,000
+ * foot» porque se mostraba el código en minúscula.
+ */
+export const UNIDAD_MEDIDA: Record<string, string> = {
+  FOOT: 'pies',
+  METER: 'metros',
+  UNIT: 'unidades',
+  HOUR: 'horas',
+  DAY: 'días',
+}

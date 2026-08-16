@@ -192,9 +192,23 @@ export function CrewsBlock({
                   </table>
                 </div>
               ) : (
-                <p className="mt-2 text-xs text-[var(--muted)]">
-                  Esta cuadrilla no tiene integrantes registrados (se agregan en Cuadrillas).
-                </p>
+                /*
+                 * Solo se avisa si tampoco hay desglose abajo. Decir «no tiene
+                 * integrantes» justo encima de la tabla con sus cuatro personas
+                 * se lee como un error de la aplicación: la gente de la
+                 * cuadrilla (para días de control) y el desglose del
+                 * contratista son dos listas distintas, y quien mira la
+                 * pantalla no tiene por qué saberlo.
+                 */
+                !panels.some(
+                  (panel) => panel.crewName === crew.crewName && panel.members.length > 0,
+                ) ? (
+                  <p className="mt-2 text-xs text-[var(--muted)]">
+                    Sin integrantes registrados. Se agregan en{' '}
+                    <strong>Catálogos → Cuadrillas</strong> y sirven para anotar sus días de
+                    control; lo que se le paga al contratista se detalla abajo.
+                  </p>
+                ) : null
               )}
             </li>
           ))}

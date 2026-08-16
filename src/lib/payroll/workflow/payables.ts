@@ -50,6 +50,14 @@ export interface PayableSnapshot {
    * pagarle, y aprobarlos mandaría dinero sin destinatario legal.
    */
   approveBlocker: string | null
+  /**
+   * No tiene NADA detrás: cero días, cero producción. No confundir con quedar
+   * en $0.00 — a quien un préstamo le come todo el neto sí trabajó, y su
+   * nómina tiene que recorrer el flujo completo.
+   */
+  isEmpty: boolean
+  /** Qué decirle a quien lo intentó enviar. */
+  emptyReason?: string
 }
 
 interface PayableDelegate {
@@ -154,6 +162,10 @@ const workerDelegate: PayableDelegate = {
       amount: payroll.netPay.toFixed(2),
       workerId: payroll.workerId,
       approveBlocker: null,
+      // Sin un solo día marcado no hay nada que pagar ni que revisar.
+      isEmpty: payroll.daysFull === 0 && payroll.daysHalf === 0,
+      emptyReason:
+        'No tiene días marcados. Si no trabajó, quítalo de la semana; si trabajó, márcale los días.',
     }
   },
   currentHash,
@@ -219,6 +231,10 @@ const crewDelegate: PayableDelegate = {
       approveBlocker: payroll.contractorId
         ? null
         : 'La cuadrilla no tiene contratista asignado. A él es a quien se le paga: asígnalo en Cuadrillas antes de aprobar.',
+      // Sin un solo registro de producción no hay contra qué liquidar.
+      isEmpty: payroll.productionCount === 0,
+      emptyReason:
+        'No tiene producción registrada esta semana. Captúrala en Producción o quita la cuadrilla.',
     }
   },
   currentHash: crewCurrentHash,
@@ -281,6 +297,15 @@ const equipmentDelegate: PayableDelegate = {
       approveBlocker: payroll.vendorId
         ? null
         : 'El equipo no tiene proveedor asignado. Un equipo jamás recibe pagos (BR-121): el dinero es para quien lo alquila. Asígnale el proveedor antes de aprobar.',
+      /*
+       * Sin días marcados no estuvo en obra. Un equipo CON días pero sin costo
+       * diario NO es vacío: sí trabajó, y tiene que llegar a aprobación para
+       * que ahí se frene con su error crítico — jamás se paga $0.00 en
+       * silencio (BR-245).
+       */
+      isEmpty: payroll.daysTotal === 0,
+      emptyReason:
+        'No tiene días marcados esta semana. Márcalos en la semana o quita el equipo.',
     }
   },
   currentHash: equipmentCurrentHash,
@@ -376,6 +401,27 @@ export async function applyPayableTransition(
     // de la cuadrilla, proveedor del equipo). Mismo choke point que BR-180.
     if (action === 'APPROVE' && payable.approveBlocker) {
       result.skipped.push({ name: payable.displayName, reason: payable.approveBlocker })
+      continue
+    }
+
+    /*
+     * Una liquidación VACÍA no sale a aprobación ni se aprueba.
+     *
+     * Aparecían en la mesa de quien aprueba «CACIQUE1 · 0 días · $0.00»
+     * esperando visto bueno. Aprobar la nada no ordena ningún pago: solo
+     * ensucia la lista y hace más fácil aprobar de corrido algo que sí importa.
+     *
+     * VACÍA no es lo mismo que EN CERO. A quien se le descuenta un préstamo
+     * que se come todo su neto sí trabajó, y su nómina tiene que recorrer el
+     * flujo completo aunque termine en $0.00 — el descuento es parte del
+     * soporte. Por eso cada tipo de pagable dice qué es «vacío» para él
+     * (`isEmpty`): sin días, sin producción, sin nada detrás.
+     */
+    if ((action === 'SUBMIT' || action === 'APPROVE') && payable.isEmpty) {
+      result.skipped.push({
+        name: payable.displayName,
+        reason: payable.emptyReason ?? 'No tiene nada detrás: quítalo de la semana o revísalo.',
+      })
       continue
     }
 
