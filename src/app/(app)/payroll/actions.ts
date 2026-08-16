@@ -28,7 +28,7 @@ import type { RespuestaGuardado } from './[weekId]/GuardarDias'
 import { invalidateIfStale } from '@/lib/payroll/workflow/service'
 import { currentRoster, removeFromRoster, setRoster } from '@/lib/payroll/roster'
 import { addExtra, removeExtra } from '@/lib/payroll/extras/service'
-import { saveControlDays, saveCrewDays, syncCrewPayrolls } from '@/lib/payroll/crews/service'
+import { alternarCuadrillaEnSemana, saveControlDays, saveCrewDays, syncCrewPayrolls } from '@/lib/payroll/crews/service'
 import {
   saveCrewBreakdown,
   saveExpectedTotal,
@@ -1022,6 +1022,29 @@ export async function toggleEquipoEnSemana(
     user,
     weekId,
     String(formData.get('equipmentId') ?? ''),
+  )
+
+  revalidatePath(`/payroll/${weekId}`)
+  return resultado.ok ? `LISTO|${resultado.message}` : resultado.message
+}
+
+/**
+ * Agrega o saca una cuadrilla de la semana.
+ *
+ * Antes solo aparecían las que ya tenían producción capturada, así que no
+ * había por dónde empezar a liquidar a una cuadrilla nueva.
+ */
+export async function toggleCuadrillaEnSemana(
+  _previous: string | null,
+  formData: FormData,
+): Promise<string> {
+  const user = await assertCan('payroll:edit')
+  const weekId = String(formData.get('weekId') ?? '')
+
+  const resultado = await alternarCuadrillaEnSemana(
+    user,
+    weekId,
+    String(formData.get('crewId') ?? ''),
   )
 
   revalidatePath(`/payroll/${weekId}`)

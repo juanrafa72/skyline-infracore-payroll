@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { estaEnLaSemana, puedeSacarse, type EquipoDeLaSemana } from '@/lib/payroll/equipment/roster'
+import { estaEnLaSemana, puedeSacarse, type EnLaSemana } from '@/lib/payroll/week-roster'
 
 /**
  * Qué equipos van en la semana.
@@ -9,8 +9,8 @@ import { estaEnLaSemana, puedeSacarse, type EquipoDeLaSemana } from '@/lib/payro
  * un equipo no borre trabajo en silencio.
  */
 
-const equipo = (over: Partial<EquipoDeLaSemana> = {}): EquipoDeLaSemana => ({
-  equipmentId: 'e1',
+const equipo = (over: Partial<EnLaSemana> = {}): EnLaSemana => ({
+  id: 'e1',
   escogido: false,
   diasMarcados: 0,
   tieneLiquidacion: false,

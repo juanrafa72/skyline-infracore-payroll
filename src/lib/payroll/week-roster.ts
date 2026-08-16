@@ -1,5 +1,5 @@
 /**
- * Qué equipos van en ESTA semana.
+ * Qué va en ESTA semana: equipos y cuadrillas.
  *
  * Antes la semana ofrecía todas las máquinas activas de la compañía, siempre.
  * Con ocho se aguanta; con cincuenta, quien marca los días recorre una lista
@@ -13,8 +13,9 @@
  * Puro: decide, no consulta.
  */
 
-export interface EquipoDeLaSemana {
-  equipmentId: string
+export interface EnLaSemana {
+  /** Equipo o cuadrilla, según quién pregunte. */
+  id: string
   /** Alguien lo puso en la lista de esta semana. */
   escogido: boolean
   /** Tiene días marcados en la semana. */
@@ -31,7 +32,7 @@ export interface EquipoDeLaSemana {
  * negocio abriría una semana vieja y vería la lista vacía —creyendo que se
  * perdieron los días que marcó—. Lo que tiene días, está.
  */
-export function estaEnLaSemana(equipo: EquipoDeLaSemana): boolean {
+export function estaEnLaSemana(equipo: EnLaSemana): boolean {
   return equipo.escogido || equipo.diasMarcados > 0 || equipo.tieneLiquidacion
 }
 
@@ -47,7 +48,7 @@ export type VeredictoQuitar =
  * liquidación es plata que alguien va a transferir. Primero se le quitan los
  * días —o se devuelve la liquidación—, que son actos conscientes y con rastro.
  */
-export function puedeSacarse(equipo: EquipoDeLaSemana): VeredictoQuitar {
+export function puedeSacarse(equipo: EnLaSemana): VeredictoQuitar {
   if (equipo.tieneLiquidacion) {
     return {
       puede: false,

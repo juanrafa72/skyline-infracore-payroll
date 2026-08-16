@@ -21,7 +21,7 @@ import { SubmitWeek } from './SubmitWeek'
 import { AddWorkerInline, ChooseWorkers } from './ChooseWorkers'
 import { CrewsBlock } from './CrewsBlock'
 import { EquipmentBlock } from './EquipmentBlock'
-import { weekCrewViews } from '@/lib/payroll/crews/service'
+import { cuadrillasParaLaSemana, weekCrewViews } from '@/lib/payroll/crews/service'
 import { contractorWeekView, suggestBreakdown } from '@/lib/payroll/contractors/service'
 import { weekEquipmentViews } from '@/lib/payroll/equipment/service'
 import { ESTADO_NOMINA, TIPO_TARIFA, UNIDAD_MEDIDA, label } from '@/lib/payroll/labels'
@@ -153,6 +153,8 @@ export default async function WeekPage({
    * (deuda con el contratista) + los días de control de su gente.
    */
   const crewViews = await weekCrewViews(company.id, week.id)
+  // Todas las del catálogo, para poder escoger cuál se liquida esta semana.
+  const cuadrillasDisponibles = await cuadrillasParaLaSemana(company.id, week.id)
   const productionByCrew = new Map<string, typeof production>()
   const looseProduction: typeof production = []
   for (const row of production) {
@@ -786,7 +788,12 @@ export default async function WeekPage({
             />
           ) : null}
 
-          {crewsForBlock.length > 0 || looseProduction.length > 0 ? (
+          {/*
+            Se muestra aunque no haya ninguna en la semana: adentro está el
+            botón para agregarlas. Escondiendo el bloque hasta que hubiera una,
+            no había por dónde empezar — el mismo callejón de los equipos.
+          */}
+          {cuadrillasDisponibles.length > 0 || looseProduction.length > 0 ? (
             <CrewsBlock
               weekId={week.id}
               shortDays={days.map((iso) => ({ iso, label: shortDay(iso) }))}
@@ -794,6 +801,7 @@ export default async function WeekPage({
               projects={projects.map((project) => ({ id: project.id, name: project.name }))}
               panels={contractorPanels}
               loose={looseProduction.map(productionRow)}
+              disponibles={cuadrillasDisponibles}
             />
           ) : null}
 

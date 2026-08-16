@@ -1,7 +1,7 @@
 'use client'
 
-import { useActionState } from 'react'
-import { saveCrewControlDays } from '../actions'
+import { useActionState, useState } from 'react'
+import { saveCrewControlDays, toggleCuadrillaEnSemana } from '../actions'
 import { ContractorBreakdown, type ContractorPanel } from './ContractorBreakdown'
 
 export interface CrewProductionRow {
@@ -46,6 +46,92 @@ function currency(value: string | number): string {
  * control interno — por eso viven en una cuadrícula aparte de la de personal,
  * y guardarlos jamás toca un día pagado.
  */
+/**
+ * Escoger qué cuadrillas se liquidan esta semana.
+ *
+ * Va FUERA del formulario de los días de control: un <form> dentro de otro es
+ * HTML inválido y su botón terminaría guardando los días.
+ */
+function EscogerCuadrilla({
+  weekId,
+  disponibles,
+  enLaSemana,
+}: {
+  weekId: string
+  disponibles: ReadonlyArray<{
+    id: string
+    name: string
+    contractorName: string | null
+    yaEsta: boolean
+  }>
+  enLaSemana: number
+}) {
+  const [result, action, saving] = useActionState(toggleCuadrillaEnSemana, null)
+  const [abierto, setAbierto] = useState(false)
+  const faltantes = disponibles.filter((crew) => !crew.yaEsta)
+
+  return (
+    <div className="mx-3.5 mt-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[var(--hover)] px-3 py-2">
+        <span className="text-sm">
+          <strong>{enLaSemana}</strong> cuadrilla{enLaSemana === 1 ? '' : 's'} en esta semana
+        </span>
+        {faltantes.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setAbierto((antes) => !antes)}
+            className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+          >
+            {abierto ? 'Cerrar' : '+ Agregar cuadrilla'}
+          </button>
+        ) : (
+          <span className="text-xs text-[var(--muted)]">Ya están todas las del catálogo.</span>
+        )}
+      </div>
+
+      {result ? (
+        <p
+          className={`mt-2 rounded-md border p-2.5 text-sm ${
+            result.startsWith('LISTO|')
+              ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
+              : 'border-amber-300 bg-amber-50 text-amber-900'
+          }`}
+        >
+          {result.replace(/^LISTO\|/, '')}
+        </p>
+      ) : null}
+
+      {abierto ? (
+        <form action={action} className="mt-2 flex flex-wrap items-end gap-2 rounded-lg border border-[var(--border)] p-3">
+          <input type="hidden" name="weekId" value={weekId} />
+          <label className="text-sm">
+            <span className="mb-1 block text-xs text-[var(--muted)]">Cuál se liquida</span>
+            <select
+              name="crewId"
+              required
+              className="h-9 min-w-64 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2 text-sm"
+            >
+              {faltantes.map((crew) => (
+                <option key={crew.id} value={crew.id}>
+                  {crew.name}
+                  {crew.contractorName ? ` — se le paga a ${crew.contractorName}` : ' — SIN contratista'}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="submit"
+            disabled={saving}
+            className="brand-gradient inline-flex h-9 items-center rounded-full px-4 text-sm font-medium text-white disabled:opacity-45"
+          >
+            {saving ? 'Agregando…' : 'Agregar a la semana'}
+          </button>
+        </form>
+      ) : null}
+    </div>
+  )
+}
+
 export function CrewsBlock({
   weekId,
   shortDays,
@@ -53,6 +139,7 @@ export function CrewsBlock({
   loose,
   projects = [],
   panels = [],
+  disponibles = [],
 }: {
   weekId: string
   /** Días de la semana: [iso, etiqueta corta]. */
@@ -64,6 +151,13 @@ export function CrewsBlock({
   projects?: ReadonlyArray<{ id: string; name: string }>
   /** Desglose y conciliación por contratista, uno por liquidación calculada. */
   panels?: readonly ContractorPanel[]
+  /** Todas las cuadrillas de la compañía, para poder escoger cuál se liquida. */
+  disponibles?: ReadonlyArray<{
+    id: string
+    name: string
+    contractorName: string | null
+    yaEsta: boolean
+  }>
 }) {
   const [result, action, saving] = useActionState(saveCrewControlDays, null)
   const ok = result !== null && result.startsWith('LISTO|')
@@ -80,6 +174,13 @@ export function CrewsBlock({
           individual</strong>.
         </p>
       </div>
+
+      {/*
+        Cuáles se liquidan esta semana. Antes solo aparecían las que ya tenían
+        producción capturada, así que no había por dónde empezar con una
+        cuadrilla nueva — y pueden trabajar varias a la vez.
+      */}
+      <EscogerCuadrilla weekId={weekId} disponibles={disponibles} enLaSemana={crews.length} />
 
       {result ? (
         <p

@@ -4,7 +4,7 @@ import { equipmentTotal } from '@/lib/payroll/engine/payables'
 import { toCents, toDecimalString } from '@/lib/payroll/engine/money'
 import { invalidateEquipmentIfStale } from '@/lib/payroll/workflow/payables'
 import { toIso } from '@/lib/payroll/week'
-import { estaEnLaSemana, puedeSacarse } from './roster'
+import { estaEnLaSemana, puedeSacarse } from '../week-roster'
 
 /**
  * Equipo rentado: sus días marcados se vuelven una liquidación semanal que se
@@ -392,7 +392,7 @@ export async function weekEquipmentViews(
         : null,
       markedDays: daysByEquipment.get(machine.id) ?? [],
       enLaSemana: estaEnLaSemana({
-        equipmentId: machine.id,
+        id: machine.id,
         escogido: escogidosIds.has(machine.id),
         diasMarcados: (daysByEquipment.get(machine.id) ?? []).length,
         tieneLiquidacion: payable !== undefined,
@@ -447,7 +447,7 @@ export async function alternarEquipoEnSemana(
   ])
 
   const estado = {
-    equipmentId,
+    id: equipmentId,
     escogido: miembro !== null,
     diasMarcados: dias,
     tieneLiquidacion: liquidacion !== null,

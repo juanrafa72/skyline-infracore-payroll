@@ -4,6 +4,7 @@ import { crewDailyTotal, sumProductionAmounts } from '@/lib/payroll/engine/payab
 import { ZERO, toCents, toDecimalString } from '@/lib/payroll/engine/money'
 import { invalidateCrewIfStale } from '@/lib/payroll/workflow/payables'
 import { toIso } from '@/lib/payroll/week'
+import { estaEnLaSemana, puedeSacarse } from '../week-roster'
 
 /**
  * Liquidaciones de cuadrilla: de la producción registrada a la deuda con el
@@ -369,7 +370,7 @@ export async function weekCrewViews(
     where: { id: payrollWeekId, companyId },
   })
 
-  const [production, payables, dayEntries, dailyCrews] = await Promise.all([
+  const [production, payables, dayEntries, dailyCrews, escogidas] = await Promise.all([
     prisma.production.findMany({
       where: { companyId, payrollWeekId, crewId: { not: null } },
       select: { crewId: true },
@@ -386,6 +387,12 @@ export async function weekCrewViews(
       where: { companyId, active: true, billingMode: 'DAILY' },
       select: { id: true },
     }),
+    // Las que alguien escogió liquidar esta semana, aunque todavía no tengan
+    // producción capturada: es por donde se empieza a armarle la cuenta.
+    prisma.crewWeekMember.findMany({
+      where: { companyId, payrollWeekId },
+      select: { crewId: true },
+    }),
   ])
 
   const crewIds = [
@@ -394,6 +401,7 @@ export async function weekCrewViews(
       ...payables.map((row) => row.crewId),
       ...dayEntries.map((row) => row.crewId),
       ...dailyCrews.map((row) => row.id),
+      ...escogidas.map((row) => row.crewId),
     ]),
   ]
   if (crewIds.length === 0) return []
@@ -597,4 +605,101 @@ export async function saveCrewDays(
     }
   }
   return { ok: true, message: summary }
+}
+
+/**
+ * Las cuadrillas que se pueden agregar a una semana.
+ *
+ * Todas las activas con contratista: al contratista es a quien se le paga, y
+ * sin él la liquidación no pasa la puerta de aprobación (BR-240). Se marca
+ * cuáles ya están en la semana para no ofrecerlas dos veces.
+ */
+export async function cuadrillasParaLaSemana(
+  companyId: string,
+  payrollWeekId: string,
+): Promise<Array<{ id: string; name: string; contractorName: string | null; yaEsta: boolean }>> {
+  const [crews, escogidas] = await Promise.all([
+    prisma.crew.findMany({
+      where: { companyId, active: true },
+      include: { contractor: { select: { name: true } } },
+      orderBy: { name: 'asc' },
+    }),
+    prisma.crewWeekMember.findMany({
+      where: { companyId, payrollWeekId },
+      select: { crewId: true },
+    }),
+  ])
+
+  const ya = new Set(escogidas.map((row) => row.crewId))
+  return crews.map((crew) => ({
+    id: crew.id,
+    name: crew.name,
+    contractorName: crew.contractor?.name ?? null,
+    yaEsta: ya.has(crew.id),
+  }))
+}
+
+/**
+ * Mete o saca una cuadrilla de la semana.
+ *
+ * Sacarla no borra nada: si ya tiene producción o liquidación, se niega y dice
+ * por qué — la regla es la misma que para los equipos y vive en `week-roster`.
+ */
+export async function alternarCuadrillaEnSemana(
+  user: CurrentUser,
+  payrollWeekId: string,
+  crewId: string,
+): Promise<{ ok: boolean; message: string }> {
+  const [crew, semana] = await Promise.all([
+    prisma.crew.findFirst({
+      where: { id: crewId, companyId: user.companyId },
+      select: { id: true, name: true, contractorId: true },
+    }),
+    prisma.payrollWeek.findFirst({
+      where: { id: payrollWeekId, companyId: user.companyId },
+      select: { id: true, status: true },
+    }),
+  ])
+  if (!crew) return { ok: false, message: 'Esa cuadrilla no existe en esta compañía.' }
+  if (!semana) return { ok: false, message: 'Esa semana no existe en esta compañía.' }
+  if (semana.status === 'CLOSED') {
+    return { ok: false, message: 'La semana está cerrada: ya no se le agregan ni se le quitan cuadrillas.' }
+  }
+
+  const [miembro, produccion, liquidacion, dias] = await Promise.all([
+    prisma.crewWeekMember.findUnique({
+      where: { payrollWeekId_crewId: { payrollWeekId, crewId } },
+    }),
+    prisma.production.count({ where: { companyId: user.companyId, payrollWeekId, crewId } }),
+    prisma.crewPayroll.findFirst({
+      where: { companyId: user.companyId, payrollWeekId, crewId },
+      select: { id: true },
+    }),
+    prisma.crewDayEntry.count({ where: { companyId: user.companyId, payrollWeekId, crewId } }),
+  ])
+
+  const estado = {
+    id: crewId,
+    escogido: miembro !== null,
+    diasMarcados: produccion + dias,
+    tieneLiquidacion: liquidacion !== null,
+  }
+
+  if (!estaEnLaSemana(estado)) {
+    await prisma.crewWeekMember.create({
+      data: { companyId: user.companyId, payrollWeekId, crewId, addedById: user.id },
+    })
+    return {
+      ok: true,
+      message: crew.contractorId
+        ? `${crew.name} entra en esta semana. Captúrale la producción y calcula.`
+        : `${crew.name} entra en esta semana, pero NO tiene contratista: sin él no se puede aprobar su pago. Asígnaselo en Catálogos → Cuadrillas.`,
+    }
+  }
+
+  const veredicto = puedeSacarse(estado)
+  if (!veredicto.puede) return { ok: false, message: `${crew.name}: ${veredicto.porque}` }
+
+  await prisma.crewWeekMember.deleteMany({ where: { payrollWeekId, crewId } })
+  return { ok: true, message: `${crew.name} sale de esta semana.` }
 }

@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useTransition } from 'react'
 import { useActionState } from 'react'
 import { agruparProyectos } from '@/lib/payroll/project-order'
 import { saveEquipmentWeekDays, toggleEquipoEnSemana } from '../actions'
@@ -39,6 +39,48 @@ const FILTROS: ReadonlyArray<{ value: Filtro; label: string }> = [
   { value: 'OWNED', label: 'Propios' },
   { value: 'TODOS', label: 'Todos' },
 ]
+
+/**
+ * Sacar un equipo de la semana desde la rejilla.
+ *
+ * SIN formulario propio: vive dentro del formulario de los días, y un <form>
+ * dentro de otro es HTML inválido — el navegador descarta el de adentro y el
+ * botón termina guardando los días. Misma solución que en la rejilla de gente.
+ */
+function QuitarEquipo({
+  weekId,
+  row,
+}: {
+  weekId: string
+  row: EquipmentRow
+}) {
+  const [pending, startTransition] = useTransition()
+  const [mensaje, setMensaje] = useState<string | null>(null)
+
+  return (
+    <div className="text-right">
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() => {
+          setMensaje(null)
+          const datos = new FormData()
+          datos.set('weekId', weekId)
+          datos.set('equipmentId', row.equipmentId)
+          startTransition(async () => {
+            const resultado = await toggleEquipoEnSemana(null, datos)
+            if (!resultado.startsWith('LISTO|')) setMensaje(resultado)
+          })
+        }}
+        title={`Saca ${row.name} de esta semana. Sigue en el catálogo.`}
+        className="rounded px-2 py-1 text-[11px] text-[var(--muted)] hover:bg-[var(--hover)] disabled:opacity-45"
+      >
+        {pending ? '…' : 'quitar'}
+      </button>
+      {mensaje ? <p className="mt-0.5 text-[11px] text-amber-800">{mensaje}</p> : null}
+    </div>
+  )
+}
 
 /** El botón que mete o saca un equipo de la semana. */
 function EnLaSemana({ weekId, row }: { weekId: string; row: EquipmentRow }) {
@@ -209,6 +251,29 @@ export function EquipmentBlock({
         de otro es HTML inválido: el navegador descarta el de adentro y su
         botón termina guardando los días en vez de agregar el equipo.
       */}
+      {/*
+        La misma barra que tiene la rejilla de gente: cuántos hay y por dónde se
+        agregan. Sin ella, «Todos» era la única puerta y no se veía desde aquí.
+      */}
+      {filtro !== 'TODOS' ? (
+        <div className="mx-3.5 mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[var(--hover)] px-3 py-2">
+          <span className="text-sm">
+            <strong>{filtro === 'RENTED' ? cuenta.rentados : cuenta.propios}</strong> equipo
+            {(filtro === 'RENTED' ? cuenta.rentados : cuenta.propios) === 1 ? '' : 's'}{' '}
+            {filtro === 'RENTED' ? 'rentado' : 'propio'}
+            {(filtro === 'RENTED' ? cuenta.rentados : cuenta.propios) === 1 ? '' : 's'} en esta
+            semana
+          </span>
+          <button
+            type="button"
+            onClick={() => setFiltro('TODOS')}
+            className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+          >
+            + Agregar equipos
+          </button>
+        </div>
+      ) : null}
+
       {filtro === 'TODOS' ? (
         <div className="p-3.5">
           <p className="mb-3 text-xs text-[var(--muted)]">
@@ -287,6 +352,7 @@ export function EquipmentBlock({
                   <th className="min-w-[130px] py-1 pl-2 text-right font-medium text-[var(--muted)]">
                     Liquidación
                   </th>
+                  <th className="py-1 pl-2 text-right font-medium text-[var(--muted)]">Quitar</th>
                 </tr>
               </thead>
               <tbody>
@@ -386,6 +452,10 @@ export function EquipmentBlock({
                       ) : (
                         <span className="text-[11px] text-[var(--muted)]">sin liquidar</span>
                       )}
+                    </td>
+
+                    <td className="py-1.5 pl-2">
+                      <QuitarEquipo weekId={weekId} row={row} />
                     </td>
                   </tr>
                 ))}

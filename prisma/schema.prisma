@@ -456,6 +456,7 @@ model Crew {
   equipmentEntries EquipmentEntry[]
 
   dayEntries  CrewDayEntry[]
+  weekMembers CrewWeekMember[]
 
   @@unique([companyId, code])
   @@map("crew")
@@ -771,6 +772,7 @@ model PayrollWeek {
   equipmentPayrolls EquipmentPayroll[]
   equipmentEntries  EquipmentEntry[]
   equipmentMembers  EquipmentWeekMember[]
+  crewMembers       CrewWeekMember[]
   crewDayEntries    CrewDayEntry[]
 
   @@unique([companyId, year, weekNumber])
@@ -1201,6 +1203,28 @@ model EquipmentWeekMember {
   @@unique([payrollWeekId, equipmentId])
   @@index([companyId, payrollWeekId])
   @@map("equipment_week_member")
+}
+
+/// Qué cuadrillas se liquidan en ESTA semana.
+///
+/// Antes solo aparecían las que ya tenían producción capturada, así que no
+/// había forma de decir «esta semana voy a liquidar a Jesús» y empezar a
+/// armarle la cuenta. Y pueden ser varias a la vez: en una semana se le paga a
+/// Hugo, a Jesús y a Issac-Gregory.
+model CrewWeekMember {
+  id            String   @id @default(uuid(7))
+  companyId     String
+  payrollWeekId String
+  crewId        String
+  addedById     String?
+  addedAt       DateTime @default(now())
+
+  payrollWeek PayrollWeek @relation(fields: [payrollWeekId], references: [id], onDelete: Cascade)
+  crew        Crew        @relation(fields: [crewId], references: [id])
+
+  @@unique([payrollWeekId, crewId])
+  @@index([companyId, payrollWeekId])
+  @@map("crew_week_member")
 }
 
 model EquipmentEntry {
