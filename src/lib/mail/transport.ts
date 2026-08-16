@@ -6,6 +6,14 @@
  * código que llama: quien manda un reporte no tiene que saber si detrás hay un
  * servidor de correo o un archivo de bitácora.
  *
+ * **El remitente es POR COMPAÑÍA.** Skyline e Infracore tienen dominios
+ * distintos (Rafael, 16/08), y un reporte de Skyline que llegue desde el
+ * correo de Infracore le dice al contador que está mirando la nómina
+ * equivocada — o se lo come el filtro de spam por no cuadrar el dominio. Por
+ * eso el «de» NUNCA se hereda de la otra: cada una necesita el suyo
+ * (`SMTP_FROM_SKYLINE`, `SMTP_FROM_INFRACORE`) y, sin él, esa compañía se
+ * queda en modo registro aunque la otra ya esté enviando.
+ *
  * Mientras el negocio no dé la cuenta de envío, la aplicación queda en modo
  * REGISTRO: el reporte se numera, se guarda a quién iba y queda listo; lo
  * único que falta es la salida. Se ve en pantalla como «pendiente de enviar»,
@@ -44,6 +52,8 @@ export interface Transporte {
   readonly nombre: string
   /** ¿Está configurado para mandar de verdad? */
   readonly activo: boolean
+  /** Desde qué correo sale. `null` mientras no esté configurado. */
+  readonly de: string | null
   enviar(correo: Correo): Promise<ResultadoEnvio>
 }
 
@@ -58,6 +68,7 @@ export interface Transporte {
 class TransporteRegistro implements Transporte {
   readonly nombre = 'registro'
   readonly activo = false
+  readonly de = null
 
   async enviar(correo: Correo): Promise<ResultadoEnvio> {
     const quienes = correo.to.map((d) => d.email).join(', ')
@@ -77,6 +88,10 @@ class TransporteRegistro implements Transporte {
 class TransporteSmtp implements Transporte {
   readonly nombre = 'smtp'
   readonly activo = true
+
+  get de(): string {
+    return this.config.from
+  }
 
   constructor(
     private readonly config: {
@@ -99,33 +114,59 @@ class TransporteSmtp implements Transporte {
   }
 }
 
-let cache: Transporte | null = null
+const cache = new Map<string, Transporte>()
 
-/** El transporte configurado. Se resuelve una vez por proceso. */
-export function transporteActual(): Transporte {
-  if (cache) return cache
+/**
+ * Lo que hay configurado para una compañía.
+ *
+ * Del servidor (host, puerto, usuario, clave) se permite una configuración
+ * general: puede ser el mismo buzón con dos alias. Del **remitente** no: sin
+ * `SMTP_FROM_<CÓDIGO>` esa compañía no envía, punto. Heredarlo mandaría los
+ * reportes de una desde el correo de la otra.
+ */
+export function configuracionDe(companyCode: string): {
+  host: string | undefined
+  port: number
+  user: string | undefined
+  pass: string | undefined
+  from: string | undefined
+} {
+  const sufijo = companyCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, '_')
+  const propio = (clave: string) => process.env[`SMTP_${clave}_${sufijo}`]
+  const general = (clave: string) => process.env[`SMTP_${clave}`]
 
-  const host = process.env.SMTP_HOST
-  const user = process.env.SMTP_USER
-  const pass = process.env.SMTP_PASS
-  const from = process.env.SMTP_FROM
-
-  if (host && user && pass && from) {
-    cache = new TransporteSmtp({
-      host,
-      port: Number(process.env.SMTP_PORT ?? '587'),
-      user,
-      pass,
-      from,
-    })
-  } else {
-    cache = new TransporteRegistro()
+  return {
+    host: propio('HOST') ?? general('HOST'),
+    port: Number(propio('PORT') ?? general('PORT') ?? '587'),
+    user: propio('USER') ?? general('USER'),
+    pass: propio('PASS') ?? general('PASS'),
+    // Sin herencia a propósito: cada compañía manda desde SU dominio.
+    from: propio('FROM'),
   }
+}
 
-  return cache
+/** El transporte de una compañía. Se resuelve una vez por proceso y compañía. */
+export function transporteDe(companyCode: string): Transporte {
+  const guardado = cache.get(companyCode)
+  if (guardado) return guardado
+
+  const config = configuracionDe(companyCode)
+  const transporte: Transporte =
+    config.host && config.user && config.pass && config.from
+      ? new TransporteSmtp({
+          host: config.host,
+          port: config.port,
+          user: config.user,
+          pass: config.pass,
+          from: config.from,
+        })
+      : new TransporteRegistro()
+
+  cache.set(companyCode, transporte)
+  return transporte
 }
 
 /** Para las pruebas: olvidar lo resuelto y volver a leer el entorno. */
 export function olvidarTransporte(): void {
-  cache = null
+  cache.clear()
 }

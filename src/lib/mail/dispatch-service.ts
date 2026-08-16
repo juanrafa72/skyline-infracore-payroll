@@ -2,7 +2,7 @@ import type { CurrentUser } from '@/lib/auth/rbac'
 import { prisma } from '@/lib/db/client'
 import { nextNumber } from '@/lib/disbursement/sequence'
 import { buildDisbursementPdf } from '@/lib/pdf/build-disbursement'
-import { transporteActual } from './transport'
+import { transporteDe } from './transport'
 import {
   asuntoDe,
   correoValido,
@@ -134,7 +134,9 @@ export async function enviarDesprendible(
     }
   }
 
-  const transporte = transporteActual()
+  // El remitente sale de la compañía del reporte: Skyline e Infracore mandan
+  // desde dominios distintos y cruzarlos confunde a quien recibe.
+  const transporte = transporteDe(company.code)
   const resultado = await transporte.enviar({
     to: elegidos.map((d) => ({ name: d.name, email: d.email, bcc: d.bcc })),
     subject,
@@ -289,6 +291,66 @@ export async function agregarDestinatario(
   })
 
   return { ok: true, message: `${name} (${email}) va a recibir los reportes.` }
+}
+
+/**
+ * Cambiar el nombre o el correo de un destinatario — el lápiz.
+ *
+ * Lo pidió el negocio: el correo de contabilidad viene puesto por defecto,
+ * pero si Ana cambia de correo o de empresa, tiene que poderse corregir en el
+ * momento y sin ayuda de nadie. Un dato que solo se puede arreglar borrando y
+ * volviendo a crear termina duplicado.
+ *
+ * Lo que NO cambia aquí es a qué empresa receptora está atado: eso decide qué
+ * órdenes recibe, y cambiarlo de una vez con el correo haría que alguien
+ * empiece a ver desprendibles de un tercero sin darse cuenta. Para eso se
+ * agrega otro y se desactiva este.
+ */
+export async function editarDestinatario(
+  user: CurrentUser,
+  input: { id: string; name: string; email: string; bcc?: boolean },
+): Promise<RecipientResult> {
+  const fila = await prisma.reportRecipient.findFirst({
+    where: { id: input.id, companyId: user.companyId },
+  })
+  if (!fila) return { ok: false, message: 'Ese destinatario no existe en esta compañía.' }
+
+  const name = input.name.trim()
+  const email = input.email.trim().toLowerCase()
+
+  if (!name) return { ok: false, message: 'Ponle un nombre para reconocerlo en la lista.' }
+  if (!correoValido(email)) {
+    return { ok: false, message: `«${input.email}» no es un correo válido.` }
+  }
+
+  // El mismo correo, para el mismo caso, dos veces: recibiría todo duplicado.
+  const chocaCon = await prisma.reportRecipient.findFirst({
+    where: {
+      companyId: user.companyId,
+      email,
+      paymentRecipientId: fila.paymentRecipientId,
+      id: { not: fila.id },
+    },
+  })
+  if (chocaCon) return { ok: false, message: `${email} ya está en la lista para ese caso.` }
+
+  await prisma.reportRecipient.update({
+    where: { id: fila.id },
+    data: { name, email, bcc: input.bcc ?? fila.bcc },
+  })
+
+  /*
+   * Los envíos ya hechos NO se tocan: cada uno guardó a qué correo salió
+   * (`emailSnapshot`). Cambiar el destinatario de hoy no puede reescribir a
+   * dónde llegó un reporte de hace tres semanas.
+   */
+  return {
+    ok: true,
+    message:
+      email === fila.email
+        ? `Ahora se llama ${name}.`
+        : `Los reportes van a llegar a ${email}.`,
+  }
 }
 
 export async function quitarDestinatario(

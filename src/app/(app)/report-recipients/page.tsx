@@ -3,8 +3,8 @@ import { assertCan } from '@/lib/auth/rbac'
 import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
 import { ESTADO_ENVIO, TIPO_REPORTE, type ReportKind } from '@/lib/mail/reports'
-import { transporteActual } from '@/lib/mail/transport'
-import { AddRecipientForm, ToggleRecipient, type RecipientRow } from './Forms'
+import { transporteDe } from '@/lib/mail/transport'
+import { AddRecipientForm, RecipientRowView, type RecipientRow } from './Forms'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,7 +39,7 @@ export default async function ReportRecipientsPage() {
     }),
   ])
 
-  const transporte = transporteActual()
+  const transporte = transporteDe(company.code)
 
   const rows: RecipientRow[] = recipients.map((r) => ({
     id: r.id,
@@ -62,14 +62,27 @@ export default async function ReportRecipientsPage() {
         Si no hay cuenta de correo, se dice de frente. Dejar que alguien
         oprima «Enviar» creyendo que salió sería peor que no tener el botón.
       */}
-      {!transporte.activo ? (
+      {/*
+        El remitente es POR COMPAÑÍA: Skyline e Infracore tienen dominios
+        distintos. Que una ya esté configurada no dice nada de la otra, y por
+        eso el aviso nombra a la compañía en la que uno está parado.
+      */}
+      {transporte.activo ? (
+        <p className="mb-6 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 text-sm">
+          Los reportes de {company.displayName} salen desde{' '}
+          <strong>{transporte.de}</strong>.
+        </p>
+      ) : (
         <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-          <strong>Falta la cuenta de correo desde la que se envía.</strong> Puedes dejar
+          <strong>Falta el correo desde el que envía {company.displayName}.</strong> Puedes dejar
           configurados los destinatarios desde ya: cada envío queda numerado y registrado, pero el
           correo <strong>no sale</strong> hasta que se conecte la cuenta. Mientras tanto, descarga
           el PDF de la orden y mándalo a mano.
+          <span className="mt-1 block text-xs">
+            Cada compañía manda desde su propio dominio, así que se configura una por una.
+          </span>
         </div>
-      ) : null}
+      )}
 
       <section className="mb-8">
         <h2 className="brand-label mb-1 text-[var(--muted)]">Quién recibe</h2>
@@ -102,38 +115,7 @@ export default async function ReportRecipientsPage() {
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <tr
-                    key={row.id}
-                    className={`border-t border-[var(--border)] ${row.active ? '' : 'opacity-55'}`}
-                  >
-                    <td className="px-3 py-2.5">
-                      <span className="font-medium">{row.name}</span>
-                      {row.bcc ? (
-                        <span className="ml-2 text-xs text-[var(--muted)]">copia oculta</span>
-                      ) : null}
-                      {!row.active ? (
-                        <span className="ml-2 text-xs text-[var(--muted)]">· desactivado</span>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-2.5">{row.email}</td>
-                    <td className="px-3 py-2.5 text-xs text-[var(--muted)]">
-                      {row.kinds.length === 0
-                        ? 'todo'
-                        : row.kinds
-                            .map((k) => TIPO_REPORTE[k as ReportKind] ?? k)
-                            .join(' · ')}
-                    </td>
-                    <td className="px-3 py-2.5 text-xs">
-                      {row.paymentRecipientName ? (
-                        <>solo {row.paymentRecipientName}</>
-                      ) : (
-                        <span className="text-[var(--muted)]">todas</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5">
-                      {canManage ? <ToggleRecipient row={row} /> : null}
-                    </td>
-                  </tr>
+                  <RecipientRowView key={row.id} row={row} canManage={canManage} />
                 ))}
               </tbody>
             </table>

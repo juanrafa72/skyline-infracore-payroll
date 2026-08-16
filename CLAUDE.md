@@ -447,8 +447,8 @@ netlify deploy --prod
 
 ## Estado
 
-**538 pruebas · 58 tablas · 21 migraciones · 26 pantallas** · `check`, `smoke`
-(44) y `flow` (99) en verde. 201 reglas de negocio documentadas.
+**545 pruebas · 58 tablas · 22 migraciones · 26 pantallas** · `check`, `smoke`
+(44) y `flow` (99) en verde. 207 reglas de negocio documentadas.
 
 **Lo que pidió el negocio el 15/08, ya construido:** la nómina de la semana
 tiene los TRES bloques con lo que de verdad se paga — personas, equipos y
@@ -533,11 +533,18 @@ cada compañía · períodos y cortes · importación del histórico.
 
 **Falta**, en el orden en que conviene atacarlo:
 
-0. **La cuenta de correo desde la que salen los reportes.** Solo el negocio la
-   tiene. Todo lo demás del envío está hecho: destinatarios, consecutivo,
-   registro de a quién iba. Con las variables `SMTP_*` en `.env` y la llamada
-   a la librería en `lib/mail/smtp.ts`, empieza a salir. Mientras tanto la
-   aplicación **no miente**: dice que quedó registrado pero que no salió.
+0. **Desde qué correo salen los reportes — falta, y son DOS.** Rafael (16/08):
+   no va a ser el mismo para Skyline y para Infracore, cada una tiene su
+   dominio; todavía no está decidido si se crea un buzón aparte para esto. El
+   código ya lo espera así: `SMTP_FROM_SKYLINE` y `SMTP_FROM_INFRACORE`, sin
+   herencia entre ellas (BR-414) — el servidor sí puede ser compartido
+   (`SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`), y se puede separar por compañía con
+   `SMTP_HOST_<CÓDIGO>` si hiciera falta. Falta también la llamada a la
+   librería en `lib/mail/smtp.ts`. **A quién le llega ya está resuelto:** Ana,
+   `bookkeeping@dazmarllc.com`, viene puesta en las dos compañías, con lápiz
+   para corregirla y un «+» para copiar a alguien de la empresa receptora.
+   Mientras tanto la aplicación **no miente**: dice que quedó registrado pero
+   que no salió.
 1. Semana trabajada vs facturada, y si el cliente ya pagó.
 2. Cuentas por pagar y proyección de las próximas semanas.
 3. Dashboard con los KPI pedidos (ventas del año, margen acumulado, pendiente).

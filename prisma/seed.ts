@@ -201,6 +201,18 @@ const PENDING_RULES: ReadonlyArray<[key: string, value: string, type: string, de
     'Umbral de variación contra la semana anterior que se destaca en el Approval Center.'],
 ]
 
+/**
+ * A quién le llegan los soportes por defecto.
+ *
+ * La lleva la contabilidad de las dos compañías. Se puede cambiar desde la
+ * pantalla de envío de reportes —hay un lápiz— y se le pueden agregar copias.
+ */
+const CONTABILIDAD = {
+  name: 'Ana · Contabilidad',
+  email: 'bookkeeping@dazmarllc.com',
+  notes: 'Destinatario por defecto de los soportes. Se puede cambiar desde Envío de reportes.',
+} as const
+
 async function main() {
   console.log('Sembrando datos iniciales…')
 
@@ -265,6 +277,43 @@ async function main() {
           description,
           needsBusinessConfirmation: key.startsWith('A'),
           confirmed: false,
+        },
+      })
+    }
+
+    /*
+     * Contabilidad, puesta desde el primer día.
+     *
+     * Es el destinatario de todos los soportes en las DOS compañías (Rafael,
+     * 16/08). Va en la semilla y no como un paso manual porque un sistema que
+     * arranca con la lista vacía deja los reportes sin mandar hasta que
+     * alguien se acuerde de configurarlo.
+     *
+     * `update` casi vacío a propósito: si el negocio le corrige el nombre o el
+     * correo desde la pantalla —el lápiz—, el próximo despliegue NO puede
+     * devolverlo a este valor. Solo se asegura de que exista.
+     */
+    /*
+     * `findFirst` y no `upsert`: la llave única incluye la empresa receptora,
+     * que aquí va en nulo, y Prisma no acepta un nulo dentro de una llave
+     * compuesta. Es la misma razón por la que la pantalla lo hace así.
+     */
+    const yaEsta = await prisma.reportRecipient.findFirst({
+      where: {
+        companyId: created.id,
+        email: CONTABILIDAD.email,
+        paymentRecipientId: null,
+      },
+    })
+    if (!yaEsta) {
+      await prisma.reportRecipient.create({
+        data: {
+          companyId: created.id,
+          name: CONTABILIDAD.name,
+          email: CONTABILIDAD.email,
+          // Sin tipos marcados = recibe todos los reportes de la compañía.
+          kinds: [],
+          notes: CONTABILIDAD.notes,
         },
       })
     }

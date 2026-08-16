@@ -509,3 +509,21 @@ quieta una semana que ya estaba lista.
 | BR-402 | «No trabajó» **cuenta como registrado**: es una respuesta, no un vacío. Lo que falta es la casilla en «—», que significa que nadie la ha mirado. | CONFIRMED |
 | BR-403 | Con días sin registrar, el paso que propone el tablero es **seguir marcando**, no calcular. Empujar a calcular una semana a medias es empujar a pagar de menos. | CONFIRMED |
 | BR-404 | Enviar a aprobación con días sin registrar **avisa pero no bloquea**: una semana puede cerrarse antes de tiempo (un corte, alguien que se retira). Lo que no puede es pasar desapercibido — «lo que no quede registrado no se paga en esta semana». | CONFIRMED |
+
+## 41. A quién le llegan los reportes y desde dónde (BR-410 – BR-415)
+
+Rafael, 16/08: «ese correo va a salir por predeterminado a nuestra bookkeeping,
+Ana — bookkeeping@dazmarllc.com —, pero debe tener un lápiz al lado para editar
+si eso llegara a cambiar, igual que un + para copiarlo a algún otro correo de la
+empresa receptora. De qué correo van a salir todavía no sé; lo que sí sé es que
+no va a ser el mismo de Skyline y de Infracore, cada uno tiene un dominio
+diferente».
+
+| # | Regla | Estado |
+|---|-------|--------|
+| BR-410 | **Ana (`bookkeeping@dazmarllc.com`) viene puesta de fábrica en las DOS compañías** y recibe todos los reportes. Va en la semilla, no como un paso manual: un sistema que arranca con la lista vacía deja los soportes sin mandar hasta que alguien se acuerde. | CONFIRMED (Rafael, 2026-08-16) |
+| BR-411 | El destinatario se corrige desde la pantalla —**el lápiz**— sin borrar y volver a crear. Si el negocio le cambia el nombre o el correo, el siguiente despliegue **no** lo devuelve al valor de la semilla. | CONFIRMED (Rafael, 2026-08-16) |
+| BR-412 | El lápiz **no** cambia a qué empresa receptora está atado el destinatario: eso decide qué órdenes recibe, y moverlo junto con el correo haría que alguien empiece a ver desprendibles de un tercero sin notarlo. Para eso se agrega otro y se desactiva el anterior. | CONFIRMED |
+| BR-413 | Editar un destinatario **no reescribe la historia**: cada envío guardó a qué correo salió. Cambiar el de hoy no puede cambiar a dónde llegó un reporte de hace tres semanas. | CONFIRMED |
+| BR-414 | **El remitente es por compañía** (`SMTP_FROM_SKYLINE`, `SMTP_FROM_INFRACORE`) y **nunca se hereda**. Un reporte de Skyline enviado desde el correo de Infracore le dice al contador que está viendo la nómina equivocada, y suele terminar en spam porque el dominio no cuadra con el servidor. Sin su propio «de», esa compañía se queda en modo registro aunque la otra ya esté enviando. El servidor (host, usuario, clave) sí puede ser compartido: un buzón con dos alias es normal. | CONFIRMED (Rafael, 2026-08-16) |
+| BR-415 | El mismo correo no puede quedar dos veces como destinatario general de una compañía —recibiría todo duplicado—. Lo cuida un índice único parcial en la base, porque en Postgres dos nulos no se consideran iguales y la llave compuesta con la empresa receptora no alcanzaba. | CONFIRMED |

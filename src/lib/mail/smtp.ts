@@ -7,7 +7,7 @@ import type { Correo, ResultadoEnvio } from './transport'
  * la aplicación no arrastra una dependencia de correo que hoy no se usa.
  *
  * **Falta la cuenta de envío.** El negocio tiene que decir desde qué correo
- * salen los reportes. Hasta entonces `transporteActual()` devuelve el de
+ * salen los reportes. Hasta entonces `transporteDe()` devuelve el de
  * registro y esta función no se ejecuta nunca.
  */
 export async function enviarPorSmtp(
