@@ -27,6 +27,78 @@ export function diasQuePaga(dayType: string): number {
   return 0
 }
 
+/**
+ * En qué va ese día dentro del proceso.
+ *
+ * El negocio lo pidió con estas palabras exactas: marcado = «activo», enviado
+ * = «pendiente por aprobación», aprobado = «pendiente por pago», y cuando el
+ * dinero salió = «pagada». Es el mismo estado de la nómina, dicho como se
+ * habla en la oficina en vez de con los nombres del sistema.
+ */
+export type EstadoBase =
+  | 'ACTIVO'
+  | 'PDT_APROBACION'
+  | 'PDT_PAGO'
+  | 'PAGADA'
+  | 'DEVUELTA'
+  | 'ARCHIVO'
+
+export const ESTADO_BASE: Record<EstadoBase, string> = {
+  ACTIVO: 'Activo',
+  PDT_APROBACION: 'Pdt. por aprobación',
+  PDT_PAGO: 'Pdt. por pago',
+  PAGADA: 'Pagada',
+  DEVUELTA: 'Devuelta',
+  ARCHIVO: 'Archivo del Excel',
+}
+
+/** El color de cada estado: lo pagado en verde, lo pendiente en ámbar. */
+export const TONO_ESTADO: Record<EstadoBase, 'good' | 'warning' | 'info' | 'neutral'> = {
+  ACTIVO: 'info',
+  PDT_APROBACION: 'warning',
+  PDT_PAGO: 'warning',
+  PAGADA: 'good',
+  DEVUELTA: 'warning',
+  ARCHIVO: 'neutral',
+}
+
+/**
+ * Traduce el estado de la nómina al que se muestra en la Base.
+ *
+ * Un día del Excel no tiene nómina y nunca la va a tener (BR-153): decir
+ * «activo» ahí invitaría a calcular algo que ya se pagó por fuera.
+ */
+export function estadoDelDia(
+  estadoNomina: string | null,
+  fromImport: boolean,
+): EstadoBase {
+  if (fromImport) return 'ARCHIVO'
+  if (!estadoNomina) return 'ACTIVO'
+
+  switch (estadoNomina) {
+    case 'DRAFT':
+    case 'PREPARED':
+      // Calculada pero todavía en la mesa de quien prepara: sigue siendo suya.
+      return 'ACTIVO'
+    case 'PENDING_APPROVAL':
+      return 'PDT_APROBACION'
+    case 'REJECTED':
+      // Volvió con comentarios: hay que corregirla, no está esperando a nadie.
+      return 'DEVUELTA'
+    case 'APPROVED':
+    case 'READY_TO_PAY':
+    case 'PAYMENT_IN_PROCESS':
+      // Aprobada y esperando que tesorería transfiera.
+      return 'PDT_PAGO'
+    case 'PAID':
+    case 'RECONCILED':
+    case 'CLOSED':
+      return 'PAGADA'
+    default:
+      return 'ACTIVO'
+  }
+}
+
 export interface BaseRow {
   id: string
   weekLabel: string
@@ -43,8 +115,13 @@ export interface BaseRow {
   rate: string | null
   /** `true` cuando la tarifa sale del cálculo y no de una estimación. */
   rateIsFrozen: boolean
-  /** Lo que se pagó por ese día, si ya se calculó. */
+  /**
+   * Lo que vale ESE día: tarifa × jornada. Un día completo a $190 son $190;
+   * medio día, $95. No es lo que salió del banco — para eso está `estado`.
+   */
   amount: string | null
+  /** En qué va ese día: activo, pdt. por aprobación, pdt. por pago, pagada. */
+  estado: EstadoBase
   projectName: string | null
   crewName: string | null
   /** Los días de control anotan pero NO pagan (BR-243). */
@@ -59,6 +136,8 @@ export interface BaseFilters {
   worker?: string | null
   project?: string | null
   dayType?: string | null
+  /** Activo, pendiente por aprobación, pendiente por pago, pagada… */
+  estado?: string | null
   /** Busca por nombre de persona o de proyecto. */
   q?: string | null
   /** Incluir los días que vinieron del Excel. Por defecto no. */
@@ -75,6 +154,7 @@ export interface BaseFilters {
 export function filtrarBase(filas: readonly BaseRow[], filtros: BaseFilters): BaseRow[] {
   return filas.filter((fila) => {
     if (filtros.dayType && fila.dayType !== filtros.dayType) return false
+    if (filtros.estado && fila.estado !== filtros.estado) return false
     if (filtros.q) {
       const texto = filtros.q.toLowerCase()
       const enAlgo =
@@ -132,7 +212,8 @@ export function aCsv(filas: readonly BaseRow[]): string {
     'Trabajador',
     'Trabajó',
     'Tarifa',
-    'Se pagó',
+    'Vale el día',
+    'Estado',
     'Proyecto',
     'Cuadrilla',
     'Origen',
@@ -152,6 +233,7 @@ export function aCsv(filas: readonly BaseRow[]): string {
       DIA_ETIQUETA[f.dayType] ?? f.dayType,
       f.rate ?? '',
       f.amount ?? '',
+      ESTADO_BASE[f.estado],
       f.projectName ?? '',
       f.crewName ?? '',
       f.fromImport ? 'Excel' : f.isControlOnly ? 'Control' : 'Capturado',

@@ -3,7 +3,7 @@ import { EmptyState, PageHeader, Stat, money } from '@/components/ui'
 import { assertCan } from '@/lib/auth/rbac'
 import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
-import { DIA_ETIQUETA, totalizarBase } from '@/lib/payroll/base'
+import { DIA_ETIQUETA, ESTADO_BASE, TONO_ESTADO, totalizarBase } from '@/lib/payroll/base'
 import { TOPE, baseDeDatos, semanaPorDefecto, semanasDeLaBase } from '@/lib/payroll/base/service'
 
 export const dynamic = 'force-dynamic'
@@ -27,6 +27,7 @@ export default async function BasePage({
     persona?: string
     proyecto?: string
     dia?: string
+    estado?: string
     q?: string
     archivo?: string
   }>
@@ -45,6 +46,7 @@ export default async function BasePage({
       worker: f.persona || null,
       project: f.proyecto || null,
       dayType: f.dia || null,
+      estado: f.estado || null,
       q: f.q || null,
       incluirArchivo: f.archivo === '1',
     }),
@@ -80,6 +82,7 @@ export default async function BasePage({
                   persona: f.persona ?? '',
                   proyecto: f.proyecto ?? '',
                   dia: f.dia ?? '',
+                  estado: f.estado ?? '',
                   q: f.q ?? '',
                   archivo: f.archivo ?? '',
                 }).filter(([, v]) => v) as [string, string][],
@@ -136,6 +139,18 @@ export default async function BasePage({
           <select name="dia" defaultValue={f.dia ?? ''} className={SELECT}>
             <option value="">Todos</option>
             {Object.entries(DIA_ETIQUETA).map(([code, etiqueta]) => (
+              <option key={code} value={code}>
+                {etiqueta}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="text-sm">
+          <span className="mb-1 block text-[var(--muted)]">Estado</span>
+          <select name="estado" defaultValue={f.estado ?? ''} className={SELECT}>
+            <option value="">Todos</option>
+            {Object.entries(ESTADO_BASE).map(([code, etiqueta]) => (
               <option key={code} value={code}>
                 {etiqueta}
               </option>
@@ -221,7 +236,8 @@ export default async function BasePage({
                   'Trabajador',
                   'Trabajó',
                   'Tarifa',
-                  'Se pagó',
+                  'Vale el día',
+                  'Estado',
                   'Proyecto',
                   'Cuadrilla',
                 ].map((h, i) => (
@@ -289,6 +305,21 @@ export default async function BasePage({
                       </span>
                     )}
                   </td>
+                  <td className="whitespace-nowrap px-3 py-2">
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                        TONO_ESTADO[r.estado] === 'good'
+                          ? 'bg-emerald-100 text-emerald-900'
+                          : TONO_ESTADO[r.estado] === 'warning'
+                            ? 'bg-amber-100 text-amber-900'
+                            : TONO_ESTADO[r.estado] === 'info'
+                              ? 'bg-sky-100 text-sky-900'
+                              : 'bg-[var(--hover)] text-[var(--muted)]'
+                      }`}
+                    >
+                      {ESTADO_BASE[r.estado]}
+                    </span>
+                  </td>
                   <td className="px-3 py-2">
                     {r.projectName ?? <span className="text-[var(--muted)]">sin proyecto</span>}
                   </td>
@@ -301,9 +332,10 @@ export default async function BasePage({
       )}
 
       <p className="mt-4 text-xs text-[var(--muted)]">
-        La tarifa y lo pagado salen del cálculo, congelados el día que se hizo. Un día todavía sin
-        calcular no muestra tarifa: enseñar la de hoy haría creer que se pagó algo que nunca se
-        pagó.
+        <strong>Vale el día</strong> es lo que genera ESE día —tarifa × jornada: un día completo a
+        $190 vale $190, medio día vale $95—. Si el dinero ya salió del banco lo dice la columna{' '}
+        <strong>Estado</strong>. La tarifa queda congelada el día que se calcula: enseñar la de hoy
+        haría creer que se pagó algo que nunca se pagó.
       </p>
     </>
   )

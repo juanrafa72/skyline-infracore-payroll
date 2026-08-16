@@ -463,3 +463,11 @@ así uno puede revisar datos entrados en semanas anteriores».
 | BR-371 | Abre en **la semana más reciente con trabajo nuestro**, y el selector va de la más nueva a la más vieja — «lo primero que veo es week 33 y lo último week 1». Los días del Excel son archivo y solo salen si se piden. | CONFIRMED (Rafael, 2026-08-16) |
 | BR-372 | La tarifa y lo pagado salen de `PayrollLine`, **congelados al calcular** (BR-032). Un día sin calcular NO muestra la tarifa vigente hoy: haría creer que se pagó algo que nunca se pagó. Un día `NO_WORK` dice «no aplica» y uno de control «no paga» — no «sin calcular», que sugiere que falta un paso. | CONFIRMED |
 | BR-373 | La pantalla corta en **800 renglones** y lo DICE; la descarga a Excel no tiene ese tope (50.000) porque ahí no hay nada que dibujar. El CSV lleva BOM —sin él Excel daña las tildes— y escapa comillas y comas: «MARTINEZ, ANGELA» partiría la fila. | CONFIRMED |
+
+## 38. Estado en la Base (BR-380 – BR-382)
+
+| # | Regla | Estado |
+|---|-------|--------|
+| BR-380 | Cada día de la Base muestra **en qué va**, con las palabras del negocio: marcado = **Activo**, enviado = **Pdt. por aprobación**, aprobado = **Pdt. por pago**, con el dinero afuera = **Pagada**. Una devuelta con comentarios dice **Devuelta** —hay que corregirla, no está esperando a nadie— y un día del Excel dice **Archivo**, porque nunca va a tener nómina (BR-153). | CONFIRMED (Rafael, 2026-08-16) |
+| BR-381 | La columna que dice cuánto vale ese día se llama **«Vale el día»**, no «Se pagó». Es tarifa × jornada (día completo a $190 = $190; medio día = $95) y NO significa que el dinero salió del banco — eso lo dice el Estado. El nombre viejo confundía las dos cosas. | CONFIRMED (Rafael, 2026-08-16) |
+| BR-382 | El estado sale de la nómina de esa persona en esa semana, incluso cuando el día no generó línea de cálculo (los «No trabajó» no la generan). Sin eso, un día de una semana ya pagada saldría como «Activo» y la Base diría que falta algo que ya salió. | CONFIRMED |

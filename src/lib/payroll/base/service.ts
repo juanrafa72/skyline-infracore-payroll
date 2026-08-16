@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/db/client'
 import { shortDay, toIso } from '@/lib/payroll/week'
 import { CON_TRABAJO_NUESTRO } from '@/lib/payroll/week-scope'
-import { filtrarBase, type BaseFilters, type BaseRow } from './index'
+import { estadoDelDia, filtrarBase, type BaseFilters, type BaseRow } from './index'
 
 /**
  * La base contra la base de datos.
@@ -141,9 +141,35 @@ export async function baseDeDatos(
    */
   const lineas = await prisma.payrollLine.findMany({
     where: { workEntryId: { in: visibles.map((e) => e.id) } },
-    select: { workEntryId: true, appliedRate: true, amount: true },
+    select: {
+      workEntryId: true,
+      appliedRate: true,
+      amount: true,
+      // En qué va la nómina de ese día: activo, pdt. aprobación, pdt. pago…
+      workerPayroll: { select: { status: true } },
+    },
   })
   const lineaPorDia = new Map(lineas.map((l) => [l.workEntryId!, l]))
+
+  /*
+   * El estado de los días TODAVÍA SIN CALCULAR.
+   *
+   * No tienen línea de nómina, pero su persona puede tener una nómina de esa
+   * semana ya enviada o pagada — pasa con los días que se marcan «No trabajó»,
+   * que no generan línea. Sin esto saldrían como «activo» cuando la semana ya
+   * se pagó, y la Base diría que falta algo que ya salió del banco.
+   */
+  const nominas = await prisma.workerPayroll.findMany({
+    where: {
+      companyId,
+      payrollWeekId: { in: [...new Set(visibles.map((e) => e.payrollWeekId))] },
+      workerId: { in: [...new Set(visibles.map((e) => e.workerId))] },
+    },
+    select: { payrollWeekId: true, workerId: true, status: true },
+  })
+  const nominaPorPersonaSemana = new Map(
+    nominas.map((n) => [`${n.payrollWeekId}:${n.workerId}`, n.status]),
+  )
 
   const rows: BaseRow[] = visibles.map((e) => {
     const linea = lineaPorDia.get(e.id)
@@ -160,6 +186,12 @@ export async function baseDeDatos(
       rate: linea ? linea.appliedRate.toFixed(2) : null,
       rateIsFrozen: linea !== undefined,
       amount: linea ? linea.amount.toFixed(2) : null,
+      estado: estadoDelDia(
+        linea?.workerPayroll?.status ??
+          nominaPorPersonaSemana.get(`${e.payrollWeekId}:${e.workerId}`) ??
+          null,
+        e.sourceType === 'IMPORT',
+      ),
       projectName: e.project?.name ?? null,
       crewName: e.crew?.name ?? null,
       isControlOnly: e.isControlOnly,

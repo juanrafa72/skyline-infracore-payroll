@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { aCsv, diasQuePaga, filtrarBase, totalizarBase, type BaseRow } from '@/lib/payroll/base'
+import {
+  aCsv,
+  diasQuePaga,
+  estadoDelDia,
+  filtrarBase,
+  totalizarBase,
+  type BaseRow,
+} from '@/lib/payroll/base'
 
 /**
  * La base: un renglón por día, como la hoja de Excel del negocio.
@@ -22,6 +29,7 @@ function fila(over: Partial<BaseRow> = {}): BaseRow {
     amount: '190.00',
     projectName: 'DUBLIN',
     crewName: null,
+    estado: 'ACTIVO',
     isControlOnly: false,
     fromImport: false,
     ...over,
@@ -169,5 +177,84 @@ describe('bajar a Excel', () => {
     // Poner 0 haría creer que se le pagó cero.
     const csv = aCsv([fila({ rate: null, amount: null })])
     expect(csv.split('\n')[1]).toContain('"",""')
+  })
+})
+
+describe('en qué va cada día', () => {
+  it('marcado pero sin calcular: activo', () => {
+    expect(estadoDelDia(null, false)).toBe('ACTIVO')
+  })
+
+  it('calculada pero todavía sin enviar: sigue activo', () => {
+    // Está en la mesa de quien prepara: nadie más la está esperando.
+    expect(estadoDelDia('PREPARED', false)).toBe('ACTIVO')
+    expect(estadoDelDia('DRAFT', false)).toBe('ACTIVO')
+  })
+
+  it('enviada: pendiente por aprobación', () => {
+    expect(estadoDelDia('PENDING_APPROVAL', false)).toBe('PDT_APROBACION')
+  })
+
+  it('aprobada: pendiente por pago', () => {
+    expect(estadoDelDia('APPROVED', false)).toBe('PDT_PAGO')
+    expect(estadoDelDia('READY_TO_PAY', false)).toBe('PDT_PAGO')
+    expect(estadoDelDia('PAYMENT_IN_PROCESS', false)).toBe('PDT_PAGO')
+  })
+
+  it('el dinero ya salió: pagada', () => {
+    expect(estadoDelDia('PAID', false)).toBe('PAGADA')
+    expect(estadoDelDia('RECONCILED', false)).toBe('PAGADA')
+    expect(estadoDelDia('CLOSED', false)).toBe('PAGADA')
+  })
+
+  it('devuelta con comentarios se distingue de las que esperan', () => {
+    // Hay que corregirla; no está esperando a nadie.
+    expect(estadoDelDia('REJECTED', false)).toBe('DEVUELTA')
+  })
+
+  it('un día del Excel es ARCHIVO, aunque tenga estado', () => {
+    // Ya se pagó por fuera (BR-153): decir «activo» invitaría a calcularlo.
+    expect(estadoDelDia(null, true)).toBe('ARCHIVO')
+    expect(estadoDelDia('PAID', true)).toBe('ARCHIVO')
+  })
+})
+
+describe('filtrar por estado', () => {
+  const filas = [
+    fila({ id: '1', estado: 'ACTIVO' }),
+    fila({ id: '2', estado: 'PDT_APROBACION' }),
+    fila({ id: '3', estado: 'PDT_PAGO' }),
+    fila({ id: '4', estado: 'PAGADA' }),
+  ]
+
+  it('deja solo las de ese estado', () => {
+    expect(filtrarBase(filas, { estado: 'PDT_PAGO' }).map((f) => f.id)).toEqual(['3'])
+  })
+
+  it('sin filtro de estado devuelve todas', () => {
+    expect(filtrarBase(filas, {})).toHaveLength(4)
+  })
+
+  it('el estado se combina con los otros filtros', () => {
+    const mezcla = [
+      fila({ id: 'a', estado: 'PAGADA', workerName: 'JUAN' }),
+      fila({ id: 'b', estado: 'PAGADA', workerName: 'PEDRO' }),
+    ]
+    expect(filtrarBase(mezcla, { estado: 'PAGADA', q: 'juan' }).map((f) => f.id)).toEqual(['a'])
+  })
+})
+
+describe('el estado en el archivo de Excel', () => {
+  it('sale escrito en palabras, no en código', () => {
+    const csv = aCsv([fila({ estado: 'PDT_PAGO' })])
+    expect(csv).toContain('"Pdt. por pago"')
+    expect(csv).not.toContain('PDT_PAGO')
+  })
+
+  it('la columna se llama «Vale el día», no «Se pagó»', () => {
+    // «Se pagó» hacía creer que el dinero ya salió del banco.
+    const csv = aCsv([fila()])
+    expect(csv.split('\n')[0]).toContain('"Vale el día"')
+    expect(csv.split('\n')[0]).toContain('"Estado"')
   })
 })

@@ -26,6 +26,7 @@ export async function GET(request: Request) {
       worker: q('persona'),
       project: q('proyecto'),
       dayType: q('dia'),
+      estado: q('estado'),
       q: q('q'),
       incluirArchivo: q('archivo') === '1',
     },
