@@ -1,0 +1,173 @@
+import { describe, expect, it } from 'vitest'
+import { aCsv, diasQuePaga, filtrarBase, totalizarBase, type BaseRow } from '@/lib/payroll/base'
+
+/**
+ * La base: un renglón por día, como la hoja de Excel del negocio.
+ * Los totales que muestra tienen que coincidir con lo que se paga.
+ */
+
+function fila(over: Partial<BaseRow> = {}): BaseRow {
+  return {
+    id: 'e1',
+    weekLabel: 'Semana 33',
+    weekYear: 2026,
+    weekStart: '2026-08-09',
+    workDate: '2026-08-10',
+    dayName: 'lun 10',
+    workerName: 'AGUSTIN GALO',
+    workerId: 'w1',
+    dayType: 'FULL_DAY',
+    rate: '190.00',
+    rateIsFrozen: true,
+    amount: '190.00',
+    projectName: 'DUBLIN',
+    crewName: null,
+    isControlOnly: false,
+    fromImport: false,
+    ...over,
+  }
+}
+
+describe('cuántos días paga cada tipo', () => {
+  it('un día completo paga 1', () => {
+    expect(diasQuePaga('FULL_DAY')).toBe(1)
+  })
+
+  it('medio día paga medio', () => {
+    expect(diasQuePaga('HALF_DAY')).toBe(0.5)
+  })
+
+  it('«Sí + extra» sigue siendo un día completo', () => {
+    // El extra se paga aparte; el día no vale doble.
+    expect(diasQuePaga('PLUS')).toBe(1)
+  })
+
+  it('no trabajó no paga', () => {
+    expect(diasQuePaga('NO_WORK')).toBe(0)
+  })
+})
+
+describe('los totales de la vista', () => {
+  it('suma los días que de verdad pagan', () => {
+    const t = totalizarBase([
+      fila({ id: '1', dayType: 'FULL_DAY' }),
+      fila({ id: '2', dayType: 'FULL_DAY' }),
+      fila({ id: '3', dayType: 'HALF_DAY' }),
+      fila({ id: '4', dayType: 'NO_WORK' }),
+    ])
+    expect(t.diasPagados).toBe('2.5')
+    expect(t.diasNoTrabajo).toBe(1)
+    expect(t.registros).toBe(4)
+  })
+
+  it('un día de control NO cuenta como día pagado', () => {
+    // Anota, no paga (BR-243): sumarlo inflaría el conteo.
+    const t = totalizarBase([
+      fila({ id: '1', dayType: 'FULL_DAY' }),
+      fila({ id: '2', dayType: 'FULL_DAY', isControlOnly: true }),
+    ])
+    expect(t.diasPagados).toBe('1')
+    expect(t.registros).toBe(2)
+  })
+
+  it('cuenta personas y proyectos DISTINTOS', () => {
+    const t = totalizarBase([
+      fila({ id: '1', workerId: 'a', projectName: 'DUBLIN' }),
+      fila({ id: '2', workerId: 'a', projectName: 'DUBLIN' }),
+      fila({ id: '3', workerId: 'b', projectName: 'SELMER' }),
+    ])
+    expect(t.personas).toBe(2)
+    expect(t.proyectos).toBe(2)
+  })
+
+  it('un día sin proyecto no inventa un proyecto', () => {
+    const t = totalizarBase([fila({ projectName: null })])
+    expect(t.proyectos).toBe(0)
+  })
+
+  it('días enteros se muestran sin decimal de más', () => {
+    expect(totalizarBase([fila(), fila({ id: '2' })]).diasPagados).toBe('2')
+  })
+
+  it('sin filas, todo en cero', () => {
+    const t = totalizarBase([])
+    expect(t).toEqual({
+      registros: 0,
+      diasPagados: '0',
+      diasNoTrabajo: 0,
+      personas: 0,
+      proyectos: 0,
+    })
+  })
+})
+
+describe('los filtros', () => {
+  const filas = [
+    fila({ id: '1', workerName: 'AGUSTIN GALO', projectName: 'DUBLIN', dayType: 'FULL_DAY' }),
+    fila({ id: '2', workerName: 'ABDEL CARUCI', projectName: 'SELMER_TN', dayType: 'NO_WORK' }),
+    fila({ id: '3', workerName: 'JUAN PEREZ', projectName: 'DUBLIN', dayType: 'HALF_DAY', crewName: 'MISSILES' }),
+  ]
+
+  it('filtra por tipo de día', () => {
+    expect(filtrarBase(filas, { dayType: 'NO_WORK' }).map((f) => f.id)).toEqual(['2'])
+  })
+
+  it('busca por nombre de persona, sin importar mayúsculas', () => {
+    expect(filtrarBase(filas, { q: 'agustin' }).map((f) => f.id)).toEqual(['1'])
+  })
+
+  it('busca también por proyecto', () => {
+    expect(filtrarBase(filas, { q: 'dublin' }).map((f) => f.id)).toEqual(['1', '3'])
+  })
+
+  it('busca por cuadrilla', () => {
+    expect(filtrarBase(filas, { q: 'missiles' }).map((f) => f.id)).toEqual(['3'])
+  })
+
+  it('sin filtros devuelve todo', () => {
+    expect(filtrarBase(filas, {})).toHaveLength(3)
+  })
+
+  it('una búsqueda que no encuentra nada devuelve vacío, no todo', () => {
+    expect(filtrarBase(filas, { q: 'zzzz' })).toHaveLength(0)
+  })
+})
+
+describe('bajar a Excel', () => {
+  it('lleva cabecera y una línea por día', () => {
+    const csv = aCsv([fila(), fila({ id: '2', workerName: 'JUAN' })])
+    const lineas = csv.split('\n')
+    expect(lineas).toHaveLength(3)
+    expect(lineas[0]).toContain('Trabajador')
+  })
+
+  it('un nombre con coma NO parte la fila', () => {
+    // «ANGELA MARTINEZ ( DON PEDRO)» y similares existen en los datos.
+    const csv = aCsv([fila({ workerName: 'MARTINEZ, ANGELA' })])
+    const linea = csv.split('\n')[1]!
+    expect(linea).toContain('"MARTINEZ, ANGELA"')
+    expect(csv.split('\n')).toHaveLength(2)
+  })
+
+  it('una comilla dentro del nombre se escapa', () => {
+    const csv = aCsv([fila({ workerName: 'EL "CHATO"' })])
+    expect(csv).toContain('"EL ""CHATO"""')
+  })
+
+  it('dice de dónde salió cada día', () => {
+    const csv = aCsv([
+      fila({ id: '1' }),
+      fila({ id: '2', fromImport: true }),
+      fila({ id: '3', isControlOnly: true }),
+    ])
+    expect(csv).toContain('"Capturado"')
+    expect(csv).toContain('"Excel"')
+    expect(csv).toContain('"Control"')
+  })
+
+  it('un día sin calcular deja la tarifa vacía, no en cero', () => {
+    // Poner 0 haría creer que se le pagó cero.
+    const csv = aCsv([fila({ rate: null, amount: null })])
+    expect(csv.split('\n')[1]).toContain('"",""')
+  })
+})

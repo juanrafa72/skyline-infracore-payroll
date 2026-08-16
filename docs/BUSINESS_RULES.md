@@ -450,3 +450,16 @@ cobra $5 por una semana en vez de $650, y eso **ningún error lo avisa**.
 | BR-360 | Una tarifa puesta solo para destrabar se marca en su nota de origen (`NOTA_PROVISIONAL`). El motor la trata como cualquier otra —no se toca el cálculo— pero el sistema puede reconocerla y perseguirla. | CONFIRMED (Rafael, 2026-08-16) |
 | BR-361 | Las provisionales se muestran **aparte y como CRÍTICO** en el tablero de inicio y en la pantalla de tarifas, diciendo el riesgo con cifras («cobran $5 por la semana»). Ya no bloquean nada, y por eso hay que gritarlas: un aviso que solo dice «revisar» se ignora. | CONFIRMED |
 | BR-362 | El guion `scripts/rate-placeholder.mts` las pone (`--aplicar`), las lista en seco sin escribir nada (sin argumentos) y muestra las pendientes (`--pendientes`). La marca es la MISMA constante que usa la pantalla: si se cambia en un lado, deja de reconocerse en el otro. | CONFIRMED |
+
+## 37. La Base (BR-370 – BR-373)
+
+Rafael la pidió como su hoja de Excel de siempre pero legible: «week, nombre
+del trabajador, día, si trabajó o no, tarifa, proyecto, y filtros como Excel,
+así uno puede revisar datos entrados en semanas anteriores».
+
+| # | Regla | Estado |
+|---|-------|--------|
+| BR-370 | Un renglón por día capturado, con semana, fecha, persona, si trabajó, tarifa, lo pagado, proyecto y cuadrilla. Filtros por semana, persona, proyecto, tipo de día y texto libre, todos en la URL para poder guardar o compartir una vista. | CONFIRMED (Rafael, 2026-08-16) |
+| BR-371 | Abre en **la semana más reciente con trabajo nuestro**, y el selector va de la más nueva a la más vieja — «lo primero que veo es week 33 y lo último week 1». Los días del Excel son archivo y solo salen si se piden. | CONFIRMED (Rafael, 2026-08-16) |
+| BR-372 | La tarifa y lo pagado salen de `PayrollLine`, **congelados al calcular** (BR-032). Un día sin calcular NO muestra la tarifa vigente hoy: haría creer que se pagó algo que nunca se pagó. Un día `NO_WORK` dice «no aplica» y uno de control «no paga» — no «sin calcular», que sugiere que falta un paso. | CONFIRMED |
+| BR-373 | La pantalla corta en **800 renglones** y lo DICE; la descarga a Excel no tiene ese tope (50.000) porque ahí no hay nada que dibujar. El CSV lleva BOM —sin él Excel daña las tildes— y escapa comillas y comas: «MARTINEZ, ANGELA» partiría la fila. | CONFIRMED |

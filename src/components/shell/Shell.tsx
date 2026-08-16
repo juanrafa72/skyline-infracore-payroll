@@ -52,7 +52,12 @@ const NAV: ReadonlyArray<{
   },
   {
     group: 'Configurar',
-    items: [{ href: '/catalogos', label: 'Catálogos' }],
+    items: [
+      { href: '/catalogos', label: 'Catálogos' },
+      // Debajo de Catálogos, como lo pidió el negocio: la hoja de siempre,
+      // para revisar lo capturado en semanas anteriores.
+      { href: '/base', label: 'Base', permission: 'payroll:view' },
+    ],
   },
 ]
 

@@ -70,6 +70,9 @@ const ROUTES = [
   '/approvals',
   '/avisos',
   '/disbursements',
+  '/base',
+  '/base?semana=todas',
+  '/base?dia=NO_WORK&q=munguia',
   '/historico',
   /*
    * El histórico con fechas que NO son fechas.
