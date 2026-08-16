@@ -50,7 +50,14 @@ export default async function WeekPage({
   searchParams,
 }: {
   params: Promise<{ weekId: string }>
-  searchParams: Promise<{ todos?: string; op?: string; paso?: string; msg?: string }>
+  searchParams: Promise<{
+    todos?: string
+    op?: string
+    paso?: string
+    msg?: string
+    /** `dias` = se acaba de guardar la rejilla: el paso siguiente late. */
+    guardado?: string
+  }>
 }) {
   const { weekId } = await params
   const filters = await searchParams
@@ -376,6 +383,9 @@ export default async function WeekPage({
   // ¿Se puede devolver esta semana al principio? Se pregunta siempre para
   // poder explicar POR QUÉ no, en vez de esconder el botón sin más.
   const reinicio = await puedeReiniciar(company.id, week.id)
+
+  // Viene de guardar la rejilla: el botón del paso siguiente late.
+  const recienGuardado = filters.guardado === 'dias'
   // Con más de 16 días las casillas van dentro de su propio bloque, no como
   // columnas de la rejilla: `md:contents` solo sirve cuando sí son columnas.
   const inlineDays = days.length <= 16
@@ -674,10 +684,23 @@ export default async function WeekPage({
             />
           ) : null}
 
-          <section className="mb-8">
+          {/*
+            Paso siguiente. Al venir de guardar los días, el botón LATE: el
+            negocio pidió que la aplicación señale sola dónde seguir en vez de
+            que uno tenga que buscarlo. El ancla `#calcular` además lo trae a
+            la vista, que en una semana con 40 personas queda lejos.
+          */}
+          <section className="mb-8" id="calcular">
+            {recienGuardado ? (
+              <p className="mb-2 text-sm text-[var(--muted)]">
+                Días guardados. Ahora saca las cuentas:
+              </p>
+            ) : null}
             <form action={calculateWeek} className="mt-2">
               <input type="hidden" name="weekId" value={week.id} />
-              <Button variant="secondary">Calcular nómina</Button>
+              <Button variant="secondary" highlight={recienGuardado}>
+                Calcular nómina
+              </Button>
             </form>
           </section>
 
@@ -816,7 +839,9 @@ export default async function WeekPage({
             )}
           </section>
 
+          <div id="enviar">
           <SubmitWeek
+            highlight={filters.guardado === 'calculo'}
             payrolls={payrolls
               .filter((payroll) => ['PREPARED', 'REJECTED'].includes(payroll.status))
               .map((payroll) => ({
@@ -851,6 +876,7 @@ export default async function WeekPage({
               equipmentViews.filter((view) => view.payable?.status === 'PENDING_APPROVAL').length
             }
           />
+          </div>
 
           {/* Lo que sigue cuando esta pantalla ya hizo lo suyo */}
           <NextStep

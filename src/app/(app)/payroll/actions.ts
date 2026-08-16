@@ -294,6 +294,16 @@ export async function saveWorkEntries(formData: FormData) {
 
   revalidatePath('/approvals')
   revalidatePath(`/payroll/${weekId}`)
+
+  /*
+   * Vuelve a la semana señalando cuál es el paso siguiente.
+   *
+   * Lo pidió el negocio: al guardar los días, el botón de «Calcular nómina»
+   * late para no tener que adivinar dónde seguir. La marca va en la dirección
+   * —no en un estado del navegador— para que sobreviva a la recarga que hace
+   * el servidor al guardar.
+   */
+  redirect(`/payroll/${weekId}?guardado=dias#calcular`)
 }
 
 /**
@@ -531,6 +541,8 @@ export async function calculateWeek(formData: FormData) {
   await syncEquipmentPayrolls(company.id, week.id)
 
   revalidatePath(`/payroll/${weekId}`)
+  // Ya está calculada: lo que sigue es enviarla, y ese botón es el que late.
+  redirect(`/payroll/${weekId}?guardado=calculo#enviar`)
 }
 
 /** Agrega personas al período, aunque todavía no tengan días marcados. */

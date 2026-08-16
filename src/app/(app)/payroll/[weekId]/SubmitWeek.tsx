@@ -15,6 +15,7 @@ export function SubmitWeek({
   equipment,
   blockedByErrors,
   alreadySent,
+  highlight = false,
 }: {
   payrolls: ReadonlyArray<{ id: string; name: string; net: string }>
   /** Liquidaciones de cuadrilla y de equipo listas para el mismo envío. */
@@ -22,6 +23,8 @@ export function SubmitWeek({
   equipment: ReadonlyArray<{ id: string; name: string; net: string }>
   blockedByErrors: number
   alreadySent: number
+  /** Viene de calcular: este es el paso siguiente y late para señalarlo. */
+  highlight?: boolean
 }) {
   const [result, action] = useActionState(submitWeek, null)
   const ok = result?.startsWith('LISTO|')
@@ -102,7 +105,9 @@ export function SubmitWeek({
           ))}
           <button
             type="submit"
-            className="h-9 rounded-md bg-[var(--accent)] px-4 text-sm font-medium text-white hover:opacity-90"
+            className={`h-9 rounded-md bg-[var(--accent)] px-4 text-sm font-medium text-white hover:opacity-90${
+              highlight ? ' paso-siguiente' : ''
+            }`}
           >
             Enviar {payrolls.length + crews.length + equipment.length} a aprobación
           </button>

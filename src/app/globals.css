@@ -66,3 +66,37 @@ body {
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
+
+/*
+ * El botón del paso siguiente, latiendo.
+ *
+ * Lo pidió el negocio: cuando uno guarda los días, el botón que sigue debe
+ * llamar la atención para no tener que adivinar dónde seguir. Es un pulso
+ * suave y lento —no un parpadeo— porque el letrero tiene que seguir siendo
+ * legible mientras se mueve, y algo que titila rápido cansa a los cinco
+ * minutos de uso diario.
+ *
+ * Se detiene solo tras unos segundos: cumplió su trabajo de señalar, y una
+ * animación eterna termina siendo ruido que el ojo aprende a ignorar.
+ */
+@keyframes latido-paso {
+  0%, 100% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 55%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 9px color-mix(in oklab, var(--accent) 0%, transparent);
+  }
+}
+
+.paso-siguiente {
+  animation: latido-paso 1.6s ease-out 6;
+}
+
+/* Quien pidió menos movimiento en su sistema no lo ve moverse. */
+@media (prefers-reduced-motion: reduce) {
+  .paso-siguiente {
+    animation: none;
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}

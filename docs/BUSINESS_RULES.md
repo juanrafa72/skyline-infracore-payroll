@@ -362,3 +362,9 @@ poder verificar contra lo que dice SharePoint.
 | BR-280 | La pantalla de aprobar agrupa **por defecto** por empresa receptora, con el **total de cada grupo siempre visible**, antes de aprobar. Es el orden en que tesorería mueve el dinero: una transferencia por receptora. El ejemplo del negocio: Juan Rafael y Juan José a FORZO, Federico a Quintero → los dos de FORZO quedan juntos con su total. | CONFIRMED (Rafael, 2026-08-15) |
 | BR-281 | Los que aún **no tienen receptora van todos en UN solo grupo y de primeros**: son los que frenan la aprobación (BR-180), y repartirlos o dejarlos al final los esconde. | CONFIRMED |
 | BR-282 | Los totales de grupo se suman en **centavos enteros** con la misma aritmética del motor: sumar pesos con decimales en el navegador puede dar un centavo distinto al del servidor, y ese centavo sería una diferencia sin explicar. Se muestra el total del grupo y, si difiere, el de lo marcado. | CONFIRMED |
+
+## 29. Guía visual del paso siguiente (BR-290)
+
+| # | Regla | Estado |
+|---|-------|--------|
+| BR-290 | Al guardar los días, el botón **«Calcular nómina» late** y la página baja hasta él; al calcular, late **«Enviar a aprobación»**. La aplicación señala sola dónde seguir. El pulso es lento y se **detiene solo** tras unos segundos —una animación eterna se vuelve ruido que el ojo ignora— y se apaga por completo para quien pidió menos movimiento en su sistema (`prefers-reduced-motion`), dejando en su lugar un borde marcado. La marca viaja en la URL (`?guardado=`), no en un estado del navegador: tiene que sobrevivir a la recarga que hace el servidor al guardar. | CONFIRMED (Rafael, 2026-08-15) |

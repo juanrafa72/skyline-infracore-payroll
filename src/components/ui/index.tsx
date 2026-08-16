@@ -33,12 +33,21 @@ export function Button({
   type = 'submit',
   disabled,
   title,
+  id,
+  /**
+   * Late para señalar que ESTE es el paso siguiente. Se usa justo después de
+   * guardar algo, para no tener que adivinar dónde seguir. El pulso se detiene
+   * solo: una animación eterna se vuelve ruido que el ojo ignora.
+   */
+  highlight = false,
 }: {
   children: ReactNode
   variant?: 'primary' | 'secondary' | 'danger'
   type?: 'submit' | 'button'
   disabled?: boolean
   title?: string
+  id?: string
+  highlight?: boolean
 }) {
   const styles = {
     primary: 'brand-gradient text-white shadow-sm hover:opacity-90',
@@ -48,9 +57,12 @@ export function Button({
   return (
     <button
       type={type}
+      id={id}
       disabled={disabled}
       title={title}
-      className={`inline-flex h-9 items-center rounded-full px-4 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-45 ${styles}`}
+      className={`inline-flex h-9 items-center rounded-full px-4 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-45 ${styles}${
+        highlight ? ' paso-siguiente' : ''
+      }`}
     >
       {children}
     </button>
