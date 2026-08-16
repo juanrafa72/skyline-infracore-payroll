@@ -2,6 +2,7 @@ import type { CurrentUser } from '@/lib/auth/rbac'
 import { prisma } from '@/lib/db/client'
 import { nextNumber } from '@/lib/disbursement/sequence'
 import { buildDisbursementPdf } from '@/lib/pdf/build-disbursement'
+import { decidirAuto, type DecisionAuto } from './auto-destinatarios'
 import { transporteDe } from './transport'
 import {
   asuntoDe,
@@ -372,4 +373,63 @@ export async function quitarDestinatario(
       ? `${fila.name} deja de recibir reportes.`
       : `${fila.name} vuelve a recibir reportes.`,
   }
+}
+
+/**
+ * Pone (o corrige) el destinatario automático de una empresa receptora.
+ *
+ * Se llama al crear y al editar la empresa: es donde se teclea el correo, y
+ * por eso es donde tiene sentido que aparezca solo. La decisión de QUÉ hacer
+ * vive aparte, en `auto-destinatarios.ts`, y es la que respeta al que lo quitó
+ * o lo corrigió a mano.
+ *
+ * No lanza y no devuelve error al que la llama: que el destinatario no se haya
+ * podido poner solo no puede tumbar el guardado de la empresa receptora, que
+ * es lo que la persona vino a hacer.
+ */
+export async function sincronizarDestinatarioDeReceptora(input: {
+  companyId: string
+  recipientId: string
+  name: string
+  contactName: string | null
+  email: string | null
+  emailAnterior?: string | null
+}): Promise<DecisionAuto> {
+  const existente = await prisma.reportRecipient.findFirst({
+    where: { companyId: input.companyId, paymentRecipientId: input.recipientId },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true, email: true, active: true },
+  })
+
+  const decision = decidirAuto(
+    {
+      id: input.recipientId,
+      name: input.name,
+      contactName: input.contactName,
+      email: input.email,
+      emailAnterior: input.emailAnterior ?? null,
+    },
+    existente,
+  )
+
+  if (decision.tipo === 'CREAR') {
+    await prisma.reportRecipient.create({
+      data: {
+        companyId: input.companyId,
+        name: decision.name,
+        email: decision.email,
+        // Solo SUS órdenes: a una empresa no se le manda el soporte de otra.
+        paymentRecipientId: input.recipientId,
+        kinds: [],
+        notes: 'Se puso solo, del correo de la empresa receptora.',
+      },
+    })
+  } else if (decision.tipo === 'ACTUALIZAR') {
+    await prisma.reportRecipient.update({
+      where: { id: decision.id },
+      data: { email: decision.email },
+    })
+  }
+
+  return decision
 }

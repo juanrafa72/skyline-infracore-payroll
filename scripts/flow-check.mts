@@ -28,7 +28,8 @@ import {
   payOrder,
   previewApproval,
 } from '../src/lib/disbursement/orders'
-import { createRecipient } from '../src/lib/disbursement/recipients'
+import { createRecipient, updateRecipient } from '../src/lib/disbursement/recipients'
+import { editarDestinatario, quitarDestinatario } from '../src/lib/mail/dispatch-service'
 import { renderDisbursementPdf } from '../src/lib/pdf/disbursement'
 import { toCents, toDecimalString } from '../src/lib/payroll/engine/money'
 import { DEFAULT_SETTINGS } from '../src/lib/payroll/engine/types'
@@ -90,6 +91,12 @@ async function cleanup() {
     await prisma.contractor.deleteMany({ where: { companyId: PREFIX } })
     await prisma.equipment.deleteMany({ where: { companyId: PREFIX } })
     await prisma.vendor.deleteMany({ where: { companyId: PREFIX } })
+    // Los destinatarios de reporte apuntan a la receptora: primero ellos.
+    await prisma.reportDispatchTarget.deleteMany({
+      where: { dispatch: { companyId: PREFIX } },
+    })
+    await prisma.reportDispatch.deleteMany({ where: { companyId: PREFIX } })
+    await prisma.reportRecipient.deleteMany({ where: { companyId: PREFIX } })
     await prisma.paymentRecipient.deleteMany({ where: { companyId: PREFIX } })
     await prisma.$executeRawUnsafe('DELETE FROM document_sequence WHERE "companyId" = $1', PREFIX)
     await prisma.workEntry.deleteMany({ where: { companyId: PREFIX } })
@@ -1046,6 +1053,63 @@ async function main() {
     (comoVa.captura ?? '').includes('domingo'), String(comoVa.captura))
   check('y que ya pasó, así que no se llenan solos',
     (comoVa.captura ?? '').includes('ya pasó'), String(comoVa.captura))
+
+  // ── 19. La empresa receptora recibe su soporte sin que nadie lo configure
+  console.log('\n19. El correo de la empresa receptora se pone solo — y se calla cuando le dicen')
+  const conCorreo = await createRecipient(rafael, {
+    name: 'TRANSPORTES DEL VALLE',
+    contactName: 'Marta Ruiz',
+    email: 'pagos@transportesdelvalle.com',
+  })
+  check('la empresa receptora queda creada', conCorreo.ok, conCorreo.message)
+
+  const puestoSolo = await prisma.reportRecipient.findFirst({
+    where: { companyId: PREFIX, paymentRecipientId: conCorreo.recipientId! },
+  })
+  check('su correo entra solo a la lista de destinatarios',
+    puestoSolo?.email === 'pagos@transportesdelvalle.com', String(puestoSolo?.email))
+  check('con el nombre del contacto, que se lee mejor que repetir la empresa',
+    puestoSolo?.name === 'Marta Ruiz', String(puestoSolo?.name))
+  check('y recibe SOLO las órdenes de esa empresa',
+    puestoSolo?.paymentRecipientId === conCorreo.recipientId)
+
+  await updateRecipient(rafael, conCorreo.recipientId!, {
+    name: 'TRANSPORTES DEL VALLE',
+    contactName: 'Marta Ruiz',
+    email: 'contabilidad@transportesdelvalle.com',
+  })
+  const seguido = await prisma.reportRecipient.findUniqueOrThrow({ where: { id: puestoSolo!.id } })
+  check('si cambia el correo de la ficha y nadie lo había tocado, lo sigue',
+    seguido.email === 'contabilidad@transportesdelvalle.com', seguido.email)
+
+  // Ahora una persona lo corrige a mano: a partir de aquí manda ella.
+  await editarDestinatario(rafael, {
+    id: puestoSolo!.id,
+    name: 'Marta Ruiz',
+    email: 'marta@transportesdelvalle.com',
+  })
+  await updateRecipient(rafael, conCorreo.recipientId!, {
+    name: 'TRANSPORTES DEL VALLE',
+    contactName: 'Marta Ruiz',
+    email: 'otro@transportesdelvalle.com',
+  })
+  const corregido = await prisma.reportRecipient.findUniqueOrThrow({ where: { id: puestoSolo!.id } })
+  check('lo que alguien corrigió a mano NO se pisa',
+    corregido.email === 'marta@transportesdelvalle.com', corregido.email)
+
+  // Y si lo quitan, no reaparece: es lo que hace confiable al automatismo.
+  await quitarDestinatario(rafael, puestoSolo!.id)
+  await updateRecipient(rafael, conCorreo.recipientId!, {
+    name: 'TRANSPORTES DEL VALLE',
+    contactName: 'Marta Ruiz',
+    email: 'yotro@transportesdelvalle.com',
+  })
+  const trasQuitarlo = await prisma.reportRecipient.findMany({
+    where: { companyId: PREFIX, paymentRecipientId: conCorreo.recipientId! },
+  })
+  check('quitado a propósito, no se vuelve a poner solo',
+    trasQuitarlo.length === 1 && !trasQuitarlo[0]!.active,
+    `${trasQuitarlo.length} fila(s)`)
 
   await cleanup()
 

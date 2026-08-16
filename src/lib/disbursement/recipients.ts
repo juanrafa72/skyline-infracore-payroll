@@ -1,5 +1,6 @@
 import type { CurrentUser } from '@/lib/auth/rbac'
 import { prisma } from '@/lib/db/client'
+import { sincronizarDestinatarioDeReceptora } from '@/lib/mail/dispatch-service'
 import { findDuplicate, normalizeRecipientName } from './naming'
 
 /**
@@ -98,9 +99,27 @@ export async function createRecipient(
     },
   })
 
+  /*
+   * Si trae correo, ya queda recibiendo SUS soportes.
+   *
+   * Lo pidió el negocio: no tener que acordarse de ir a otra pantalla a
+   * configurar lo obvio. Se puede quitar o corregir con el lápiz, y entonces
+   * el sistema no vuelve a insistir.
+   */
+  const auto = await sincronizarDestinatarioDeReceptora({
+    companyId: user.companyId,
+    recipientId: recipient.id,
+    name,
+    contactName: clean(input.contactName) ?? null,
+    email: clean(input.email) ?? null,
+  })
+
   return {
     ok: true,
-    message: `«${name}» quedó creada y ya se puede asignar.`,
+    message:
+      auto.tipo === 'CREAR'
+        ? `«${name}» quedó creada y ya se puede asignar. Sus soportes le van a llegar a ${auto.email}.`
+        : `«${name}» quedó creada y ya se puede asignar.`,
     recipientId: recipient.id,
   }
 }
@@ -159,7 +178,25 @@ export async function updateRecipient(
     },
   })
 
-  return { ok: true, message: `«${name}» quedó actualizada.`, recipientId }
+  // El correo pudo cambiar. Solo se sigue si nadie había tocado el
+  // destinatario a mano; esa decisión pesa más que este automatismo.
+  const auto = await sincronizarDestinatarioDeReceptora({
+    companyId: user.companyId,
+    recipientId,
+    name,
+    contactName: clean(input.contactName) ?? null,
+    email: clean(input.email) ?? null,
+    emailAnterior: current.email,
+  })
+
+  return {
+    ok: true,
+    message:
+      auto.tipo === 'NADA'
+        ? `«${name}» quedó actualizada.`
+        : `«${name}» quedó actualizada. Sus soportes le van a llegar a ${auto.email}.`,
+    recipientId,
+  }
 }
 
 /**

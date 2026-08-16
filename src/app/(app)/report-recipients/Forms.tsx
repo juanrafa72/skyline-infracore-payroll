@@ -10,6 +10,8 @@ export interface RecipientRow {
   email: string
   kinds: readonly string[]
   paymentRecipientName: string | null
+  /** Se puso solo, del correo de la empresa receptora, y nadie lo ha tocado. */
+  auto: boolean
   bcc: boolean
   active: boolean
 }
@@ -254,6 +256,14 @@ export function RecipientRowView({
     <tr className={`border-t border-[var(--border)] ${row.active ? '' : 'opacity-55'}`}>
       <td className="px-3 py-2.5">
         <span className="font-medium">{row.name}</span>
+        {row.auto ? (
+          <span
+            className="ml-2 text-xs text-[var(--muted)]"
+            title="Salió del correo que tiene la empresa receptora en su ficha. Si lo corriges aquí, manda lo que tú pongas."
+          >
+            se puso solo
+          </span>
+        ) : null}
         {row.bcc ? <span className="ml-2 text-xs text-[var(--muted)]">copia oculta</span> : null}
         {!row.active ? (
           <span className="ml-2 text-xs text-[var(--muted)]">· desactivado</span>

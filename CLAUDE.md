@@ -447,8 +447,8 @@ netlify deploy --prod
 
 ## Estado
 
-**545 pruebas · 58 tablas · 22 migraciones · 26 pantallas** · `check`, `smoke`
-(44) y `flow` (99) en verde. 207 reglas de negocio documentadas.
+**554 pruebas · 58 tablas · 22 migraciones · 26 pantallas** · `check`, `smoke`
+(44) y `flow` (106) en verde. 211 reglas de negocio documentadas.
 
 **Lo que pidió el negocio el 15/08, ya construido:** la nómina de la semana
 tiene los TRES bloques con lo que de verdad se paga — personas, equipos y
@@ -542,7 +542,10 @@ cada compañía · períodos y cortes · importación del histórico.
    `SMTP_HOST_<CÓDIGO>` si hiciera falta. Falta también la llamada a la
    librería en `lib/mail/smtp.ts`. **A quién le llega ya está resuelto:** Ana,
    `bookkeeping@dazmarllc.com`, viene puesta en las dos compañías, con lápiz
-   para corregirla y un «+» para copiar a alguien de la empresa receptora.
+   para corregirla y un «+» para copiar a alguien más; y **la empresa
+   receptora que tenga correo en su ficha entra sola** y recibe solo sus
+   órdenes — pero si alguien la corrige o la quita, el sistema deja de
+   insistir (BR-416…419).
    Mientras tanto la aplicación **no miente**: dice que quedó registrado pero
    que no salió.
 1. Semana trabajada vs facturada, y si el cliente ya pagó.

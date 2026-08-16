@@ -29,7 +29,7 @@ export default async function ReportRecipientsPage() {
     prisma.paymentRecipient.findMany({
       where: { companyId: company.id, active: true },
       orderBy: { name: 'asc' },
-      select: { id: true, name: true },
+      select: { id: true, name: true, email: true },
     }),
     prisma.reportDispatch.findMany({
       where: { companyId: company.id },
@@ -41,12 +41,26 @@ export default async function ReportRecipientsPage() {
 
   const transporte = transporteDe(company.code)
 
+  /*
+   * Cuáles se pusieron solos.
+   *
+   * Se deduce, no se guarda: es automático mientras siga diciendo lo mismo que
+   * la ficha de la empresa receptora. En cuanto alguien lo corrige con el
+   * lápiz deja de serlo, que es exactamente lo que significa.
+   */
+  const correoDeLaReceptora = new Map(
+    paymentRecipients.map((r) => [r.id, (r.email ?? '').trim().toLowerCase()]),
+  )
+
   const rows: RecipientRow[] = recipients.map((r) => ({
     id: r.id,
     name: r.name,
     email: r.email,
     kinds: r.kinds,
     paymentRecipientName: r.paymentRecipient?.name ?? null,
+    auto: Boolean(
+      r.paymentRecipientId && correoDeLaReceptora.get(r.paymentRecipientId) === r.email,
+    ),
     bcc: r.bcc,
     active: r.active,
   }))
@@ -87,8 +101,9 @@ export default async function ReportRecipientsPage() {
       <section className="mb-8">
         <h2 className="brand-label mb-1 text-[var(--muted)]">Quién recibe</h2>
         <p className="mb-3 text-sm text-[var(--muted)]">
-          Agrega los correos que hagan falta. Uno general para contabilidad, y si quieres uno por
-          empresa receptora — ese solo recibe <strong>sus</strong> órdenes.
+          Contabilidad recibe todos los soportes de las dos compañías. Y cada empresa receptora
+          que tenga correo en su ficha <strong>se agrega sola</strong>, recibiendo solo{' '}
+          <strong>sus</strong> órdenes. Todo se puede corregir o quitar con el lápiz.
         </p>
 
         {canManage ? <AddRecipientForm paymentRecipients={paymentRecipients} /> : null}
