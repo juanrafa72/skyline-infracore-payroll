@@ -40,15 +40,28 @@ export interface RateStatusRow {
   rateType: RateType
   /** Monto resuelto como cadena con 2 decimales, o null si no hay tarifa. */
   resolvedAmount: string | null
+  /** Qué tarifa concreta resolvió. Sirve para saber si es provisional. */
+  resolvedRateId: string | null
   /** Por qué no hay tarifa, en cristiano. Solo cuando resolvedAmount es null. */
   why: string | null
 }
+
+/** Cómo se reconoce una tarifa puesta solo para destrabar. */
+export const NOTA_PROVISIONAL = 'PROVISIONAL $1 — falta la tarifa real'
 
 export interface RatesStatus {
   /** Personas cuya forma de pago SÍ lleva tarifa. */
   needsRate: readonly RateStatusRow[]
   /** El subconjunto que hoy no resuelve ninguna: son las que bloquean. */
   missing: readonly RateStatusRow[]
+  /**
+   * Las que tienen una tarifa PROVISIONAL de $1.
+   *
+   * Ya no bloquean el envío —para eso se pusieron— pero **no son la tarifa de
+   * nadie**: quien se quede así cobra $5 por una semana en vez de $650, y eso
+   * ningún error lo avisa. Por eso se listan aparte y bien visibles.
+   */
+  provisional: readonly RateStatusRow[]
   /** Personas que no llevan tarifa de costo (producción, manual, etc.). */
   nonRateBased: ReadonlyArray<{
     workerId: string

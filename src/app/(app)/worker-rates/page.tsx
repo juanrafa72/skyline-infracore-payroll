@@ -67,6 +67,35 @@ export default async function WorkerRatesPage() {
         <RatesForm rows={rows} defaultFrom={weekStartOf(today)} canManage={canManage} />
       )}
 
+      {/*
+        Las que se pusieron en $1 solo para destrabar.
+        Van ARRIBA de todo lo demás y en rojo: ya no bloquean nada —para eso se
+        pusieron— pero $1 no es la tarifa de nadie, y quien se quede así cobra
+        $5 por una semana en vez de $650 sin que ningún error lo avise.
+      */}
+      {status.provisional.length > 0 ? (
+        <section className="mt-8 rounded-lg border-2 border-red-300 bg-red-50 p-4">
+          <h2 className="text-sm font-semibold text-red-900">
+            {status.provisional.length} persona(s) con tarifa PROVISIONAL de $1
+          </h2>
+          <p className="mt-1 text-sm text-red-800">
+            Se puso $1 para poder seguir trabajando, pero <strong>no es su tarifa</strong>. Si se
+            calcula una semana así, esa persona cobra <strong>$5 por 5 días</strong> en vez de lo
+            que le toca. Cámbialas arriba antes de aprobar.
+          </p>
+          <ul className="mt-3 flex flex-wrap gap-1.5">
+            {status.provisional.map((person) => (
+              <li
+                key={person.workerId}
+                className="rounded border border-red-300 bg-white px-2 py-1 text-xs"
+              >
+                {person.name}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       {status.nonRateBased.length > 0 ? (
         <section className="mt-8">
           <h2 className="mb-1 text-sm font-semibold">

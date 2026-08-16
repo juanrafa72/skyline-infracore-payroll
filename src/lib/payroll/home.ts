@@ -18,7 +18,7 @@
 import { prisma } from '@/lib/db/client'
 import { vencimientosPendientes } from '@/lib/equipment/records-service'
 import { cuantosFrenan } from '@/lib/payroll/exceptions/service'
-import { workersMissingRateCount } from '@/lib/payroll/rates-status/service'
+import { ratesStatus, workersMissingRateCount } from '@/lib/payroll/rates-status/service'
 import { CON_TRABAJO_NUESTRO } from '@/lib/payroll/week-scope'
 import { toIso, weekRangeOf } from '@/lib/payroll/week'
 
@@ -221,6 +221,13 @@ export async function pendingBoard(companyId: string, onDate: string): Promise<P
    * 30 días, un cambio de aceite con 7) y eso no se resuelve con una sola
    * comparación en SQL sin repetir la regla que ya vive en `equipment/records`.
    */
+  /*
+   * Las tarifas provisionales de $1 se cuentan aparte del bloque de arriba:
+   * `ratesStatus` ya resuelve quién tiene cuál con la regla del motor, y
+   * repetirla en SQL abriría la puerta a que las dos digan cosas distintas.
+   */
+  const provisionalRates = (await ratesStatus(companyId, onDate)).provisional.length
+
   const avisosEquipo = await vencimientosPendientes(companyId, onDate)
   const documentosVencidos = avisosEquipo.filter((a) => a.estado.estado === 'VENCIDO').length
   const documentosPorVencer = avisosEquipo.length - documentosVencidos
@@ -234,6 +241,24 @@ export async function pendingBoard(companyId: string, onDate: string): Promise<P
       detail: 'Sin tarifa que aplique no se puede calcular su nómina.',
       href: '/worker-rates',
       tone: 'warning',
+    })
+  }
+
+  /*
+   * Tarifas de $1 puestas para destrabar.
+   *
+   * Ya no bloquean nada, y ese es el problema: si nadie las persigue, alguien
+   * cobra $5 por una semana de trabajo y ningún error lo avisa. Por eso pesan
+   * como crítico aunque el sistema pueda calcular sin quejarse.
+   */
+  if (provisionalRates > 0) {
+    items.push({
+      key: 'tarifas-provisionales',
+      title: `${provisionalRates} persona(s) con tarifa PROVISIONAL de $1`,
+      detail:
+        'Se puso $1 para poder seguir. No es su tarifa: si se aprueba así, cobran $5 por la semana.',
+      href: '/worker-rates',
+      tone: 'critical',
     })
   }
 

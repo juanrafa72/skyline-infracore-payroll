@@ -438,3 +438,15 @@ pero no puede borrar los registros de los que se desactiven».
 | BR-351 | Fuera de las listas = **no se ofrece al armar una semana nueva**. Es todo lo que cambia. Con dos JHON en la lista de escoger es cuestión de tiempo marcar el equivocado y pagarle la tarifa vieja. | CONFIRMED |
 | BR-352 | **No se puede sacar a alguien con una nómina a medio camino** (preparada, esperando aprobación, aprobada o en pago). Quitarlo lo dejaría a mitad del proceso y quien aprueba lo vería sin poder encontrarlo. Primero se termina de pagarle. Igual para un equipo con liquidación abierta. | CONFIRMED |
 | BR-353 | Cada activación y desactivación queda en el audit log con quién y por qué. La regla vive en `lib/catalog/availability.ts` —fuera de la Server Action— para poder probarla sin navegador. | CONFIRMED |
+
+## 36. Tarifas provisionales de $1 (BR-360 – BR-362)
+
+Rafael pidió poner $1 a las 63 fichas sin tarifa «para que no bote error».
+Destraba, pero cambia un error ruidoso por uno callado: quien se quede así
+cobra $5 por una semana en vez de $650, y eso **ningún error lo avisa**.
+
+| # | Regla | Estado |
+|---|-------|--------|
+| BR-360 | Una tarifa puesta solo para destrabar se marca en su nota de origen (`NOTA_PROVISIONAL`). El motor la trata como cualquier otra —no se toca el cálculo— pero el sistema puede reconocerla y perseguirla. | CONFIRMED (Rafael, 2026-08-16) |
+| BR-361 | Las provisionales se muestran **aparte y como CRÍTICO** en el tablero de inicio y en la pantalla de tarifas, diciendo el riesgo con cifras («cobran $5 por la semana»). Ya no bloquean nada, y por eso hay que gritarlas: un aviso que solo dice «revisar» se ignora. | CONFIRMED |
+| BR-362 | El guion `scripts/rate-placeholder.mts` las pone (`--aplicar`), las lista en seco sin escribir nada (sin argumentos) y muestra las pendientes (`--pendientes`). La marca es la MISMA constante que usa la pantalla: si se cambia en un lado, deja de reconocerse en el otro. | CONFIRMED |

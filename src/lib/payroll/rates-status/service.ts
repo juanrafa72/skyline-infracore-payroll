@@ -5,7 +5,7 @@ import { explainMissingRate, resolveRate } from '@/lib/payroll/engine'
 import { toCents, toDecimalString } from '@/lib/payroll/engine/money'
 import type { RateInput, WorkEntryInput } from '@/lib/payroll/engine/types'
 import { toIso } from '@/lib/payroll/week'
-import { rateTypeFor, type RateStatusRow, type RatesStatus } from './index'
+import { NOTA_PROVISIONAL, rateTypeFor, type RateStatusRow, type RatesStatus } from './index'
 
 /**
  * Quién tiene tarifa y quién no — la parte que consulta la base.
@@ -37,6 +37,16 @@ export async function ratesStatus(companyId: string, onDate: string): Promise<Ra
     }),
     prisma.workerRate.findMany({ where: { companyId, active: true } }),
   ])
+
+  /*
+   * Qué tarifas se pusieron solo para destrabar ($1 provisional). Se reconocen
+   * por su nota de origen: no cambian el cálculo —el motor las trata como
+   * cualquier otra— pero la pantalla tiene que poder señalarlas, porque $1 no
+   * es la tarifa de nadie y nadie más lo va a avisar.
+   */
+  const provisionalRateIds = new Set(
+    rates.filter((rate) => rate.sourceNote === NOTA_PROVISIONAL).map((rate) => rate.id),
+  )
 
   const ratesByWorker = new Map<string, RateInput[]>()
   for (const rate of rates) {
@@ -87,6 +97,7 @@ export async function ratesStatus(companyId: string, onDate: string): Promise<Ra
         compensationType: worker.compensationType,
         rateType,
         resolvedAmount: weekly ? toDecimalString(weekly.amount) : null,
+        resolvedRateId: weekly?.id ?? null,
         why: weekly ? null : 'Es de pago semanal fijo y no tiene monto semanal configurado.',
       })
       continue
@@ -118,6 +129,7 @@ export async function ratesStatus(companyId: string, onDate: string): Promise<Ra
       compensationType: worker.compensationType,
       rateType,
       resolvedAmount: resolved ? toDecimalString(resolved.amount) : null,
+      resolvedRateId: resolved?.id ?? null,
       why: resolved ? null : explainMissingRate(own, syntheticEntry, rateType === 'HOURLY'),
     })
   }
@@ -125,6 +137,7 @@ export async function ratesStatus(companyId: string, onDate: string): Promise<Ra
   return {
     needsRate,
     missing: needsRate.filter((row) => row.resolvedAmount === null),
+    provisional: needsRate.filter((row) => row.resolvedRateId !== null && provisionalRateIds.has(row.resolvedRateId)),
     nonRateBased,
   }
 }
@@ -158,7 +171,13 @@ const MONEY = /^\d+(\.\d{1,2})?$/
  */
 export async function saveMissingRate(
   user: CurrentUser,
-  input: { workerId: string; amount: string; effectiveFrom: string },
+  input: {
+    workerId: string
+    amount: string
+    effectiveFrom: string
+    /** De dónde salió. Queda en la tarifa y en la auditoría. */
+    sourceNote?: string
+  },
 ): Promise<SaveRateResult> {
   const amount = input.amount.trim()
   if (!MONEY.test(amount)) {
@@ -222,7 +241,7 @@ export async function saveMissingRate(
           effectiveFrom: from,
           approvedById: user.id,
           approvedAt: new Date(),
-          sourceNote: 'Pantalla de tarifas faltantes',
+          sourceNote: input.sourceNote ?? 'Pantalla de tarifas faltantes',
         },
       })
 
