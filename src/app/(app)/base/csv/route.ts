@@ -25,6 +25,7 @@ export async function GET(request: Request) {
       week: semana,
       worker: q('persona'),
       project: q('proyecto'),
+      tipo: q('tipo'),
       dayType: q('dia'),
       estado: q('estado'),
       q: q('q'),

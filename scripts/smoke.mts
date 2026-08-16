@@ -74,6 +74,8 @@ const ROUTES = [
   '/base?semana=todas',
   '/base?dia=NO_WORK&q=munguia',
   '/base?estado=PAGADA',
+  '/base?tipo=EQUIPO&semana=todas',
+  '/base?semana=todas&archivo=1&pagina=2',
   '/historico',
   /*
    * El histórico con fechas que NO son fechas.

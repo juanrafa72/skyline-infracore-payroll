@@ -23,7 +23,10 @@ function fila(over: Partial<BaseRow> = {}): BaseRow {
     dayName: 'lun 10',
     workerName: 'AGUSTIN GALO',
     workerId: 'w1',
+    tipo: 'PERSONA',
     dayType: 'FULL_DAY',
+    detalle: null,
+    payeeName: null,
     rate: '190.00',
     rateIsFrozen: true,
     amount: '190.00',
@@ -146,7 +149,8 @@ describe('bajar a Excel', () => {
     const csv = aCsv([fila(), fila({ id: '2', workerName: 'JUAN' })])
     const lineas = csv.split('\n')
     expect(lineas).toHaveLength(3)
-    expect(lineas[0]).toContain('Trabajador')
+    // Se llama «Nombre», no «Trabajador»: la hoja lleva equipos y cuadrillas.
+    expect(lineas[0]).toContain('Nombre')
   })
 
   it('un nombre con coma NO parte la fila', () => {
@@ -256,5 +260,62 @@ describe('el estado en el archivo de Excel', () => {
     const csv = aCsv([fila()])
     expect(csv.split('\n')[0]).toContain('"Vale el día"')
     expect(csv.split('\n')[0]).toContain('"Estado"')
+  })
+})
+
+describe('la hoja lleva TODO, no solo personas', () => {
+  const mezcla = [
+    fila({ id: 'p', tipo: 'PERSONA', workerName: 'AGUSTIN GALO', workDate: '2026-08-14' }),
+    fila({
+      id: 'e',
+      tipo: 'EQUIPO',
+      workerName: 'PLOW RENTADO',
+      dayType: 'EN_OBRA',
+      detalle: 'rentado',
+      payeeName: 'ALQUILERES DEL SUR',
+      workDate: '2026-08-14',
+    }),
+    fila({
+      id: 'c',
+      tipo: 'CUADRILLA',
+      workerName: 'CUADRILLA HUGO',
+      dayType: 'PRODUCCION',
+      detalle: '10,000 pies',
+      payeeName: 'Hugo',
+      workDate: '2026-08-14',
+    }),
+  ]
+
+  it('filtra por tipo: solo equipos', () => {
+    expect(filtrarBase(mezcla, { tipo: 'EQUIPO' }).map((f) => f.id)).toEqual(['e'])
+  })
+
+  it('sin filtro de tipo salen los tres', () => {
+    expect(filtrarBase(mezcla, {})).toHaveLength(3)
+  })
+
+  it('la búsqueda encuentra por el beneficiario', () => {
+    // «¿a quién le pagamos el alquiler?» es una pregunta real.
+    expect(filtrarBase(mezcla, { q: 'alquileres' }).map((f) => f.id)).toEqual(['e'])
+    expect(filtrarBase(mezcla, { q: 'hugo' }).map((f) => f.id)).toEqual(['c'])
+  })
+
+  it('el tipo y el beneficiario van al Excel', () => {
+    const csv = aCsv(mezcla)
+    expect(csv.split('\n')[0]).toContain('"Qué"')
+    expect(csv.split('\n')[0]).toContain('"Se le paga a"')
+    expect(csv).toContain('"Equipo"')
+    expect(csv).toContain('"Cuadrilla"')
+    expect(csv).toContain('"ALQUILERES DEL SUR"')
+  })
+
+  it('el detalle de la cuadrilla dice cuánto produjo', () => {
+    expect(aCsv(mezcla)).toContain('"10,000 pies"')
+  })
+
+  it('el tipo se lee en palabras, no en código', () => {
+    const csv = aCsv([fila({ tipo: 'EQUIPO' })])
+    expect(csv).toContain('"Equipo"')
+    expect(csv).not.toMatch(/"EQUIPO"/)
   })
 })

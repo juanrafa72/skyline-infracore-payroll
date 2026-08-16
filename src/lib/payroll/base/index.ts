@@ -11,13 +11,22 @@
 
 export type DayType = 'FULL_DAY' | 'HALF_DAY' | 'NO_WORK' | 'HOURLY' | 'PLUS'
 
-/** Cómo se lee cada tipo de día en la tabla. Corto: la columna es angosta. */
+/**
+ * Cómo se lee cada tipo de día en la tabla. Corto: la columna es angosta.
+ *
+ * Los cinco primeros son de personas. Los tres últimos existen porque en la
+ * misma hoja conviven equipos y cuadrillas, y «Sí» no significa nada para una
+ * máquina: lo que dice es que ESTUVO en obra.
+ */
 export const DIA_ETIQUETA: Record<string, string> = {
   FULL_DAY: 'Sí',
   HALF_DAY: 'Medio',
   NO_WORK: 'No',
   HOURLY: 'Por horas',
   PLUS: 'Sí + extra',
+  EN_OBRA: 'En obra',
+  PRODUCCION: 'Produjo',
+  DIA_CREW: 'Trabajó',
 }
 
 /** Cuántos días paga cada tipo. Sirve para el total de la vista. */
@@ -99,8 +108,25 @@ export function estadoDelDia(
   }
 }
 
+/**
+ * Qué se está pagando en ese renglón.
+ *
+ * El negocio pidió ver TODO en una sola hoja: la Base solo mostraba días de
+ * personas, y un equipo rentado que trabajó cinco días no aparecía en ninguna
+ * parte. Mentía por omisión.
+ */
+export type TipoRenglon = 'PERSONA' | 'EQUIPO' | 'CUADRILLA'
+
+export const TIPO_ETIQUETA: Record<TipoRenglon, string> = {
+  PERSONA: 'Persona',
+  EQUIPO: 'Equipo',
+  CUADRILLA: 'Cuadrilla',
+}
+
 export interface BaseRow {
   id: string
+  /** Persona, equipo o cuadrilla. */
+  tipo: TipoRenglon
   weekLabel: string
   weekYear: number
   /** Para ordenar: la semana más reciente primero. */
@@ -108,9 +134,18 @@ export interface BaseRow {
   workDate: string
   /** dom, lun, mar… */
   dayName: string
+  /** El nombre de quien sea: la persona, el equipo o la cuadrilla. */
   workerName: string
   workerId: string
+  /**
+   * Qué pasó ese día. Para una persona es el tipo de jornada; para un equipo,
+   * que estuvo en obra; para una cuadrilla, la producción o el día trabajado.
+   */
   dayType: string
+  /** Detalle de la cuadrilla: «10.000 pies». Vacío en los otros. */
+  detalle: string | null
+  /** A quién se le paga: el proveedor del equipo o el contratista del crew. */
+  payeeName: string | null
   /** La tarifa CONGELADA del día si ya se calculó; si no, la vigente hoy. */
   rate: string | null
   /** `true` cuando la tarifa sale del cálculo y no de una estimación. */
@@ -133,6 +168,8 @@ export interface BaseRow {
 export interface BaseFilters {
   /** Vacío = la semana más reciente con trabajo. `todas` = sin filtro. */
   week?: string | null
+  /** PERSONA · EQUIPO · CUADRILLA, o todos. */
+  tipo?: string | null
   worker?: string | null
   project?: string | null
   dayType?: string | null
@@ -153,6 +190,7 @@ export interface BaseFilters {
  */
 export function filtrarBase(filas: readonly BaseRow[], filtros: BaseFilters): BaseRow[] {
   return filas.filter((fila) => {
+    if (filtros.tipo && fila.tipo !== filtros.tipo) return false
     if (filtros.dayType && fila.dayType !== filtros.dayType) return false
     if (filtros.estado && fila.estado !== filtros.estado) return false
     if (filtros.q) {
@@ -160,7 +198,8 @@ export function filtrarBase(filas: readonly BaseRow[], filtros: BaseFilters): Ba
       const enAlgo =
         fila.workerName.toLowerCase().includes(texto) ||
         (fila.projectName ?? '').toLowerCase().includes(texto) ||
-        (fila.crewName ?? '').toLowerCase().includes(texto)
+        (fila.crewName ?? '').toLowerCase().includes(texto) ||
+        (fila.payeeName ?? '').toLowerCase().includes(texto)
       if (!enAlgo) return false
     }
     return true
@@ -209,11 +248,14 @@ export function aCsv(filas: readonly BaseRow[]): string {
     'Año',
     'Fecha',
     'Día',
-    'Trabajador',
+    'Qué',
+    'Nombre',
     'Trabajó',
+    'Detalle',
     'Tarifa',
     'Vale el día',
     'Estado',
+    'Se le paga a',
     'Proyecto',
     'Cuadrilla',
     'Origen',
@@ -229,11 +271,14 @@ export function aCsv(filas: readonly BaseRow[]): string {
       String(f.weekYear),
       f.workDate,
       f.dayName,
+      TIPO_ETIQUETA[f.tipo],
       f.workerName,
       DIA_ETIQUETA[f.dayType] ?? f.dayType,
+      f.detalle ?? '',
       f.rate ?? '',
       f.amount ?? '',
       ESTADO_BASE[f.estado],
+      f.payeeName ?? '',
       f.projectName ?? '',
       f.crewName ?? '',
       f.fromImport ? 'Excel' : f.isControlOnly ? 'Control' : 'Capturado',
