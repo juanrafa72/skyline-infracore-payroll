@@ -31,6 +31,12 @@ const NAV: ReadonlyArray<{
       { href: '/inicio', label: 'Esta semana' },
       { href: '/payroll', label: 'Nómina' },
       { href: '/production', label: 'Producción', permission: 'payroll:view' },
+      /*
+        Las cuadrillas van por SU semana, no por la de la gente: la nómina
+        puede ir en la 33 mientras Hugo se liquida por la 25. Por eso tienen
+        pantalla propia y no viven solo dentro de la semana.
+      */
+      { href: '/liquidar-cuadrillas', label: 'Liquidar cuadrillas', permission: 'payroll:view' },
       { href: '/approvals', label: 'Aprobar', permission: 'payroll:approve' },
       { href: '/disbursements', label: 'Pagar', permission: 'payment:view' },
       // Va aquí, no en Catálogos: un aviso sin cerrar frena el pago de alguien

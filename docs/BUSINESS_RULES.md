@@ -557,3 +557,17 @@ activarlos para la semana y tampoco volver al menú anterior».
 | BR-427 | La pestaña **Rentados** se ve y se usa como la rejilla de gente: cuántos hay, botón para agregar, y **quitar** en cada fila. Rafael lo pidió así — dos partes de la misma pantalla que hacen lo mismo tienen que verse igual, o cada una se aprende por separado. | CONFIRMED (Rafael, 2026-08-16) |
 | BR-428 | Las **cuadrillas de la semana también se escogen**, y pueden ser varias: antes solo aparecían las que ya tenían producción capturada, así que no había por dónde empezar a liquidar una nueva. El bloque se muestra aunque no haya ninguna — escondiéndolo, el botón para agregar quedaba adentro de algo invisible. | CONFIRMED (Rafael, 2026-08-16) |
 | BR-429 | Agregar una cuadrilla **sin contratista** se permite, pero lo dice en el momento: sin él la liquidación no pasa la puerta de aprobación (BR-240), y enterarse al final es peor que enterarse al principio. | CONFIRMED |
+
+## 44. Las cuadrillas van por SU semana (BR-430 – BR-433)
+
+Rafael, 16/08: «en la cuadrilla uno debe poder seleccionar la semana que está
+pagando, porque puede que en nómina de empleados vayamos en la semana 20 pero
+en equipos vamos en la 18, y en cuadrillas podemos tener una cuadrilla en week
+25 y otra en week 30».
+
+| # | Regla | Estado |
+|---|-------|--------|
+| BR-430 | Las cuadrillas se liquidan en **pantalla propia**, escogiendo cuadrilla y semana. Lo que manda su calendario es cuándo llega la medición de lo construido, no la semana de la gente. Antes, para liquidar la semana 25 de Hugo había que abrir la página completa de la semana 25 —con su gente y sus equipos, que no tenían nada que ver. | CONFIRMED (Rafael, 2026-08-16) |
+| BR-431 | La página de **Nómina sigue mostrando solo las cuadrillas de SU semana**. Mezclar semanas distintas en una vista que se llama «semana 33» haría creer que se está viendo todo lo de esa semana cuando no es así. | CONFIRMED (Rafael, 2026-08-16) |
+| BR-432 | Al cambiar de cuadrilla **no se arrastra la semana** de la anterior: se propone la última donde ESA cuadrilla tiene algo. Arrastrarla es exactamente el error que la pantalla existe para evitar. | CONFIRMED |
+| BR-433 | La pantalla abre en la cuadrilla que **tiene algo que liquidar**, no en la primera del abecedario. Abrir en una sin contratista y con la vista vacía hace creer que no hay nada que hacer. | CONFIRMED |

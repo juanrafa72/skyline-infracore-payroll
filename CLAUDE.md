@@ -216,11 +216,16 @@ Al agregar una regla, va en el nivel puro.
   TRES pagables, con filtros en la URL y descarga a Excel. La tarifa sale
   congelada de `PayrollLine`, nunca de la vigente hoy: mostraría como pagado
   algo que nunca se pagó — BR-370…373, BR-380…382.
-- **`payroll/equipment/roster.ts`** — qué equipos van en ESTA semana (puro).
+- **`payroll/week-roster.ts`** — qué va en ESTA semana, equipos y cuadrillas (puro).
   La semana ofrecía todas las máquinas activas siempre; ahora se escogen, como
-  se escoge la gente. Un equipo está en la semana si lo escogieron **o** si ya
-  tiene días o liquidación —sin eso, las semanas viejas se abrirían vacías— y
-  no se saca si tiene trabajo encima — BR-420…424.
+  se escoge la gente. Está en la semana si lo escogieron **o** si ya tiene días
+  o liquidación —sin eso, las semanas viejas se abrirían vacías— y no se saca
+  si tiene trabajo encima — BR-420…424, BR-428.
+- **`/liquidar-cuadrillas`** — las cuadrillas NO van al ritmo de la gente: la
+  nómina puede ir en la 33 mientras Hugo se liquida por la 25 y Jesús por la
+  30, porque lo que manda es cuándo llega la medición. Pantalla propia con
+  selector de cuadrilla y de semana; Nómina sigue mostrando solo las de SU
+  semana — BR-430…433.
 - **`catalog/availability.ts`** — activar y desactivar personas y equipos.
   Nunca borra —los registros viejos los citan—; solo deja de ofrecerlos en las
   listas, que es lo que pidió el negocio cuando alguien sube de tarifa y se
@@ -490,8 +495,8 @@ netlify deploy --prod
 
 ## Estado
 
-**562 pruebas · 59 tablas · 23 migraciones · 26 pantallas** · `check`, `smoke`
-(44) y `flow` (106) en verde. 219 reglas de negocio documentadas.
+**562 pruebas · 60 tablas · 24 migraciones · 27 pantallas** · `check`, `smoke`
+(45) y `flow` (106) en verde. 226 reglas de negocio documentadas.
 
 **Lo que pidió el negocio el 15/08, ya construido:** la nómina de la semana
 tiene los TRES bloques con lo que de verdad se paga — personas, equipos y

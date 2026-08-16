@@ -91,6 +91,8 @@ const ROUTES = [
   '/users',
   '/customers',
   '/payroll',
+  // Las cuadrillas van por SU semana: pantalla propia con sus dos selectores.
+  '/liquidar-cuadrillas',
   '/reports',
   '/change-password',
 ]
