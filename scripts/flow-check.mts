@@ -691,6 +691,36 @@ async function main() {
   check('el pago queda a nombre del PROVEEDOR (BR-121)',
     equipPayment?.payeeType === 'VENDOR' && equipPayment?.vendorId === vendorRow.id)
 
+  /*
+   * Un equipo PROPIO se marca en la semana pero JAMÁS genera pago.
+   *
+   * Desde que el bloque muestra propios y rentados juntos, marcar días de una
+   * máquina nuestra podría fabricar una liquidación —y una transferencia— por
+   * algo que ya es de la casa. A14, BR-245.
+   */
+  const propio = await prisma.equipment.create({
+    data: {
+      companyId: PREFIX, code: 'FE-PROPIO', name: 'Camion Propio',
+      ownership: 'OWNED', dailyCost: '300.00', vendorId: vendorRow.id,
+    },
+  })
+  const projectPropio = await prisma.project.create({
+    data: { companyId: PREFIX, code: 'FLOW-OBRA-PROPIO', name: 'Obra del equipo propio' },
+  })
+  await prisma.equipmentEntry.createMany({
+    data: ['2026-07-20', '2026-07-21'].map((d) => ({
+      companyId: PREFIX, payrollWeekId: week.id, equipmentId: propio.id,
+      workDate: new Date(`${d}T00:00:00Z`), projectId: projectPropio.id,
+    })),
+  })
+  await syncEquipmentPayrolls(PREFIX, week.id)
+  check('un equipo PROPIO se marca pero nunca genera liquidación de pago',
+    (await prisma.equipmentPayroll.count({ where: { equipmentId: propio.id } })) === 0)
+  check('sus días sí quedan anotados, con el proyecto al que fue',
+    (await prisma.equipmentEntry.count({
+      where: { equipmentId: propio.id, projectId: projectPropio.id },
+    })) === 2)
+
   // Un equipo SIN costo diario: bloquea con error crítico, jamás paga $0.
   const sinCosto = await prisma.equipment.create({
     data: { companyId: PREFIX, code: 'FE2', name: 'Plow Flow', ownership: 'RENTED', vendorId: vendorRow.id },

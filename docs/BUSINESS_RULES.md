@@ -345,3 +345,12 @@ poder verificar contra lo que dice SharePoint.
 | BR-264 | Lo que dice la fuente externa (`expectedTotal`) se **teclea**: Microsoft rechaza extraer la base de SharePoint (406, etiqueta de confidencialidad). Vacío = sin conciliar, que NO es cero — regla 11. Queda quién concilió y cuándo. | CONFIRMED |
 | BR-265 | La conciliación **muestra la diferencia**, jamás la ajusta — regla 10. Cuatro estados: cuadra, no cuadra, falta el desglose, sin conciliar. Con desglose se compara contra la suma del desglose; sin él, contra la producción, y se avisa que falta. | CONFIRMED |
 | BR-266 | El desglose de una liquidación **pagada** es intocable (trigger `crew_payroll_member_frozen_when_paid`): es el soporte de por qué salió esa plata. Guardar el desglose invalida la aprobación si ya la había — quien aprobó vio otra tabla. | CONFIRMED |
+
+## 27. Equipos en la semana (BR-270 – BR-273)
+
+| # | Regla | Estado |
+|---|-------|--------|
+| BR-270 | El bloque de equipos de la semana muestra los **propios Y los rentados**, con filtro para separarlos. El negocio decide semana a semana cuál estuvo en obra; esconder los propios obligaba a llevar esa cuenta por fuera. | CONFIRMED (Rafael, 2026-08-15) |
+| BR-271 | Un equipo **PROPIO se marca pero NUNCA genera liquidación de pago**: no hay proveedor a quién pagarle y crearla pondría una transferencia por una máquina que ya es nuestra. Solo RENTED liquida (A14, BR-245). Si un equipo pasa de rentado a propio, su liquidación editable sobrante se retira. | CONFIRMED |
+| BR-272 | El alquiler se paga **por día** y se le carga a un **proyecto**: sin proyecto no se sabe a qué obra cargarle el costo. El proyecto se elige por equipo en la semana; si el equipo se mueve de obra, los días existentes se reasignan sin borrarse ni recrearse. | CONFIRMED (Rafael, 2026-08-15) |
+| BR-273 | El proyecto que se propone sale del primer día ya marcado, y si no hay ninguno, del asignado en la ficha del equipo. Propone; el usuario confirma. | CONFIRMED |

@@ -53,6 +53,24 @@ export async function syncEquipmentPayrolls(
     const machine = equipmentById.get(equipmentId)
     if (!machine) continue
 
+    /*
+     * Un equipo PROPIO no le debe nada a nadie.
+     *
+     * Sus días se marcan igual —el negocio quiere saber qué máquina estuvo en
+     * qué obra— pero jamás generan una liquidación: no hay proveedor a quién
+     * pagarle, y crearla pondría una transferencia en la orden de desembolso
+     * por una máquina que ya es nuestra. Solo RENTED liquida (A14, BR-245).
+     */
+    if (machine.ownership !== 'RENTED') {
+      // Si alguna vez fue rentado y cambió de dueño, su liquidación editable
+      // sobrante se retira: dejarla ahí pagaría por algo que ya no se alquila.
+      const sobrante = existingByEquipment.get(equipmentId)
+      if (sobrante && EDITABLE.includes(sobrante.status as (typeof EDITABLE)[number])) {
+        await prisma.equipmentPayroll.delete({ where: { id: sobrante.id } })
+      }
+      continue
+    }
+
     const current = existingByEquipment.get(equipmentId)
     if (current && !EDITABLE.includes(current.status as (typeof EDITABLE)[number])) {
       untouched.push({
@@ -171,6 +189,12 @@ export async function saveEquipmentDays(
   input: {
     equipmentIds: readonly string[]
     marked: ReadonlyArray<{ equipmentId: string; date: string }>
+    /**
+     * A qué proyecto se le carga el alquiler de cada equipo esta semana:
+     * `equipmentId` → `projectId`. Sin proyecto no se sabe a qué obra cargarle
+     * el costo, que es el mismo hueco que dejaba el margen incompleto.
+     */
+    projects?: Readonly<Record<string, string>>
   },
 ): Promise<EquipmentDaysResult> {
   const week = await prisma.payrollWeek.findFirst({
@@ -212,16 +236,22 @@ export async function saveEquipmentDays(
   let created = 0
   let removed = 0
 
+  const proyectoDe = (equipmentId: string): string | null =>
+    input.projects?.[equipmentId] || null
+
+  let reproyectados = 0
+
   await prisma.$transaction(async (tx) => {
     for (const key of markedSet) {
-      if (currentSet.has(key)) continue
       const [equipmentId, date] = key.split(':') as [string, string]
+      if (currentSet.has(key)) continue
       await tx.equipmentEntry.create({
         data: {
           companyId: user.companyId,
           payrollWeekId,
           equipmentId,
           workDate: new Date(`${date}T00:00:00Z`),
+          projectId: proyectoDe(equipmentId),
           createdById: user.id,
         },
       })
@@ -230,9 +260,18 @@ export async function saveEquipmentDays(
 
     for (const entry of current) {
       const key = `${entry.equipmentId}:${toIso(entry.workDate)}`
-      if (markedSet.has(key)) continue
-      await tx.equipmentEntry.delete({ where: { id: entry.id } })
-      removed += 1
+      if (!markedSet.has(key)) {
+        await tx.equipmentEntry.delete({ where: { id: entry.id } })
+        removed += 1
+        continue
+      }
+      // El día sigue marcado, pero pudo cambiar de obra: el equipo se movió de
+      // pueblo a mitad de semana. Se actualiza sin borrar y recrear el día.
+      const nuevo = proyectoDe(entry.equipmentId)
+      if (nuevo !== entry.projectId) {
+        await tx.equipmentEntry.update({ where: { id: entry.id }, data: { projectId: nuevo } })
+        reproyectados += 1
+      }
     }
 
     await tx.auditLog.create({
@@ -244,7 +283,7 @@ export async function saveEquipmentDays(
         entityType: 'PayrollWeek',
         entityId: payrollWeekId,
         payrollWeekId,
-        newValueJson: { created, removed },
+        newValueJson: { created, removed, reproyectados },
         changedFields: ['equipmentEntries'],
       },
     })
@@ -252,7 +291,9 @@ export async function saveEquipmentDays(
 
   await reconcileEquipmentWeek(user.companyId, payrollWeekId)
 
-  const summary = `${created} día(s) de equipo anotado(s), ${removed} quitado(s).`
+  const summary =
+    `${created} día(s) de equipo anotado(s), ${removed} quitado(s)` +
+    (reproyectados > 0 ? `, ${reproyectados} cambiado(s) de proyecto.` : '.')
   if (frozen.length > 0) {
     return {
       ok: true,
@@ -266,24 +307,41 @@ export interface EquipmentWeekView {
   equipmentId: string
   name: string
   kindLabel: string
+  /** RENTED = se le paga al proveedor · OWNED = costo interno, no se paga. */
+  ownership: 'RENTED' | 'OWNED'
   dailyCost: string | null
   vendorName: string | null
   hasVendor: boolean
   payable: { id: string; total: string; days: number; status: string } | null
   /** Días marcados: `equipmentId:YYYY-MM-DD`. */
   markedDays: ReadonlyArray<string>
+  /**
+   * A qué proyecto se le carga el alquiler, por día:
+   * `equipmentId:YYYY-MM-DD` → projectId. Sin proyecto no se sabe a qué obra
+   * cargarle el costo — el mismo hueco que dejaba el margen incompleto.
+   */
+  projectByDay: Readonly<Record<string, string>>
+  /** Proyecto de la ficha del equipo. Se propone al marcar un día nuevo. */
+  defaultProjectId: string | null
 }
 
-/** Equipos RENTADOS activos con sus días y liquidación de la semana. */
+/**
+ * Equipos activos con sus días y liquidación de la semana.
+ *
+ * Trae los RENTADOS **y** los PROPIOS: el negocio quiere ver ambos y decidir
+ * cuál está en obra esta semana. La diferencia no es si se marcan días, es a
+ * quién se le paga — el propio no le debe nada a nadie (A14), pero su uso sí
+ * es costo de la obra y hay que poder registrarlo.
+ */
 export async function weekEquipmentViews(
   companyId: string,
   payrollWeekId: string,
 ): Promise<EquipmentWeekView[]> {
   const [machines, entries, payables] = await Promise.all([
     prisma.equipment.findMany({
-      where: { companyId, ownership: 'RENTED', status: 'ACTIVE' },
+      where: { companyId, status: 'ACTIVE' },
       include: { vendor: { select: { name: true } } },
-      orderBy: { name: 'asc' },
+      orderBy: [{ ownership: 'asc' }, { name: 'asc' }],
     }),
     prisma.equipmentEntry.findMany({ where: { companyId, payrollWeekId } }),
     prisma.equipmentPayroll.findMany({ where: { companyId, payrollWeekId } }),
@@ -291,10 +349,13 @@ export async function weekEquipmentViews(
 
   const payableByEquipment = new Map(payables.map((row) => [row.equipmentId, row]))
   const daysByEquipment = new Map<string, string[]>()
+  const projectByDay: Record<string, string> = {}
   for (const entry of entries) {
+    const key = `${entry.equipmentId}:${toIso(entry.workDate)}`
     const list = daysByEquipment.get(entry.equipmentId) ?? []
-    list.push(`${entry.equipmentId}:${toIso(entry.workDate)}`)
+    list.push(key)
     daysByEquipment.set(entry.equipmentId, list)
+    if (entry.projectId) projectByDay[key] = entry.projectId
   }
 
   const KIND: Record<string, string> = { MACHINE: 'Máquina', VEHICLE: 'Vehículo', TOOL: 'Herramienta' }
@@ -305,6 +366,7 @@ export async function weekEquipmentViews(
       equipmentId: machine.id,
       name: machine.name,
       kindLabel: KIND[machine.kind] ?? machine.kind,
+      ownership: machine.ownership === 'RENTED' ? 'RENTED' : 'OWNED',
       dailyCost: machine.dailyCost ? machine.dailyCost.toFixed(2) : null,
       vendorName: machine.vendor?.name ?? null,
       hasVendor: machine.vendorId !== null,
@@ -317,6 +379,8 @@ export async function weekEquipmentViews(
           }
         : null,
       markedDays: daysByEquipment.get(machine.id) ?? [],
+      projectByDay,
+      defaultProjectId: machine.assignedProjectId,
     }
   })
 }

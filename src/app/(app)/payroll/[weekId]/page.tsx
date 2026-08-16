@@ -154,6 +154,7 @@ export default async function WeekPage({
     equipmentId: view.equipmentId,
     name: view.name,
     kindLabel: view.kindLabel,
+    ownership: view.ownership,
     dailyCost: view.dailyCost,
     vendorName: view.vendorName,
     hasVendor: view.hasVendor,
@@ -165,6 +166,14 @@ export default async function WeekPage({
         }
       : null,
     markedDays: view.markedDays,
+    /*
+     * El proyecto de sus días. Se toma el del primer día marcado: la renta se
+     * carga a una obra por semana. Si todavía no hay días, se propone el de la
+     * ficha del equipo.
+     */
+    projectId:
+      view.markedDays.map((key) => view.projectByDay[key]).find(Boolean) ??
+      view.defaultProjectId,
   }))
 
   const crewsForBlock = crewViews.map((view) => ({
@@ -644,13 +653,14 @@ export default async function WeekPage({
             <AddWorkerInline weekId={week.id} operations={operations} />
           </section>
 
-          {/* Bloque 2: equipo rentado. Bloque 3: cuadrillas. El orden es el
+          {/* Bloque 2: equipos. Bloque 3: cuadrillas. El orden es el
               que pidió el negocio: personal / equipo / crews. */}
           {equipmentRows.length > 0 ? (
             <EquipmentBlock
               weekId={week.id}
               shortDays={days.map((iso) => ({ iso, label: shortDay(iso) }))}
               rows={equipmentRows}
+              projects={projects.map((project) => ({ id: project.id, name: project.name }))}
             />
           ) : null}
 

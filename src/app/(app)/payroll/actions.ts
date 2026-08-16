@@ -691,18 +691,24 @@ export async function saveEquipmentWeekDays(
 
   const equipmentIds: string[] = []
   const marked: Array<{ equipmentId: string; date: string }> = []
+  // A qué obra se le carga el alquiler de cada equipo esta semana.
+  const projects: Record<string, string> = {}
 
-  for (const [key] of formData.entries()) {
+  for (const [key, raw] of formData.entries()) {
     if (key.startsWith('equipomember:')) {
       const equipmentId = key.slice('equipomember:'.length)
       if (equipmentId) equipmentIds.push(equipmentId)
     } else if (key.startsWith('equipoday:')) {
       const [, equipmentId, date] = key.split(':')
       if (equipmentId && date) marked.push({ equipmentId, date })
+    } else if (key.startsWith('equipoproyecto:')) {
+      const equipmentId = key.slice('equipoproyecto:'.length)
+      const projectId = String(raw)
+      if (equipmentId && projectId) projects[equipmentId] = projectId
     }
   }
 
-  const result = await saveEquipmentDays(user, weekId, { equipmentIds, marked })
+  const result = await saveEquipmentDays(user, weekId, { equipmentIds, marked, projects })
   revalidatePath(`/payroll/${weekId}`)
   revalidatePath('/approvals')
   return result.ok ? `LISTO|${result.message}` : result.message
