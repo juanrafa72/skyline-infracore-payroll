@@ -231,6 +231,7 @@ model Project {
   production  Production[]
   billingRates BillingRate[]
   equipmentEntries EquipmentEntry[]
+  crewDayEntries   CrewDayEntry[]
 
   @@unique([companyId, code])
   @@map("project")
@@ -416,6 +417,26 @@ model Crew {
   /// interna. Mientras esté apagado, el reparto entre integrantes ni se pide
   /// ni se muestra.
   tracksInternalAccounting Boolean @default(false)
+
+  /*
+   * CÓMO COBRA ESTA CUADRILLA.
+   *
+   * `PRODUCTION` = por unidad construida (pies de fibra, de strand). Es lo
+   * que había: la liquidación sale de sumar su `Production` de la semana.
+   *
+   * `DAILY` = un precio FIJO por día trabajado, sin importar cuánto
+   * construyó. Pasa de verdad y no se podía registrar: había que inventarle
+   * una producción falsa para que el sistema la liquidara.
+   *
+   * En los dos casos se le paga al CONTRATISTA (BR-242) y se le lleva su
+   * nómina interna igual — cambia de dónde sale el total, no a quién se le
+   * paga ni cómo se reparte.
+   */
+  billingMode CrewBillingMode @default(PRODUCTION)
+  /// Solo para DAILY: lo que se le paga por día. Sin esto no calcula, igual
+  /// que un equipo rentado sin costo diario (BR-245).
+  dailyRate   Decimal?        @db.Decimal(18, 2)
+
   active         Boolean @default(true)
   createdAt      DateTime @default(now())
 
@@ -434,8 +455,43 @@ model Crew {
   payrolls    CrewPayroll[]
   equipmentEntries EquipmentEntry[]
 
+  dayEntries  CrewDayEntry[]
+
   @@unique([companyId, code])
   @@map("crew")
+}
+
+enum CrewBillingMode {
+  /// Por unidad construida: pies de fibra, de strand.
+  PRODUCTION
+  /// Precio fijo por día trabajado.
+  DAILY
+}
+
+/// Un día que trabajó una cuadrilla que cobra POR DÍA.
+///
+/// Es el equivalente del día de un equipo rentado: se marca en la semana y de
+/// ahí sale la liquidación (días × tarifa diaria congelada). No confundir con
+/// `WorkEntry.isControlOnly`, que son los días de la GENTE de la cuadrilla —
+/// esos anotan, no pagan (BR-243). Este sí paga, y le paga al contratista.
+model CrewDayEntry {
+  id            String   @id @default(uuid(7))
+  companyId     String
+  payrollWeekId String
+  crewId        String
+  workDate      DateTime @db.Date
+  projectId     String?
+  notes         String?
+  createdById   String?
+  createdAt     DateTime @default(now())
+
+  payrollWeek PayrollWeek @relation(fields: [payrollWeekId], references: [id])
+  crew        Crew        @relation(fields: [crewId], references: [id])
+  project     Project?    @relation(fields: [projectId], references: [id])
+
+  @@unique([companyId, crewId, workDate])
+  @@index([companyId, payrollWeekId])
+  @@map("crew_day_entry")
 }
 
 /// Lo que se le paga a la cuadrilla por unidad producida.
@@ -713,6 +769,7 @@ model PayrollWeek {
   crewPayrolls      CrewPayroll[]
   equipmentPayrolls EquipmentPayroll[]
   equipmentEntries  EquipmentEntry[]
+  crewDayEntries    CrewDayEntry[]
 
   @@unique([companyId, year, weekNumber])
   @@index([companyId, startDate])
@@ -939,8 +996,24 @@ model CrewPayroll {
   /// Σ Production.amount (COSTO) de esa cuadrilla en esa semana, y de cuántos
   /// registros sale. La cifra es dinero que va a salir del banco: se recalcula
   /// solo mientras el estado lo permita, jamás en silencio después de aprobar.
+  ///
+  /// Cuando la cuadrilla cobra POR DÍA, aquí va días × tarifa diaria y el
+  /// conteo son los días: el campo es «lo que se le debe», no «lo que
+  /// produjo». Se conserva el nombre porque renombrarlo tocaría triggers,
+  /// snapshots y liquidaciones ya pagadas.
   productionTotal Decimal @default(0) @db.Decimal(18, 2)
   productionCount Int     @default(0)
+
+  /*
+   * CÓMO se calculó, congelado.
+   *
+   * Sin esto, cambiar mañana el modo de cobro de la cuadrilla haría que una
+   * liquidación vieja se leyera con la regla nueva — misma razón por la que
+   * las tarifas se congelan (regla 8).
+   */
+  billingModeSnapshot CrewBillingMode @default(PRODUCTION)
+  /// Solo DAILY: la tarifa diaria aplicada. Nula en las de producción.
+  appliedDailyRate    Decimal?        @db.Decimal(18, 2)
 
   /// Huella de las entradas materiales (producción + contratista + total).
   /// Si cambia tras aprobar, la aprobación se cae sola — misma regla 5.

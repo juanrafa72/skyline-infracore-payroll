@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
+import { assertCan } from '@/lib/auth/rbac'
 import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
 
@@ -236,4 +237,74 @@ export async function setCrewShare(formData: FormData) {
   })
 
   revalidatePath(`/crews/${parsed.crewId}`)
+}
+
+/**
+ * Cómo cobra la cuadrilla y a quién se le paga.
+ *
+ * Dos datos que van juntos porque se deciden juntos: si cobra por pie
+ * construido o un precio fijo por día, y quién es el contratista que recibe el
+ * dinero (BR-242). Sin contratista no se puede aprobar, y sin tarifa diaria
+ * una cuadrilla de cobro diario no calcula.
+ */
+export async function setCrewBilling(
+  _previous: string | null,
+  formData: FormData,
+): Promise<string> {
+  const user = await assertCan('crew:manage')
+  const company = await getActiveCompany()
+  const crewId = String(formData.get('crewId') ?? '')
+
+  const crew = await prisma.crew.findFirst({ where: { id: crewId, companyId: company.id } })
+  if (!crew) return 'Esa cuadrilla no existe en esta compañía.'
+
+  const billingMode = String(formData.get('billingMode') ?? 'PRODUCTION') === 'DAILY'
+    ? 'DAILY'
+    : 'PRODUCTION'
+  const contractorId = String(formData.get('contractorId') ?? '') || null
+
+  let dailyRate: string | null = null
+  const raw = String(formData.get('dailyRate') ?? '').trim()
+  if (billingMode === 'DAILY' && raw !== '') {
+    const limpio = raw.replace(/[$\s,]/g, '')
+    if (!/^\d+(\.\d{1,2})?$/.test(limpio)) {
+      return `«${raw}» no es un monto válido. Escríbelo como 800.00`
+    }
+    dailyRate = Number(limpio).toFixed(2)
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.crew.update({
+      where: { id: crew.id },
+      // La tarifa diaria se conserva al volver a producción: si mañana cambia
+      // de opinión, no tiene que volver a teclearla.
+      data: { billingMode, contractorId, ...(dailyRate !== null ? { dailyRate } : {}) },
+    })
+
+    await tx.auditLog.create({
+      data: {
+        companyId: company.id,
+        userId: user.id,
+        userEmailSnapshot: user.email,
+        action: 'CREW_BILLING_UPDATED',
+        entityType: 'Crew',
+        entityId: crew.id,
+        oldValueJson: {
+          billingMode: crew.billingMode,
+          dailyRate: crew.dailyRate?.toFixed(2) ?? null,
+          contractorId: crew.contractorId,
+        },
+        newValueJson: { billingMode, dailyRate, contractorId },
+        changedFields: ['billingMode', 'dailyRate', 'contractorId'],
+        reason: 'Cómo cobra la cuadrilla y a quién se le paga',
+      },
+    })
+  })
+
+  revalidatePath(`/crews/${crewId}`)
+  revalidatePath('/crews')
+
+  return billingMode === 'DAILY'
+    ? `LISTO|${crew.name} cobra ${dailyRate ? `$${dailyRate}` : '(falta la tarifa)'} por día.`
+    : `LISTO|${crew.name} cobra por producción.`
 }

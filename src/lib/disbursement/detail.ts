@@ -29,9 +29,25 @@ export function workerDetail(daysFull: number, daysHalf: number): string | null 
   return `${value} ${value === '1' ? 'día' : 'días'}`
 }
 
-/** Producción de una cuadrilla: «3 registros de producción». */
-export function crewDetail(productionCount: number): string {
-  return `${productionCount} ${productionCount === 1 ? 'registro' : 'registros'} de producción`
+/**
+ * Contra qué se le paga a una cuadrilla.
+ *
+ * Depende de cómo cobre: «3 registros de producción» si es por pie
+ * construido, «5 días × $800.00» si es un precio fijo por día. En el
+ * desprendible tiene que leerse la cuenta que de verdad se hizo — decir
+ * «registros de producción» en una cuadrilla que cobra por día haría buscar
+ * una producción que no existe.
+ */
+export function crewDetail(
+  count: number,
+  billingMode: string = 'PRODUCTION',
+  dailyRate?: string | null,
+): string {
+  if (billingMode === 'DAILY') {
+    const dias = `${count} ${count === 1 ? 'día' : 'días'}`
+    return dailyRate ? `${dias} × ${money(dailyRate)}` : dias
+  }
+  return `${count} ${count === 1 ? 'registro' : 'registros'} de producción`
 }
 
 /** Alquiler de un equipo: «4 días × $450.00». */

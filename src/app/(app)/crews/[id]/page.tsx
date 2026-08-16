@@ -1,8 +1,10 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { Badge, Button, Card, EmptyState, Field, PageHeader, money } from '@/components/ui'
+import { requireUser } from '@/lib/auth/rbac'
 import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
+import { BillingForm } from './BillingForm'
 import { PricingForm } from './PricingForm'
 import { toIso } from '@/lib/payroll/week'
 import {
@@ -22,6 +24,7 @@ const SHARE_LABEL: Record<string, string> = {
 
 export default async function CrewPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
+  const user = await requireUser()
   const company = await getActiveCompany()
 
   const crew = await prisma.crew.findFirst({
@@ -37,7 +40,7 @@ export default async function CrewPage({ params }: { params: Promise<{ id: strin
   })
   if (!crew) notFound()
 
-  const [projects, workers, customers] = await Promise.all([
+  const [projects, workers, customers, contractors] = await Promise.all([
     prisma.project.findMany({ where: { companyId: company.id, active: true }, orderBy: { name: 'asc' } }),
     prisma.worker.findMany({
       where: { companyId: company.id, status: 'ACTIVE' },
@@ -45,6 +48,11 @@ export default async function CrewPage({ params }: { params: Promise<{ id: strin
       select: { id: true, displayName: true },
     }),
     prisma.customer.findMany({
+      where: { companyId: company.id, active: true },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true },
+    }),
+    prisma.contractor.findMany({
       where: { companyId: company.id, active: true },
       orderBy: { name: 'asc' },
       select: { id: true, name: true },
@@ -73,6 +81,21 @@ export default async function CrewPage({ params }: { params: Promise<{ id: strin
       />
 
       <div className="grid gap-5 lg:grid-cols-2">
+        {/*
+          Cómo cobra y a quién se le paga. Va de primero porque decide todo lo
+          demás: una cuadrilla que cobra por día no usa los precios por unidad.
+        */}
+        <div className="lg:col-span-2">
+          <BillingForm
+            crewId={crew.id}
+            billingMode={crew.billingMode === 'DAILY' ? 'DAILY' : 'PRODUCTION'}
+            dailyRate={crew.dailyRate ? crew.dailyRate.toFixed(2) : null}
+            contractorId={crew.contractorId}
+            contractors={contractors}
+            canManage={user.permissions.has('crew:manage')}
+          />
+        </div>
+
         {/* ── Negociación ── */}
         <Card className="lg:col-span-2">
           <h2 className="text-sm font-semibold">Negociación de la cuadrilla</h2>

@@ -300,6 +300,14 @@ export interface CrewMaterialFields {
     appliedPrice: string
     amount: string
   }>
+  /**
+   * Cuando la cuadrilla cobra por DÍA, lo material son los días y la tarifa.
+   * Entran a la huella igual que la producción: cambiarle un día o la tarifa a
+   * algo ya aprobado tiene que tumbar la aprobación.
+   */
+  billingMode?: string
+  days?: readonly string[]
+  appliedDailyRate?: string | null
   total: string
 }
 
@@ -310,6 +318,9 @@ export function crewCalculationHash(fields: CrewMaterialFields): string {
     production: [...fields.production]
       .map((row) => [row.date, row.unitCode, row.quantity, row.appliedPrice, row.amount].join('|'))
       .sort(),
+    billingMode: fields.billingMode ?? 'PRODUCTION',
+    days: [...(fields.days ?? [])].sort(),
+    appliedDailyRate: fields.appliedDailyRate ?? '',
     total: fields.total,
   }
   return createHash('sha256').update(JSON.stringify(canonical)).digest('hex')

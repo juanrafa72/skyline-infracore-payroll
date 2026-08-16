@@ -192,6 +192,10 @@ export default async function WeekPage({
     crewName: view.crewName,
     contractorName: view.contractorName,
     hasContractor: view.hasContractor,
+    billingMode: view.billingMode,
+    dailyRate: view.dailyRate,
+    crewDays: view.crewDays,
+    projectId: view.projectId,
     payable: view.payable
       ? {
           total: view.payable.total,
@@ -700,6 +704,7 @@ export default async function WeekPage({
               weekId={week.id}
               shortDays={days.map((iso) => ({ iso, label: shortDay(iso) }))}
               crews={crewsForBlock}
+              projects={projects.map((project) => ({ id: project.id, name: project.name }))}
               panels={contractorPanels}
               loose={looseProduction.map(productionRow)}
             />

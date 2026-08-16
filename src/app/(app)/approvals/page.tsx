@@ -294,7 +294,11 @@ export default async function ApprovalsPage() {
         weekId: payroll.payrollWeekId,
         weekLabel: `${payroll.payrollWeek.label} · ${payroll.payrollWeek.year}`,
         period: `${toIso(payroll.payrollWeek.startDate)} → ${toIso(payroll.payrollWeek.endDate)}`,
-        detail: crewDetail(payroll.productionCount),
+        detail: crewDetail(
+        payroll.productionCount,
+        payroll.billingModeSnapshot,
+        payroll.appliedDailyRate?.toFixed(2) ?? null,
+      ),
         total: payroll.productionTotal.toFixed(2),
         recipientId: payroll.paymentRecipientId,
         recipientName: payroll.paymentRecipient?.name ?? null,

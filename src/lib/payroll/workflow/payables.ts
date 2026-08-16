@@ -189,14 +189,25 @@ const workerDelegate: PayableDelegate = {
 
 export async function crewCurrentHash(crewPayrollId: string): Promise<string> {
   const payroll = await prisma.crewPayroll.findUniqueOrThrow({ where: { id: crewPayrollId } })
-  const production = await prisma.production.findMany({
-    where: {
-      companyId: payroll.companyId,
-      payrollWeekId: payroll.payrollWeekId,
-      crewId: payroll.crewId,
-    },
-    orderBy: { productionDate: 'asc' },
-  })
+  const [production, dias] = await Promise.all([
+    prisma.production.findMany({
+      where: {
+        companyId: payroll.companyId,
+        payrollWeekId: payroll.payrollWeekId,
+        crewId: payroll.crewId,
+      },
+      orderBy: { productionDate: 'asc' },
+    }),
+    // Los días de las que cobran por día son tan materiales como la producción.
+    prisma.crewDayEntry.findMany({
+      where: {
+        companyId: payroll.companyId,
+        payrollWeekId: payroll.payrollWeekId,
+        crewId: payroll.crewId,
+      },
+      orderBy: { workDate: 'asc' },
+    }),
+  ])
 
   return crewCalculationHash({
     crewId: payroll.crewId,
@@ -208,6 +219,9 @@ export async function crewCurrentHash(crewPayrollId: string): Promise<string> {
       appliedPrice: row.appliedPrice.toString(),
       amount: row.amount.toFixed(2),
     })),
+    billingMode: payroll.billingModeSnapshot,
+    days: dias.map((row) => toIso(row.workDate)),
+    appliedDailyRate: payroll.appliedDailyRate?.toFixed(2) ?? null,
     total: payroll.productionTotal.toFixed(2),
   })
 }
@@ -231,10 +245,16 @@ const crewDelegate: PayableDelegate = {
       approveBlocker: payroll.contractorId
         ? null
         : 'La cuadrilla no tiene contratista asignado. A él es a quien se le paga: asígnalo en Cuadrillas antes de aprobar.',
-      // Sin un solo registro de producción no hay contra qué liquidar.
+      /*
+       * Sin nada detrás: ni producción ni días marcados, según cómo cobre.
+       * `productionCount` lleva las dos cosas — registros de producción en las
+       * de pie construido, días trabajados en las de precio fijo por día.
+       */
       isEmpty: payroll.productionCount === 0,
       emptyReason:
-        'No tiene producción registrada esta semana. Captúrala en Producción o quita la cuadrilla.',
+        payroll.billingModeSnapshot === 'DAILY'
+          ? 'No tiene días marcados esta semana. Márcalos en la semana o quita la cuadrilla.'
+          : 'No tiene producción registrada esta semana. Captúrala en Producción o quita la cuadrilla.',
     }
   },
   currentHash: crewCurrentHash,

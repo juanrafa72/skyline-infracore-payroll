@@ -18,6 +18,12 @@ export interface CrewView {
   crewName: string
   contractorName: string | null
   hasContractor: boolean
+  /** PRODUCTION = por pie construido · DAILY = precio fijo por día. */
+  billingMode: 'PRODUCTION' | 'DAILY'
+  dailyRate: string | null
+  /** Solo DAILY: días ya marcados, `crewId:YYYY-MM-DD`. */
+  crewDays: ReadonlyArray<string>
+  projectId: string | null
   payable: { total: string; count: number; statusLabel: string } | null
   members: ReadonlyArray<{ workerId: string; name: string }>
   controlDays: ReadonlyArray<string>
@@ -45,6 +51,7 @@ export function CrewsBlock({
   shortDays,
   crews,
   loose,
+  projects = [],
   panels = [],
 }: {
   weekId: string
@@ -53,6 +60,8 @@ export function CrewsBlock({
   crews: readonly CrewView[]
   /** Producción sin cuadrilla (histórica): visible para que no se pierda. */
   loose: readonly CrewProductionRow[]
+  /** Para elegir a qué obra se le carga una cuadrilla que cobra por día. */
+  projects?: ReadonlyArray<{ id: string; name: string }>
   /** Desglose y conciliación por contratista, uno por liquidación calculada. */
   panels?: readonly ContractorPanel[]
 }) {
@@ -92,7 +101,23 @@ export function CrewsBlock({
             <li key={crew.crewId} className="p-3.5">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <div>
-                  <p className="text-sm font-semibold">{crew.crewName}</p>
+                  <p className="text-sm font-semibold">
+                    {crew.crewName}
+                    {/* Cómo cobra: por pie construido o precio fijo por día. */}
+                    <span
+                      className={`ml-2 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                        crew.billingMode === 'DAILY'
+                          ? 'bg-sky-100 text-sky-900'
+                          : 'bg-[var(--hover)] text-[var(--muted)]'
+                      }`}
+                    >
+                      {crew.billingMode === 'DAILY'
+                        ? crew.dailyRate
+                          ? `$${currency(crew.dailyRate)} por día`
+                          : 'por día — falta la tarifa'
+                        : 'por producción'}
+                    </span>
+                  </p>
                   <p className="text-xs text-[var(--muted)]">
                     {crew.hasContractor ? (
                       <>se le paga a <strong>{crew.contractorName}</strong></>
@@ -109,7 +134,10 @@ export function CrewsBlock({
                       ${currency(crew.payable.total)}
                     </p>
                     <p className="text-xs text-[var(--muted)]">
-                      {crew.payable.count} registro(s) · {crew.payable.statusLabel}
+                      {crew.billingMode === 'DAILY'
+                        ? `${crew.payable.count} día(s)`
+                        : `${crew.payable.count} registro(s)`}{' '}
+                      · {crew.payable.statusLabel}
                     </p>
                   </div>
                 ) : (
@@ -118,6 +146,61 @@ export function CrewsBlock({
                   </p>
                 )}
               </div>
+
+              {/*
+                Días de la cuadrilla que cobra POR DÍA.
+                No confundir con los días de control de su gente, que van
+                abajo: estos SÍ pagan, y le pagan al contratista.
+              */}
+              {crew.billingMode === 'DAILY' ? (
+                <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50/50 p-2.5">
+                  <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-medium">Días que trabajó la cuadrilla</span>
+                    {projects.length > 0 ? (
+                      <label className="text-xs">
+                        <span className="mr-1 text-[var(--muted)]">Proyecto:</span>
+                        <select
+                          name={`crewproyecto:${crew.crewId}`}
+                          defaultValue={crew.projectId ?? ''}
+                          className="h-7 rounded border border-[var(--border)] bg-[var(--bg)] px-1 text-xs"
+                        >
+                          <option value="">— sin proyecto —</option>
+                          {projects.map((project) => (
+                            <option key={project.id} value={project.id}>
+                              {project.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
+                  </div>
+
+                  <input type="hidden" name={`crewmember:${crew.crewId}`} value="1" />
+                  <div className="flex flex-wrap gap-2">
+                    {shortDays.map((day) => (
+                      <label
+                        key={day.iso}
+                        className="flex items-center gap-1 text-xs text-[var(--muted)]"
+                      >
+                        <input
+                          type="checkbox"
+                          name={`crewday:${crew.crewId}:${day.iso}`}
+                          defaultChecked={crew.crewDays.includes(`${crew.crewId}:${day.iso}`)}
+                          className="h-3.5 w-3.5"
+                        />
+                        {day.label}
+                      </label>
+                    ))}
+                  </div>
+
+                  {!crew.dailyRate ? (
+                    <p className="mt-1.5 text-xs font-medium text-red-700">
+                      Falta la tarifa diaria de esta cuadrilla. Ponla en Catálogos → Cuadrillas:
+                      sin ella no se puede calcular lo que se le debe.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
 
               {crew.production.length > 0 ? (
                 <ul className="mt-2 space-y-0.5">

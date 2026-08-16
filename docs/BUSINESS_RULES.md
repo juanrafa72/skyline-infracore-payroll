@@ -409,3 +409,18 @@ Salieron de recorrer la aplicación como usuario, no de una especificación.
 | BR-331 | El bloque de equipos **abre en Rentados**, que es lo que se paga — salvo que no haya ninguno, porque una lista vacía sería peor. Con «Todos» de entrada había que pasar por encima de siete máquinas propias antes de llegar a la que genera una transferencia. | CONFIRMED |
 | BR-332 | El selector de proyecto pone arriba **los que ya se usan en la semana**, separados de los demás. Son 21 y el selector sale en cada fila: en una semana de 40 personas son 40 listas de 21 pueblos. Dentro de cada grupo el orden es alfabético y no cambia con cada marca — si cambiara, la posición dejaría de ser memoria muscular. | CONFIRMED |
 | BR-333 | Una liquidación **VACÍA** —cero días marcados, cero producción— no sale a aprobación ni se aprueba: aprobar la nada no ordena ningún pago y hace más fácil aprobar de corrido algo que sí importa. **VACÍA no es EN CERO**: a quien un préstamo le come todo el neto sí trabajó y su nómina recorre el flujo completo; y un equipo con días pero sin costo diario sí llega a aprobación, para frenarse ahí con su error crítico (BR-245). Cada tipo de pagable define qué es vacío para él (`isEmpty`). | CONFIRMED |
+
+## 34. Cuadrillas que cobran por día (BR-340 – BR-344)
+
+Lo pidió el negocio: «no solamente son por producción, también pueden ser pagos
+fijos por días, pero se le paga a una cuadrilla que igual toca hacerle su
+nómina interna». Antes había que inventarle una producción falsa para que el
+sistema la liquidara.
+
+| # | Regla | Estado |
+|---|-------|--------|
+| BR-340 | Una cuadrilla cobra **por producción** (pie construido) **o un precio fijo por día** (`Crew.billingMode`). En los dos casos se le paga al CONTRATISTA (BR-242) y se le lleva su nómina interna (BR-262): cambia de dónde sale el total, no a quién se le paga ni cómo se reparte. | CONFIRMED (Rafael, 2026-08-16) |
+| BR-341 | Los días de una cuadrilla de cobro diario (`CrewDayEntry`) **SÍ pagan** — no confundir con los días de control de su gente (`WorkEntry.isControlOnly`), que anotan y no pagan (BR-243). Una cuadrilla no puede cobrar dos veces el mismo día (índice único). Los de una liquidación pagada son intocables (trigger). | CONFIRMED |
+| BR-342 | Sin tarifa diaria **no se paga $0.00 en silencio**: la liquidación queda en cero y un aviso CRÍTICO frena la aprobación, igual que un equipo rentado sin costo (BR-245). | CONFIRMED |
+| BR-343 | El modo de cobro, los días y la tarifa aplicada quedan **congelados** en la liquidación (`billingModeSnapshot`, `appliedDailyRate`) y entran a la **huella de aprobación**: cambiar un día o la tarifa después de aprobar la tumba, igual que cambiar producción. | CONFIRMED |
+| BR-344 | El desprendible dice contra qué se paga según el modo: «3 registros de producción» o «5 días × $800.00». Decir «registros de producción» en una cuadrilla que cobra por día haría buscar una producción que no existe. | CONFIRMED |

@@ -25,7 +25,7 @@ import { toIso } from '@/lib/payroll/week'
 import { invalidateIfStale } from '@/lib/payroll/workflow/service'
 import { currentRoster, removeFromRoster, setRoster } from '@/lib/payroll/roster'
 import { addExtra, removeExtra } from '@/lib/payroll/extras/service'
-import { saveControlDays, syncCrewPayrolls } from '@/lib/payroll/crews/service'
+import { saveControlDays, saveCrewDays, syncCrewPayrolls } from '@/lib/payroll/crews/service'
 import {
   saveCrewBreakdown,
   saveExpectedTotal,
@@ -671,6 +671,18 @@ export async function saveCrewControlDays(
   const workers: Array<{ workerId: string; crewId: string }> = []
   const marked: Array<{ workerId: string; date: string }> = []
 
+  /*
+   * En el mismo formulario viajan DOS cosas distintas:
+   *  - `controlday:` → días de la GENTE del crew. Anotan, no pagan (BR-243).
+   *  - `crewday:`    → días de la CUADRILLA que cobra por día. Estos SÍ pagan,
+   *                    y le pagan al contratista.
+   * Van juntos porque se marcan en la misma tarjeta y guardar por separado
+   * dejaría media semana anotada.
+   */
+  const crewIds: string[] = []
+  const crewMarked: Array<{ crewId: string; date: string }> = []
+  const crewProjects: Record<string, string> = {}
+
   for (const [key, raw] of formData.entries()) {
     if (key.startsWith('controlmember:')) {
       const workerId = key.slice('controlmember:'.length)
@@ -679,12 +691,37 @@ export async function saveCrewControlDays(
     } else if (key.startsWith('controlday:')) {
       const [, workerId, date] = key.split(':')
       if (workerId && date) marked.push({ workerId, date })
+    } else if (key.startsWith('crewmember:')) {
+      const crewId = key.slice('crewmember:'.length)
+      if (crewId) crewIds.push(crewId)
+    } else if (key.startsWith('crewday:')) {
+      const [, crewId, date] = key.split(':')
+      if (crewId && date) crewMarked.push({ crewId, date })
+    } else if (key.startsWith('crewproyecto:')) {
+      const crewId = key.slice('crewproyecto:'.length)
+      const projectId = String(raw)
+      if (crewId && projectId) crewProjects[crewId] = projectId
     }
   }
 
-  const result = await saveControlDays(user, weekId, { workers, marked })
+  const control = await saveControlDays(user, weekId, { workers, marked })
+  const dias =
+    crewIds.length > 0
+      ? await saveCrewDays(user, weekId, {
+          crewIds,
+          marked: crewMarked,
+          projects: crewProjects,
+        })
+      : { ok: true, message: '' }
+
   revalidatePath(`/payroll/${weekId}`)
-  return result.ok ? `LISTO|${result.message}` : result.message
+  revalidatePath('/approvals')
+
+  if (!control.ok) return control.message
+  if (!dias.ok) return dias.message
+
+  const mensaje = [control.message, dias.message].filter(Boolean).join(' ')
+  return `LISTO|${mensaje}`
 }
 
 /**
