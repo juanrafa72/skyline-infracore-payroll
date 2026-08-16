@@ -600,3 +600,24 @@ Rafael, 16/08: «cada vez haz lo más intuitivo».
 | BR-450 | **Cada bloque dice en qué va**, con las mismas palabras: la gente («falta registrar el martes»), los equipos («falta el proveedor de 1 equipo») y las cuadrillas («falta capturar lo que construyó 1 cuadrilla»). Lo que frena se dice donde se puede arreglar, no cuando revienta el cálculo — enterarse al final obliga a devolverse. | CONFIRMED (Rafael, 2026-08-16) |
 | BR-451 | El botón dice **qué va a calcular**: «Calcular nómina (3 personas, 4 equipos, 2 cuadrillas)». Con tres bloques en pantalla, un botón mudo obliga a devolverse a contar para saber si va a incluir lo que uno acaba de capturar. Cuenta lo mismo que el motor va a mirar; si contara otra cosa, prometería un cálculo que no ocurre. | CONFIRMED (Rafael, 2026-08-16) |
 | BR-452 | El paso siguiente aparece **donde uno está mirando**. Tras capturar la producción de una cuadrilla, el botón de calcular sale ahí mismo: decir «presiona Calcular nómina» con ese botón al final de una página larga es mandar a buscar. | CONFIRMED |
+
+## 47. Cheques y retenciones (BR-460 – BR-467)
+
+Rafael, 16/08: «una pestaña que se llame cheques donde Leo puede cargar el
+valor del cheque que tiene en la base (SharePoint), traído por una semana o
+varias y amarrado a una empresa; después él digita lo que de verdad entró al
+banco manualmente y explica si hay un descuento o varios y por qué. Si hay
+descuento de retención, esa retención debe ir a una pestaña aparte… amarradas
+al cliente que nos pagó… cuántos días, meses lleva… y a qué proyecto están
+amarradas, no solo la compañía».
+
+| # | Regla | Estado |
+|---|-------|--------|
+| BR-460 | Un cheque se anota con **lo que dice el soporte**; lo que de verdad entró al banco se registra después. Son dos momentos —llega el soporte, días más tarde se ve el movimiento— y juntarlos obligaría a esperar para poder anotar el primero. | CONFIRMED (Rafael, 2026-08-16) |
+| BR-461 | Un cheque puede cubrir **una semana o varias**, y siempre viene de **un** cliente. | CONFIRMED (Rafael, 2026-08-16) |
+| BR-462 | `esperado = entró + descuentos`. Cualquier otra cosa es **plata sin explicar**, y la pantalla dice cuánta. No se bloquea —puede faltar anotar un descuento— pero no se puede dar por bueno en silencio: la retención, que vuelve, se confundiría con plata perdida y nadie la reclamaría. Si entró de MÁS también avisa: es un error de captura. | CONFIRMED (Rafael, 2026-08-16) |
+| BR-463 | Todo descuento lleva **motivo obligatorio**. Un descuento sin explicación no se puede reclamar después. Lo respalda un CHECK en la base. | CONFIRMED |
+| BR-464 | Solo la **retención** vuelve. Material, daño y anticipo no se recuperan, y por eso no entran a Retenciones — mezclarlos inflaría un saldo que nadie va a cobrar. | CONFIRMED |
+| BR-465 | Las retenciones se agrupan por **cliente Y proyecto**, nunca solo por cliente: a Bigham en Dublin le retienen hasta que termine la obra mientras en Chiefland ya soltaron lo suyo. Un total por cliente no se puede reclamar en ninguna parte. Una retención sin obra se muestra aparte y avisa que no se sabrá cuándo la devuelven. | CONFIRMED (Rafael, 2026-08-16) |
+| BR-466 | La antigüedad se cuenta desde **la fecha del cheque**, no desde la captura: contarla desde que alguien lo digitó haría ver como nueva una retención de hace seis meses. Se dice en palabras del negocio —«3 meses y 17 días»—, porque «107 días» no sirve para decidir si ya toca reclamar. | CONFIRMED |
+| BR-467 | La devolución se anota cuando ocurre, **puede ser parcial**, y nunca por más de lo retenido (CHECK en la base). Lo devuelto deja de contar como saldo vivo pero queda el rastro de cuándo lo soltaron. | CONFIRMED |

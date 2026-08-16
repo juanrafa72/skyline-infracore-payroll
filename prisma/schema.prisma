@@ -57,6 +57,7 @@ model Company {
   billingRates       BillingRate[]
   reportRecipients   ReportRecipient[]
   approvalSummaries  ApprovalSummary[]
+  customerChecks     CustomerCheck[]
 
   @@map("company")
 }
@@ -200,6 +201,7 @@ model Customer {
   projects     Project[]
   billingRates BillingRate[]
   crewPricing  CrewPricing[]
+  checks       CustomerCheck[]
 
   @@unique([companyId, name])
   @@map("customer")
@@ -233,6 +235,7 @@ model Project {
   billingRates BillingRate[]
   equipmentEntries EquipmentEntry[]
   crewDayEntries   CrewDayEntry[]
+  checkDeductions  CheckDeduction[]
 
   @@unique([companyId, code])
   @@map("project")
@@ -775,6 +778,7 @@ model PayrollWeek {
   equipmentMembers  EquipmentWeekMember[]
   crewMembers       CrewWeekMember[]
   approvalSummaries ApprovalSummary[]
+  checkWeeks        CustomerCheckWeek[]
   crewDayEntries    CrewDayEntry[]
 
   @@unique([companyId, year, weekNumber])
@@ -1268,6 +1272,96 @@ model ApprovalSummary {
   @@unique([companyId, number])
   @@index([companyId, payrollWeekId])
   @@map("approval_summary")
+}
+
+/// De qué es un descuento que nos hicieron en un cheque.
+enum DeductionKind {
+  RETENTION // la devuelven al terminar el proyecto
+  MATERIAL  // material que puso el cliente y nos cobra
+  DAMAGE    // un daño que nos cobraron
+  ADVANCE   // plata que ya nos habían adelantado
+  OTHER
+}
+
+/// Un cheque que nos pagó un cliente.
+///
+/// Rafael, 16/08: se carga el valor que dice el soporte de SharePoint, por una
+/// semana o varias, amarrado a un cliente; después se digita lo que DE VERDAD
+/// entró al banco y se explica cada descuento.
+///
+/// La diferencia entre lo uno y lo otro es el punto: si el sistema dejara
+/// «cuadrar» sin explicarla, la plata retenida —que vuelve— se confundiría con
+/// plata perdida y nadie la reclamaría nunca.
+model CustomerCheck {
+  id         String @id @default(uuid(7))
+  companyId  String
+  customerId String
+
+  /// Número o referencia del cheque, como venga en el soporte.
+  reference String?
+  /// Lo que dice el soporte que debía entrar.
+  expectedAmount Decimal  @db.Decimal(18, 2)
+  /// Lo que de verdad entró al banco. Nulo hasta que se confirme.
+  receivedAmount Decimal? @db.Decimal(18, 2)
+  receivedDate   DateTime? @db.Date
+
+  notes       String?
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company    Company              @relation(fields: [companyId], references: [id])
+  customer   Customer             @relation(fields: [customerId], references: [id])
+  weeks      CustomerCheckWeek[]
+  deductions CheckDeduction[]
+
+  @@index([companyId, customerId])
+  @@map("customer_check")
+}
+
+/// Qué semanas cubre un cheque. Puede ser una o varias.
+model CustomerCheckWeek {
+  id            String @id @default(uuid(7))
+  checkId       String
+  payrollWeekId String
+
+  check       CustomerCheck @relation(fields: [checkId], references: [id], onDelete: Cascade)
+  payrollWeek PayrollWeek   @relation(fields: [payrollWeekId], references: [id])
+
+  @@unique([checkId, payrollWeekId])
+  @@map("customer_check_week")
+}
+
+/// Lo que nos descontaron de un cheque, con su motivo.
+///
+/// La RETENCIÓN es distinta de las demás: vuelve cuando termina el proyecto, y
+/// por eso lleva a qué obra pertenece. Sin proyecto no se sabe cuándo se
+/// libera — el mismo cliente puede estar reteniendo en una obra y haber
+/// soltado en otra.
+model CheckDeduction {
+  id      String        @id @default(uuid(7))
+  checkId String
+  kind    DeductionKind
+  amount  Decimal       @db.Decimal(18, 2)
+  /// Por qué. Obligatorio: un descuento sin explicación no se puede reclamar.
+  reason  String
+
+  /// A qué obra pertenece. Importa sobre todo en las retenciones.
+  projectId String?
+
+  /// Cuánto de esta retención ya nos devolvieron.
+  releasedAmount Decimal   @default(0) @db.Decimal(18, 2)
+  releasedAt     DateTime? @db.Date
+  releaseNote    String?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  check   CustomerCheck @relation(fields: [checkId], references: [id], onDelete: Cascade)
+  project Project?      @relation(fields: [projectId], references: [id])
+
+  @@index([checkId])
+  @@map("check_deduction")
 }
 
 model EquipmentEntry {

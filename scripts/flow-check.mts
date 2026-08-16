@@ -38,6 +38,15 @@ import { ratesStatus, saveMissingRate } from '../src/lib/payroll/rates-status/se
 import { pendingBoard, weekFocus } from '../src/lib/payroll/home'
 import { cerrarAviso } from '../src/lib/payroll/exceptions/service'
 import { congelarResumen, loQueSeVaAMandar } from '../src/lib/payroll/resumen-service'
+import {
+  anotarDescuento,
+  anotarDevolucion,
+  chequesDe,
+  registrarCheque,
+  registrarLoQueEntro,
+  retencionesDetalle,
+  retencionesVivas,
+} from '../src/lib/cobros/service'
 import { evaluarGuardado, notaSuficiente } from '../src/lib/payroll/concurrencia'
 import { estadoDeLaSemana } from '../src/lib/payroll/concurrencia-service'
 import type { CurrentUser } from '../src/lib/auth/rbac'
@@ -101,6 +110,11 @@ async function cleanup() {
     await prisma.reportRecipient.deleteMany({ where: { companyId: PREFIX } })
     // El resumen tiene trigger de inmutable: se apaga arriba, aquí se borra.
     await prisma.approvalSummary.deleteMany({ where: { companyId: PREFIX } })
+    // Los descuentos apuntan a proyectos con FK RESTRICT: primero los cheques.
+    await prisma.checkDeduction.deleteMany({ where: { check: { companyId: PREFIX } } })
+    await prisma.customerCheckWeek.deleteMany({ where: { check: { companyId: PREFIX } } })
+    await prisma.customerCheck.deleteMany({ where: { companyId: PREFIX } })
+    await prisma.customer.deleteMany({ where: { companyId: PREFIX } })
     await prisma.paymentRecipient.deleteMany({ where: { companyId: PREFIX } })
     await prisma.$executeRawUnsafe('DELETE FROM document_sequence WHERE "companyId" = $1', PREFIX)
     await prisma.workEntry.deleteMany({ where: { companyId: PREFIX } })
@@ -1181,6 +1195,96 @@ async function main() {
     // La base lo impide: un resumen emitido es un hecho.
   }
   check('y la base no deja borrarlo', !seDejoBorrar)
+
+  // ── 21. Cheques y laRetenciones
+  console.log('\n21. El cheque que nos pagan y lo que nos retienen')
+  /*
+   * El caso que puso el negocio: a Bigham en Dublin nos retienen diez mil
+   * hasta que acabe la obra, y al mismo tiempo en Chiefland ya soltaron lo
+   * suyo. Sumarlos por cliente daría un número que no se puede reclamar en
+   * ninguna parte.
+   */
+  const clienteBigham = await prisma.customer.create({
+    data: { companyId: PREFIX, name: 'BIGHAM (flow)' },
+  })
+  const obraDublin = await prisma.project.create({
+    data: { companyId: PREFIX, code: 'DUB-F', name: 'Dublin (flow)', customerId: clienteBigham.id },
+  })
+  const obraChiefland = await prisma.project.create({
+    data: { companyId: PREFIX, code: 'CHI-F', name: 'Chiefland (flow)', customerId: clienteBigham.id },
+  })
+
+  const chequeFlow = await registrarCheque(leo, {
+    customerId: clienteBigham.id,
+    reference: 'CK-FLOW-1',
+    expectedAmount: '50000.00',
+    weekIds: [week.id],
+  })
+  check('se anota el cheque con lo que dice el soporte', chequeFlow.ok, chequeFlow.message)
+
+  await registrarLoQueEntro(leo, {
+    checkId: chequeFlow.checkId!,
+    receivedAmount: '38000.00',
+    receivedDate: '2026-05-01',
+  })
+
+  const sinExplicar = (await chequesDe(PREFIX)).find((c) => c.id === chequeFlow.checkId)
+  check('con plata sin explicar, lo dice y dice cuánta',
+    sinExplicar?.cuadre?.estado === 'FALTA_EXPLICAR' &&
+      toDecimalString(sinExplicar.cuadre.monto) === '12000.00',
+    String(sinExplicar?.cuadre?.estado))
+
+  await anotarDescuento(leo, {
+    checkId: chequeFlow.checkId!,
+    clase: 'RETENCION',
+    amount: '10000.00',
+    reason: 'Retención hasta que termine Dublin',
+    projectId: obraDublin.id,
+  })
+  await anotarDescuento(leo, {
+    checkId: chequeFlow.checkId!,
+    clase: 'MATERIAL',
+    amount: '2000.00',
+    reason: 'Fibra que puso el cliente',
+    projectId: obraChiefland.id,
+  })
+
+  const yaCuadra = (await chequesDe(PREFIX)).find((c) => c.id === chequeFlow.checkId)
+  check('explicados los descuentos, el cheque cuadra',
+    yaCuadra?.cuadre?.estado === 'CUADRA', String(yaCuadra?.cuadre?.estado))
+
+  const sinMotivo = await anotarDescuento(leo, {
+    checkId: chequeFlow.checkId!, clase: 'OTRO', amount: '100.00', reason: '',
+  })
+  check('un descuento sin motivo no se guarda', !sinMotivo.ok, sinMotivo.message)
+
+  const vivas = await retencionesVivas(PREFIX, '2026-08-16')
+  check('la retención sale por CLIENTE y PROYECTO', vivas.length === 1, `${vivas.length} grupo(s)`)
+  check('con la obra, no solo el cliente',
+    vivas[0]?.projectName === 'Dublin (flow)', String(vivas[0]?.projectName))
+  check('el material NO cuenta como retención: esa plata no vuelve',
+    toDecimalString(vivas[0]!.vivo) === '10000.00', toDecimalString(vivas[0]!.vivo))
+  check('y dice cuánto llevan reteniéndola',
+    vivas[0]?.antiguedad === '3 meses y 17 días', String(vivas[0]?.antiguedad))
+
+  const laRetencion = (await retencionesDetalle(PREFIX)).find((d) => d.projectId === obraDublin.id)!
+  const deMas = await anotarDevolucion(leo, {
+    deductionId: laRetencion.id, amount: '20000.00', date: '2026-08-16',
+  })
+  check('no pueden devolver más de lo que retuvieron', !deMas.ok, deMas.message)
+
+  await anotarDevolucion(leo, {
+    deductionId: laRetencion.id, amount: '4000.00', date: '2026-08-16', note: 'Primer abono',
+  })
+  const trasAbono = await retencionesVivas(PREFIX, '2026-08-16')
+  check('devuelta a medias, queda vivo solo el resto',
+    toDecimalString(trasAbono[0]!.vivo) === '6000.00', toDecimalString(trasAbono[0]!.vivo))
+
+  await anotarDevolucion(leo, {
+    deductionId: laRetencion.id, amount: '6000.00', date: '2026-08-16', note: 'Saldo',
+  })
+  check('devuelta completa, sale de la lista de lo que hay que reclamar',
+    (await retencionesVivas(PREFIX, '2026-08-16')).length === 0)
 
   await cleanup()
 

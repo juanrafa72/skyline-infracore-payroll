@@ -52,6 +52,10 @@ const NAV: ReadonlyArray<{
       // Qué se pagó, a quién, cuándo y cómo — la trazabilidad que pidió el
       // negocio para tener control de lo que ya salió del banco.
       { href: '/historico', label: 'Histórico de pagos', permission: 'payment:view' },
+      // Lo que nos pagan a NOSOTROS: el cheque, lo que de verdad entró al
+      // banco, y la plata que el cliente todavía tiene retenida.
+      { href: '/cheques', label: 'Cheques', permission: 'payment:view' },
+      { href: '/retenciones', label: 'Retenciones', permission: 'payment:view' },
       // Con qué se mandó cada semana a aprobación, y por cuánto. Se cita por
       // número cuando quien prepara y quien aprueba hablan de una semana.
       { href: '/resumen', label: 'Resúmenes para aprobación', permission: 'payroll:view' },

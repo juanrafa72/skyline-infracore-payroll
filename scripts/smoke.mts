@@ -94,6 +94,8 @@ const ROUTES = [
   // Las cuadrillas van por SU semana: pantalla propia con sus dos selectores.
   '/liquidar-cuadrillas',
   '/resumen',
+  '/cheques',
+  '/retenciones',
   '/reports',
   '/change-password',
 ]

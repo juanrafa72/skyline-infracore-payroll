@@ -227,6 +227,13 @@ Al agregar una regla, va en el nivel puro.
   editable ya está vacío y diría cero) y se congela DESPUÉS (antes, sería el
   papel de un envío que pudo no ocurrir). No se recalcula al abrirlo, y la base
   no deja modificarlo — BR-440…444.
+- **`cobros/`** — lo que nos pagan a NOSOTROS. `index.ts` (puro) cuadra el
+  cheque —`esperado = entró + descuentos`, y lo que sobra es plata sin
+  explicar— y agrupa las retenciones por **cliente Y proyecto** con su
+  antigüedad en palabras. Lo segundo no es un detalle: a Bigham en Dublin le
+  retienen hasta que termine la obra mientras en Chiefland ya soltaron, y un
+  total por cliente no se puede reclamar en ninguna parte. `service.ts` toca la
+  base — BR-460…467.
 - **`/liquidar-cuadrillas`** — las cuadrillas NO van al ritmo de la gente: la
   nómina puede ir en la 33 mientras Hugo se liquida por la 25 y Jesús por la
   30, porque lo que manda es cuándo llega la medición. Pantalla propia con
@@ -501,8 +508,8 @@ netlify deploy --prod
 
 ## Estado
 
-**569 pruebas · 61 tablas · 25 migraciones · 29 pantallas** · `check`, `smoke`
-(46) y `flow` (113) en verde. 231 reglas de negocio documentadas.
+**585 pruebas · 64 tablas · 26 migraciones · 31 pantallas** · `check`, `smoke`
+(48) y `flow` (124) en verde. 239 reglas de negocio documentadas.
 
 **Lo que pidió el negocio el 15/08, ya construido:** la nómina de la semana
 tiene los TRES bloques con lo que de verdad se paga — personas, equipos y
@@ -602,7 +609,7 @@ cada compañía · períodos y cortes · importación del histórico.
    insistir (BR-416…419).
    Mientras tanto la aplicación **no miente**: dice que quedó registrado pero
    que no salió.
-1. Semana trabajada vs facturada, y si el cliente ya pagó.
+1. Semana trabajada vs facturada (lo que el cliente PAGÓ ya está: `/cheques`).
 2. Cuentas por pagar y proyección de las próximas semanas.
 3. Dashboard con los KPI pedidos (ventas del año, margen acumulado, pendiente).
 4. Reapertura de semanas cerradas con motivo y aprobación.
