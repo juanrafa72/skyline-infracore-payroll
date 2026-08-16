@@ -145,6 +145,27 @@ Al agregar una regla, va en el nivel puro.
   congelado), SOLO en estados editables; `reconcile*Week` invalida con rastro
   lo aprobado cuando algo cambia. También los días de control y las vistas de
   los bloques de la semana.
+- **`payroll/contractors/`** — la semana de un contratista: producción × tarifa
+  editable (hasta 4 decimales — `unitPriceTotal`), el desglose de su gente con
+  la tarifa que él pactó, y la **conciliación** contra lo que dice SharePoint.
+  Muestra la diferencia; jamás la ajusta. El pago sigue saliendo COMPLETO al
+  contratista (BR-242): el desglose existe para hacer verificable el total —
+  BR-260…266.
+- **`equipment/records*`** — hoja de vida de cada equipo (seguros, títulos,
+  mantenimientos) y el aviso ANTES del vencimiento. La fecha se teclea, no se
+  deduce del PDF: un aviso que dependa de leer un escaneado falla justo cuando
+  importa. `records.ts` es puro y recibe la fecha de hoy como dato — BR-300…304.
+- **`disbursement/history*`** — el histórico de todo lo pagado: qué, a quién,
+  cuándo y cómo. Sale de los SNAPSHOTS de la orden, no de consultas vivas.
+  `history.ts` puro (totales), `history-service.ts` con Prisma — BR-310…313.
+- **`disbursement/approval-groups.ts`** — agrupa lo que se va a aprobar por la
+  empresa que paga, con su total. Es el orden en que tesorería mueve el dinero
+  — BR-280…282.
+- **`mail/`** — envío de reportes con consecutivo único. `reports.ts` decide
+  quién recibe qué (un destinatario atado a una receptora **solo** ve SUS
+  órdenes); `transport.ts` elige la salida y, **sin cuenta configurada, NO dice
+  que envió**: registra y avisa. `dispatch-service.ts` toca la base —
+  BR-320…325.
 - **`payroll/exceptions/`** — qué avisos frenan un pago y cuáles no, y cómo se
   cierran. `index.ts` es puro: `bloquea()` es la única definición de «esto
   detiene el trabajo», y la usan por igual el motor de flujo, la pantalla de la
@@ -407,8 +428,19 @@ netlify deploy --prod
 
 ## Estado
 
-**376 pruebas · 54 tablas · 17 migraciones · 22+ pantallas** · `check`, `smoke`
-(32) y `flow` (85) en verde. 163 reglas de negocio documentadas.
+**443 pruebas · 58 tablas · 20 migraciones · 25+ pantallas** · `check`, `smoke`
+(36) y `flow` (87) en verde. 190 reglas de negocio documentadas.
+
+**Lo que pidió el negocio el 15/08, ya construido:** la nómina de la semana
+tiene los TRES bloques con lo que de verdad se paga — personas, equipos y
+**contratistas** (producción × tarifa editable, el desglose de su gente y la
+conciliación contra SharePoint, que muestra la diferencia y no la ajusta);
+los equipos se ven propios **y** rentados, con filtro y proyecto por equipo;
+aprobar **agrupa por empresa receptora con el total al lado**; el botón del
+paso siguiente **late** al guardar; cada equipo tiene **hoja de vida** con
+aviso antes de que se venza un seguro; hay **histórico de todo lo pagado**; y
+el desprendible se **manda por correo con consecutivo único** — eso último a
+la espera de la cuenta de envío (ver Falta).
 
 **El 15/08, probando la aplicación como usuario, apareció un callejón sin
 salida** y se cerró: el sistema creaba avisos y **no había ninguna pantalla para
@@ -466,6 +498,11 @@ cada compañía · períodos y cortes · importación del histórico.
 
 **Falta**, en el orden en que conviene atacarlo:
 
+0. **La cuenta de correo desde la que salen los reportes.** Solo el negocio la
+   tiene. Todo lo demás del envío está hecho: destinatarios, consecutivo,
+   registro de a quién iba. Con las variables `SMTP_*` en `.env` y la llamada
+   a la librería en `lib/mail/smtp.ts`, empieza a salir. Mientras tanto la
+   aplicación **no miente**: dice que quedó registrado pero que no salió.
 1. Semana trabajada vs facturada, y si el cliente ya pagó.
 2. Cuentas por pagar y proyección de las próximas semanas.
 3. Dashboard con los KPI pedidos (ventas del año, margen acumulado, pendiente).
