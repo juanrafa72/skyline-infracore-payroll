@@ -52,21 +52,38 @@ export function NextStep({
   detail,
   href,
   button,
+  /**
+   * Late cuando uno ACABA de terminar el paso anterior.
+   *
+   * Sin esto, quien envía la semana a aprobación se queda mirando una pantalla
+   * que ya no tiene nada que hacer, sin señal de que lo que sigue está en otra
+   * parte — el reclamo fue exactamente ese: «no veo el cambio de que titile».
+   */
+  highlight = false,
 }: {
   title: string
   detail: string
   href: string | null
   button: string
+  highlight?: boolean
 }) {
   return (
-    <section className="mt-8 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+    <section
+      className={`mt-8 rounded-lg border p-4 ${
+        highlight
+          ? 'border-[var(--accent)] bg-[var(--surface)]'
+          : 'border-[var(--border)] bg-[var(--surface)]'
+      }`}
+    >
       <p className="text-sm font-semibold">{title}</p>
       <p className="mt-0.5 text-sm text-[var(--muted)]">{detail}</p>
       {href ? (
         <Link
           prefetch={false}
           href={href}
-          className="mt-3 inline-flex h-10 items-center rounded-lg bg-[var(--accent)] px-5 text-sm font-semibold text-white transition hover:opacity-90"
+          className={`mt-3 inline-flex h-10 items-center rounded-lg bg-[var(--accent)] px-5 text-sm font-semibold text-white transition hover:opacity-90${
+            highlight ? ' paso-siguiente' : ''
+          }`}
         >
           {button} →
         </Link>

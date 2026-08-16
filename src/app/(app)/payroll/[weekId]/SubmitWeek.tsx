@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useActionState } from 'react'
 import { submitWeek } from '../../approvals/actions'
 
@@ -53,15 +54,29 @@ export function SubmitWeek({
   return (
     <div className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
       {result ? (
-        <p
+        <div
           className={`mb-3 rounded-md border p-2.5 text-sm ${
             ok
               ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
               : 'border-amber-300 bg-amber-50 text-amber-900'
           }`}
         >
-          {result.replace(/^(LISTO|PARCIAL)\|/, '')}
-        </p>
+          <p>{result.replace(/^(LISTO|PARCIAL)\|/, '')}</p>
+
+          {/*
+            Ya se envió: lo que sigue está en OTRA pantalla. Sin la señal, uno
+            se queda mirando una semana que ya no tiene nada que hacer.
+          */}
+          {ok ? (
+            <Link
+              prefetch={false}
+              href="/approvals"
+              className="paso-siguiente mt-2 inline-flex h-9 items-center rounded-full bg-[var(--accent)] px-4 text-sm font-medium text-white hover:opacity-90"
+            >
+              Ir a aprobar →
+            </Link>
+          ) : null}
+        </div>
       ) : null}
 
       <p className="text-sm font-semibold">Enviar a aprobación</p>

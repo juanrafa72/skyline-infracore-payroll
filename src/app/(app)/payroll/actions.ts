@@ -597,7 +597,14 @@ export async function setPeriodRoster(
   revalidatePath(`/payroll/${weekId}`)
 
   if (!result.ok) return result.message
-  redirect(`/payroll/${weekId}`)
+  /*
+   * Ya está la gente: lo que sigue es marcarles los días.
+   *
+   * La rejilla late y la pantalla baja hasta ella. Sin esto, quien acaba de
+   * escoger a doce personas vuelve a una pantalla larga sin saber qué sigue —
+   * que era justo el reclamo: «no veo el cambio de que titile el botón».
+   */
+  redirect(`/payroll/${weekId}?guardado=roster#rejilla`)
 }
 
 /** Saca a una persona del período. Devuelve mensaje, no lanza. */

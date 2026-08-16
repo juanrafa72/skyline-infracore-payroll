@@ -394,6 +394,8 @@ export default async function WeekPage({
 
   // Viene de guardar la rejilla: el botón del paso siguiente late.
   const recienGuardado = filters.guardado === 'dias'
+  // Viene de escoger la gente: lo que sigue es marcarles los días.
+  const recienEscogidos = filters.guardado === 'roster'
 
   /*
    * Los proyectos que ya aparecen en esta semana, para ponerlos arriba en los
@@ -513,7 +515,12 @@ export default async function WeekPage({
         </>
       ) : (
         <>
-          <section className="mb-8">
+          <section className="mb-8" id="rejilla">
+            {recienEscogidos ? (
+              <p className="mb-2 text-sm text-[var(--muted)]">
+                Ya está la gente. Ahora márcales los días de la semana:
+              </p>
+            ) : null}
             <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide">Días trabajados</h2>
             <p className="mb-3 text-xs text-[var(--muted)]">
               Sí = día completo · ½ = medio día · No = no trabajó · — = sin registrar todavía ·{' '}
@@ -668,7 +675,7 @@ export default async function WeekPage({
               />
 
               <div className="mt-4 flex flex-wrap gap-2">
-                <Button>Guardar días</Button>
+                <Button highlight={recienEscogidos}>Guardar días</Button>
               </div>
             </form>
 
@@ -914,6 +921,7 @@ export default async function WeekPage({
             }
             href={user.permissions.has('payroll:approve') ? '/approvals' : null}
             button="Ir a aprobar"
+            highlight={filters.guardado === 'enviado'}
           />
         </>
       )}

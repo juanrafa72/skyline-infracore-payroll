@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useActionState, useMemo, useState } from 'react'
 import {
   checkBalance,
@@ -253,15 +254,30 @@ export function ApprovalPanel({
   return (
     <>
       {result ? (
-        <p
+        <div
           className={`mb-4 rounded-md border p-3 text-sm ${
             ok
               ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
               : 'border-amber-300 bg-amber-50 text-amber-900'
           }`}
         >
-          {result.replace(/^(LISTO|PARCIAL)\|/, '')}
-        </p>
+          <p>{result.replace(/^(LISTO|PARCIAL)\|/, '')}</p>
+
+          {/*
+            Acabó de aprobar: lo que sigue está en OTRA pantalla.
+            Sin esta señal uno se queda mirando la mesa vacía sin saber que ya
+            generó órdenes y que alguien tiene que transferirlas.
+          */}
+          {ok && approveResult ? (
+            <Link
+              prefetch={false}
+              href="/disbursements"
+              className="paso-siguiente mt-3 inline-flex h-9 items-center rounded-full bg-[var(--accent)] px-4 text-sm font-medium text-white hover:opacity-90"
+            >
+              Ir a pagar →
+            </Link>
+          ) : null}
+        </div>
       ) : null}
 
       <div className="mb-4">
