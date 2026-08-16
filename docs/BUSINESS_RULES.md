@@ -424,3 +424,17 @@ sistema la liquidara.
 | BR-342 | Sin tarifa diaria **no se paga $0.00 en silencio**: la liquidación queda en cero y un aviso CRÍTICO frena la aprobación, igual que un equipo rentado sin costo (BR-245). | CONFIRMED |
 | BR-343 | El modo de cobro, los días y la tarifa aplicada quedan **congelados** en la liquidación (`billingModeSnapshot`, `appliedDailyRate`) y entran a la **huella de aprobación**: cambiar un día o la tarifa después de aprobar la tumba, igual que cambiar producción. | CONFIRMED |
 | BR-344 | El desprendible dice contra qué se paga según el modo: «3 registros de producción» o «5 días × $800.00». Decir «registros de producción» en una cuadrilla que cobra por día haría buscar una producción que no existe. | CONFIRMED |
+
+## 35. Sacar de las listas sin borrar (BR-350 – BR-353)
+
+Lo pidió el negocio con un caso concreto: «cuando uno incrementa el precio en
+los trabajadores de nómina se crea siempre un trabajador nuevo — Jhon $100,
+Jhon1 $130 — entonces uno desactivaría el de Jhon solo para no confundirme,
+pero no puede borrar los registros de los que se desactiven».
+
+| # | Regla | Estado |
+|---|-------|--------|
+| BR-350 | Una persona o un equipo se pueden **sacar de las listas** sin borrarse. Es un cambio de estado (`INACTIVE` / `RETIRED`), **jamás un DELETE**: borrar la ficha rompería los pagos que ya se le hicieron. Días, nóminas, pagos y hoja de vida quedan intactos, y el histórico sigue diciendo lo mismo. | CONFIRMED (Rafael, 2026-08-16) |
+| BR-351 | Fuera de las listas = **no se ofrece al armar una semana nueva**. Es todo lo que cambia. Con dos JHON en la lista de escoger es cuestión de tiempo marcar el equivocado y pagarle la tarifa vieja. | CONFIRMED |
+| BR-352 | **No se puede sacar a alguien con una nómina a medio camino** (preparada, esperando aprobación, aprobada o en pago). Quitarlo lo dejaría a mitad del proceso y quien aprueba lo vería sin poder encontrarlo. Primero se termina de pagarle. Igual para un equipo con liquidación abierta. | CONFIRMED |
+| BR-353 | Cada activación y desactivación queda en el audit log con quién y por qué. La regla vive en `lib/catalog/availability.ts` —fuera de la Server Action— para poder probarla sin navegador. | CONFIRMED |

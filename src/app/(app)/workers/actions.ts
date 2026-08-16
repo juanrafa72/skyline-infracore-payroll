@@ -3,8 +3,10 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { z } from 'zod'
+import { assertCan } from '@/lib/auth/rbac'
 import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
+import { toggleWorker } from '@/lib/catalog/availability'
 
 const workerSchema = z.object({
   firstName: z.string().trim().min(1, 'El nombre es obligatorio'),
@@ -97,4 +99,26 @@ export async function createRate(formData: FormData) {
   })
 
   revalidatePath(`/workers/${parsed.workerId}`)
+}
+
+/**
+ * Sacar a alguien de las listas, o devolverlo.
+ *
+ * La regla vive en `lib/catalog/availability`, que se puede probar sin
+ * navegador: aquí solo el permiso y refrescar las pantallas.
+ */
+export async function toggleWorkerActive(
+  _previous: string | null,
+  formData: FormData,
+): Promise<string> {
+  const user = await assertCan('worker:manage')
+  const workerId = String(formData.get('workerId') ?? '')
+
+  const result = await toggleWorker(user, workerId)
+
+  revalidatePath('/workers')
+  revalidatePath(`/workers/${workerId}`)
+  revalidatePath('/worker-rates')
+
+  return result.ok ? `LISTO|${result.message}` : result.message
 }

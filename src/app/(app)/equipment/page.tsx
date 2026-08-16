@@ -4,6 +4,7 @@ import { assertCan } from '@/lib/auth/rbac'
 import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
 import { vencimientosPendientes } from '@/lib/equipment/records-service'
+import { ToggleEquipmentActive } from './ToggleActive'
 import {
   EquipmentCreatePanel,
   EquipmentRowForm,
@@ -66,6 +67,7 @@ export default async function EquipmentPage() {
     vendorId: machine.vendorId,
     vendorName: machine.vendor?.name ?? null,
     alertas: alertasPorEquipo.get(machine.id) ?? 0,
+    active: machine.status === 'ACTIVE',
   }))
 
   const rented = rows.filter((row) => row.ownership === 'RENTED')
@@ -129,7 +131,14 @@ export default async function EquipmentPage() {
               ) : null}
 
               {canManage ? (
+                <>
                 <EquipmentRowForm row={row} vendors={vendors} />
+                <ToggleEquipmentActive
+                  equipmentId={row.id}
+                  name={row.name}
+                  active={row.active}
+                />
+                </>
               ) : (
                 <span className="text-xs text-[var(--muted)]">
                   {row.dailyCost ? `$${row.dailyCost}/día` : 'sin costo'} ·{' '}

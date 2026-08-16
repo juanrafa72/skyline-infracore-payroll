@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { assertCan } from '@/lib/auth/rbac'
 import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
+import { toggleEquipment } from '@/lib/catalog/availability'
 
 /**
  * Catálogo de equipos y sus proveedores.
@@ -176,4 +177,24 @@ export async function createVendor(
 
   revalidatePath('/equipment')
   return `LISTO|Proveedor ${name} creado. Ya lo puedes asignar a un equipo.`
+}
+
+/**
+ * Retirar un equipo de las listas, o devolverlo.
+ *
+ * La regla vive en `lib/catalog/availability`, probable sin navegador.
+ */
+export async function toggleEquipmentActive(
+  _previous: string | null,
+  formData: FormData,
+): Promise<string> {
+  const user = await assertCan('equipment:manage')
+  const equipmentId = String(formData.get('equipmentId') ?? '')
+
+  const result = await toggleEquipment(user, equipmentId)
+
+  revalidatePath('/equipment')
+  revalidatePath(`/equipment/${equipmentId}`)
+
+  return result.ok ? `LISTO|${result.message}` : result.message
 }

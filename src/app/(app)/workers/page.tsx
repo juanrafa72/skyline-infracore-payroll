@@ -1,6 +1,9 @@
+import Link from 'next/link'
 import { Badge, DataTable, EmptyState, LinkButton, PageHeader, money } from '@/components/ui'
+import { requireUser } from '@/lib/auth/rbac'
 import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
+import { ToggleWorkerActive } from './ToggleActive'
 
 export const dynamic = 'force-dynamic'
 
@@ -22,23 +25,70 @@ const COMP_LABEL: Record<string, string> = {
   MANUAL: 'Manual',
 }
 
-export default async function WorkersPage() {
+export default async function WorkersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ ver?: string }>
+}) {
+  const user = await requireUser()
   const company = await getActiveCompany()
+  const { ver } = await searchParams
+
+  /*
+   * De entrada solo los activos.
+   *
+   * Al subirle la tarifa a alguien se crea una ficha nueva (JHON $100 pasa a
+   * ser JHON1 $130) y la vieja se desactiva. Mostrarlas todas revuelve las dos
+   * y hace fácil marcar la equivocada al armar una semana.
+   */
+  const verTodos = ver === 'todos'
   const workers = await prisma.worker.findMany({
-    where: { companyId: company.id },
+    where: verTodos
+      ? { companyId: company.id }
+      : { companyId: company.id, status: 'ACTIVE' },
     orderBy: { displayName: 'asc' },
     include: {
       rates: { where: { active: true }, orderBy: { effectiveFrom: 'desc' } },
     },
   })
 
+  const total = await prisma.worker.count({ where: { companyId: company.id } })
+  const fuera = total - (verTodos ? total : workers.length)
+  const canManage = user.permissions.has('worker:manage')
+
   return (
     <>
       <PageHeader
         title="Trabajadores"
-        subtitle={`${workers.length} en ${company.displayName}`}
+        subtitle={
+          verTodos
+            ? `${workers.length} en ${company.displayName} · incluidos los que están fuera de las listas`
+            : `${workers.length} activos en ${company.displayName}`
+        }
         action={<LinkButton href="/workers/new">Nuevo trabajador</LinkButton>}
       />
+
+      {fuera > 0 || verTodos ? (
+        <p className="mb-4 text-sm text-[var(--muted)]">
+          {verTodos ? (
+            <>
+              Los que están fuera de las listas no se ofrecen al armar una semana, pero su
+              historia y sus pagos siguen intactos.{' '}
+              <Link prefetch={false} href="/workers" className="underline">
+                Ver solo los activos
+              </Link>
+            </>
+          ) : (
+            <>
+              Hay <strong>{fuera}</strong> persona(s) fuera de las listas (tarifas viejas, gente
+              que ya no trabaja). Su historia se conserva.{' '}
+              <Link prefetch={false} href="/workers?ver=todos" className="underline">
+                Verlos
+              </Link>
+            </>
+          )}
+        </p>
+      ) : null}
 
       <DataTable
         rows={workers}
@@ -70,7 +120,23 @@ export default async function WorkersPage() {
             key: 'status',
             header: 'Estado',
             render: (w) =>
-              w.status === 'ACTIVE' ? <Badge tone="good">Activo</Badge> : <Badge>{w.status}</Badge>,
+              w.status === 'ACTIVE' ? (
+                <Badge tone="good">En las listas</Badge>
+              ) : (
+                <Badge>Fuera de las listas</Badge>
+              ),
+          },
+          {
+            key: 'toggle',
+            header: '',
+            render: (w) =>
+              canManage ? (
+                <ToggleWorkerActive
+                  workerId={w.id}
+                  name={w.displayName}
+                  active={w.status === 'ACTIVE'}
+                />
+              ) : null,
           },
         ]}
       />

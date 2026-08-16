@@ -19,6 +19,8 @@ export interface EquipmentListRow {
   vendorName: string | null
   /** Documentos de su hoja de vida vencidos o por vencer. */
   alertas: number
+  /** Fuera de las listas = no se ofrece al armar la semana. */
+  active: boolean
 }
 
 const OWNERSHIP = [
