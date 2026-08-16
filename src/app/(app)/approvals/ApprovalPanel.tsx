@@ -7,6 +7,7 @@ import {
   type PayableToGroup,
 } from '@/lib/disbursement/grouping'
 import { ZERO, add, toCents, toDecimalString } from '@/lib/payroll/engine/money'
+import { agruparPorReceptora } from '@/lib/disbursement/approval-groups'
 import { workerDetail } from '@/lib/disbursement/detail'
 import { AssignRecipient, type RecipientOption } from './AssignRecipient'
 import { approvePayrolls, rejectPayrolls } from './actions'
@@ -82,6 +83,7 @@ function currency(value: string): string {
 }
 
 
+
 export function ApprovalPanel({
   rows,
   crewRows,
@@ -137,6 +139,28 @@ export function ApprovalPanel({
       return next
     })
   }
+
+  /*
+   * Las personas agrupadas por la empresa que les paga, con su total.
+   *
+   * Es el orden en que tesorería mueve el dinero: una transferencia por
+   * empresa receptora. Verlo así ANTES de aprobar evita el error de asignar
+   * mal a alguien y darse cuenta cuando la orden ya está emitida.
+   *
+   * Los totales se suman en CENTAVOS ENTEROS, igual que el resumen: sumar
+   * pesos con decimales en el navegador puede dar un centavo distinto al que
+   * guarda el servidor, y ese centavo es una diferencia sin explicar.
+   */
+  const gruposPorReceptora = useMemo(
+    () => agruparPorReceptora(rows, (row) => row.net, selected),
+    [rows, selected],
+  )
+
+  /** Cuadrillas y equipos, agrupados igual: el dinero sale por receptora. */
+  const gruposCrew = useMemo(
+    () => agruparPorReceptora(crewRows, (row) => row.total, selectedCrews),
+    [crewRows, selectedCrews],
+  )
 
   /*
    * El resumen se calcula con la misma función que usa el servidor al generar
@@ -276,11 +300,24 @@ export function ApprovalPanel({
 
       <form>
         {crewRows.length > 0 ? (
-          <div className="mb-4 space-y-2">
+          <div className="mb-5 space-y-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
               Cuadrillas y equipos — se paga al contratista o al proveedor
             </p>
-            {crewRows.map((row) => {
+            {gruposCrew.map((grupo) => (
+            <div key={grupo.key} className="space-y-2">
+            <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-[var(--border)] pb-1.5">
+              <h3 className="text-sm font-semibold">
+                {grupo.name}
+                <span className="ml-2 text-xs font-normal text-[var(--muted)]">
+                  {grupo.rows.length} liquidación(es)
+                </span>
+              </h3>
+              <span className="text-base font-semibold tabular-nums">
+                ${currency(grupo.total)}
+              </span>
+            </div>
+            {grupo.rows.map((row) => {
               const isSelected = selectedCrews.has(row.id)
               return (
                 <div
@@ -369,11 +406,36 @@ export function ApprovalPanel({
                 </div>
               )
             })}
+            </div>
+            ))}
           </div>
         ) : null}
 
+        {/* Personas, agrupadas por quién les paga — ver `agruparPorReceptora`. */}
+        <div className="space-y-5">
+        {gruposPorReceptora.map((grupo) => (
+        <div key={grupo.key}>
+          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2 border-b border-[var(--border)] pb-1.5">
+            <h3 className="text-sm font-semibold">
+              {grupo.name}
+              <span className="ml-2 text-xs font-normal text-[var(--muted)]">
+                {grupo.rows.length} persona(s)
+              </span>
+            </h3>
+            <div className="text-right">
+              <span className="text-base font-semibold tabular-nums">
+                ${currency(grupo.total)}
+              </span>
+              {grupo.selectedTotal !== grupo.total ? (
+                <span className="ml-2 text-xs text-[var(--muted)] tabular-nums">
+                  (marcado: ${currency(grupo.selectedTotal)})
+                </span>
+              ) : null}
+            </div>
+          </div>
+
         <div className="space-y-2">
-          {rows.map((row) => {
+          {grupo.rows.map((row) => {
             const varied = row.changePct !== null && Math.abs(row.changePct) > threshold
             const attention = row.exceptions.length > 0 || row.isNew || row.wasInvalidated || varied
             const critical = row.exceptions.some((item) => item.level === 'CRITICAL')
@@ -538,6 +600,9 @@ export function ApprovalPanel({
               </div>
             )
           })}
+        </div>
+        </div>
+        ))}
         </div>
 
         {/* ── Resumen antes de confirmar ─────────────────────── */}

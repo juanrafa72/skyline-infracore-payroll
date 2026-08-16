@@ -354,3 +354,11 @@ poder verificar contra lo que dice SharePoint.
 | BR-271 | Un equipo **PROPIO se marca pero NUNCA genera liquidación de pago**: no hay proveedor a quién pagarle y crearla pondría una transferencia por una máquina que ya es nuestra. Solo RENTED liquida (A14, BR-245). Si un equipo pasa de rentado a propio, su liquidación editable sobrante se retira. | CONFIRMED |
 | BR-272 | El alquiler se paga **por día** y se le carga a un **proyecto**: sin proyecto no se sabe a qué obra cargarle el costo. El proyecto se elige por equipo en la semana; si el equipo se mueve de obra, los días existentes se reasignan sin borrarse ni recrearse. | CONFIRMED (Rafael, 2026-08-15) |
 | BR-273 | El proyecto que se propone sale del primer día ya marcado, y si no hay ninguno, del asignado en la ficha del equipo. Propone; el usuario confirma. | CONFIRMED |
+
+## 28. Aprobación agrupada (BR-280 – BR-282)
+
+| # | Regla | Estado |
+|---|-------|--------|
+| BR-280 | La pantalla de aprobar agrupa **por defecto** por empresa receptora, con el **total de cada grupo siempre visible**, antes de aprobar. Es el orden en que tesorería mueve el dinero: una transferencia por receptora. El ejemplo del negocio: Juan Rafael y Juan José a FORZO, Federico a Quintero → los dos de FORZO quedan juntos con su total. | CONFIRMED (Rafael, 2026-08-15) |
+| BR-281 | Los que aún **no tienen receptora van todos en UN solo grupo y de primeros**: son los que frenan la aprobación (BR-180), y repartirlos o dejarlos al final los esconde. | CONFIRMED |
+| BR-282 | Los totales de grupo se suman en **centavos enteros** con la misma aritmética del motor: sumar pesos con decimales en el navegador puede dar un centavo distinto al del servidor, y ese centavo sería una diferencia sin explicar. Se muestra el total del grupo y, si difiere, el de lo marcado. | CONFIRMED |
