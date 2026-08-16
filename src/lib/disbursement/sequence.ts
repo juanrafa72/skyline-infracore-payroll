@@ -10,7 +10,7 @@ import { prisma } from '@/lib/db/client'
  * mismo consecutivo hacen imposible rastrear un movimiento de dinero.
  */
 
-export type SequenceKind = 'DISBURSEMENT_ORDER' | 'REPORT_DISPATCH'
+export type SequenceKind = 'DISBURSEMENT_ORDER' | 'REPORT_DISPATCH' | 'APPROVAL_SUMMARY'
 
 interface Row {
   lastNumber: number

@@ -11,6 +11,7 @@ import { submitWeek } from '../../approvals/actions'
  * resolver no debería llegar a la mesa de quien aprueba.
  */
 export function SubmitWeek({
+  weekId,
   payrolls,
   crews,
   equipment,
@@ -19,6 +20,7 @@ export function SubmitWeek({
   highlight = false,
   faltaPorRegistrar = null,
 }: {
+  weekId: string
   payrolls: ReadonlyArray<{ id: string; name: string; net: string }>
   /** Liquidaciones de cuadrilla y de equipo listas para el mismo envío. */
   crews: ReadonlyArray<{ id: string; name: string; net: string }>
@@ -36,10 +38,14 @@ export function SubmitWeek({
 }) {
   const [result, action] = useActionState(submitWeek, null)
   const ok = result?.startsWith('LISTO|')
-  const total =
-    payrolls.reduce((sum, row) => sum + Number(row.net), 0) +
-    crews.reduce((sum, row) => sum + Number(row.net), 0) +
-    equipment.reduce((sum, row) => sum + Number(row.net), 0)
+  const suma = (filas: ReadonlyArray<{ net: string }>) =>
+    filas.reduce((total, fila) => total + Number(fila.net), 0)
+  const totalPersonal = suma(payrolls)
+  const totalEquipo = suma(equipment)
+  const totalCuadrillas = suma(crews)
+  const total = totalPersonal + totalEquipo + totalCuadrillas
+  const money = (valor: number) =>
+    valor.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
   if (payrolls.length === 0 && crews.length === 0 && equipment.length === 0) {
     return (
@@ -75,24 +81,68 @@ export function SubmitWeek({
             se queda mirando una semana que ya no tiene nada que hacer.
           */}
           {ok ? (
-            <Link
-              prefetch={false}
-              href="/approvals"
+            <>
+              <Link
+                prefetch={false}
+                href={`/resumen/ultimo?semana=${weekId}`}
+                className="mt-2 mr-2 inline-flex h-9 items-center rounded-full border border-emerald-300 bg-white px-4 text-sm font-medium hover:bg-emerald-100"
+              >
+                Ver el resumen
+              </Link>
+              <Link
+                prefetch={false}
+                href="/approvals"
               className="paso-siguiente mt-2 inline-flex h-9 items-center rounded-full bg-[var(--accent)] px-4 text-sm font-medium text-white hover:opacity-90"
-            >
-              Ir a aprobar →
-            </Link>
+              >
+                Ir a aprobar →
+              </Link>
+            </>
           ) : null}
         </div>
       ) : null}
 
       <p className="text-sm font-semibold">Enviar a aprobación</p>
+
+      {/*
+        El último visto bueno antes de que salga de sus manos.
+        Lo pidió el negocio: ver QUÉ se está mandando y por cuánto, en vez de
+        oprimir un botón que dice un número suelto. Al enviar, este mismo
+        resumen queda congelado con un consecutivo — BR-440…444.
+      */}
+      <table className="mt-2 w-full max-w-sm text-sm">
+        <tbody>
+          <tr>
+            <td className="py-0.5">Personal</td>
+            <td className="py-0.5 text-right text-xs text-[var(--muted)]">
+              {payrolls.length} persona{payrolls.length === 1 ? '' : 's'}
+            </td>
+            <td className="py-0.5 text-right tabular-nums">${money(totalPersonal)}</td>
+          </tr>
+          <tr>
+            <td className="py-0.5">Equipo rentado</td>
+            <td className="py-0.5 text-right text-xs text-[var(--muted)]">
+              {equipment.length} equipo{equipment.length === 1 ? '' : 's'}
+            </td>
+            <td className="py-0.5 text-right tabular-nums">${money(totalEquipo)}</td>
+          </tr>
+          <tr>
+            <td className="py-0.5">Cuadrillas</td>
+            <td className="py-0.5 text-right text-xs text-[var(--muted)]">
+              {crews.length} cuadrilla{crews.length === 1 ? '' : 's'}
+            </td>
+            <td className="py-0.5 text-right tabular-nums">${money(totalCuadrillas)}</td>
+          </tr>
+          <tr className="border-t border-[var(--border)]">
+            <td className="py-1 font-semibold" colSpan={2}>
+              Total a aprobar
+            </td>
+            <td className="py-1 text-right font-semibold tabular-nums">${money(total)}</td>
+          </tr>
+        </tbody>
+      </table>
+
       <p className="mt-1 text-xs text-[var(--muted)]">
-        {payrolls.length} nómina(s)
-        {crews.length > 0 ? ` + ${crews.length} cuadrilla(s)` : ''}
-        {equipment.length > 0 ? ` + ${equipment.length} equipo(s)` : ''} · $
-        {total.toLocaleString('en-US', { minimumFractionDigits: 2 })} en total. Una vez enviadas
-        no las puedes editar hasta que quien aprueba las devuelva.
+        Una vez enviadas no las puedes editar hasta que quien aprueba las devuelva.
       </p>
 
       {crews.length > 0 || equipment.length > 0 ? (
@@ -123,6 +173,7 @@ export function SubmitWeek({
         </p>
       ) : (
         <form action={action} className="mt-3">
+          <input type="hidden" name="weekId" value={weekId} />
           {payrolls.map((payroll) => (
             <input key={payroll.id} type="hidden" name="payrollId" value={payroll.id} />
           ))}

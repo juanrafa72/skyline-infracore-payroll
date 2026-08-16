@@ -56,6 +56,7 @@ model Company {
   disbursementOrders DisbursementOrder[]
   billingRates       BillingRate[]
   reportRecipients   ReportRecipient[]
+  approvalSummaries  ApprovalSummary[]
 
   @@map("company")
 }
@@ -773,6 +774,7 @@ model PayrollWeek {
   equipmentEntries  EquipmentEntry[]
   equipmentMembers  EquipmentWeekMember[]
   crewMembers       CrewWeekMember[]
+  approvalSummaries ApprovalSummary[]
   crewDayEntries    CrewDayEntry[]
 
   @@unique([companyId, year, weekNumber])
@@ -1225,6 +1227,47 @@ model CrewWeekMember {
   @@unique([payrollWeekId, crewId])
   @@index([companyId, payrollWeekId])
   @@map("crew_week_member")
+}
+
+/// El resumen con el que quien prepara manda la semana a aprobación.
+///
+/// Es el «último visto bueno» antes de que salga de sus manos, y queda con un
+/// consecutivo propio (`RA-SKYLINE-2026-0007`) para poder citarlo por número.
+///
+/// Los totales van CONGELADOS, no calculados al abrirlo: el papel dice lo que
+/// se mandó ese día. Si después alguien cambia un día y el neto cambia, el
+/// resumen tiene que seguir diciendo lo de antes — es contra eso que se
+/// compara para darse cuenta de que algo se movió.
+model ApprovalSummary {
+  id            String   @id @default(uuid(7))
+  companyId     String
+  payrollWeekId String
+  number        String
+  year          Int
+  sequence      Int
+
+  workersCount   Int
+  workersTotal   Decimal @db.Decimal(18, 2)
+  equipmentCount Int
+  equipmentTotal Decimal @db.Decimal(18, 2)
+  crewsCount     Int
+  crewsTotal     Decimal @db.Decimal(18, 2)
+  grandTotal     Decimal @db.Decimal(18, 2)
+
+  /// El detalle, congelado: nombre y neto de cada renglón que se mandó.
+  linesJson Json
+
+  preparedById    String?
+  preparedByName  String
+  preparedByEmail String
+  createdAt       DateTime @default(now())
+
+  company     Company     @relation(fields: [companyId], references: [id])
+  payrollWeek PayrollWeek @relation(fields: [payrollWeekId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, number])
+  @@index([companyId, payrollWeekId])
+  @@map("approval_summary")
 }
 
 model EquipmentEntry {

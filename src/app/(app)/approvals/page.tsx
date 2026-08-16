@@ -69,6 +69,7 @@ export default async function ApprovalsPage() {
       <>
         <PageHeader title="Aprobar" subtitle={company.displayName} />
         <FlowSteps current={3} steps={flowSteps(user.permissions)} className="mb-5" />
+
         <EmptyState
           title="No hay nada esperando aprobación"
           hint="Cuando quien prepara envíe una semana, aparecerá aquí con el detalle para revisar."
@@ -86,6 +87,14 @@ export default async function ApprovalsPage() {
     ]),
   ]
   const weeks = await prisma.payrollWeek.findMany({ where: { id: { in: weekIds } } })
+
+  // El papel con el que llegó cada semana que está esperando aquí.
+  const resumenes = await prisma.approvalSummary.findMany({
+    where: { companyId: company.id, payrollWeekId: { in: weekIds } },
+    include: { payrollWeek: { select: { weekNumber: true, label: true } } },
+    orderBy: { createdAt: 'desc' },
+    take: 5,
+  })
   const previousByWeek = new Map<string, string>()
   for (const week of weeks) {
     const previous = await prisma.payrollWeek.findFirst({
@@ -404,6 +413,42 @@ export default async function ApprovalsPage() {
       />
 
       <FlowSteps current={3} steps={flowSteps(user.permissions)} className="mb-5" />
+
+      {/*
+        Con qué se mandó cada semana. Es el papel que quien prepara revisó
+        antes de soltarla: tener el número a la vista permite hablar por
+        teléfono sin describir la semana entera — «el RA-0007».
+      */}
+      {resumenes.length > 0 ? (
+        <div className="mb-5 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 text-sm">
+          <span className="brand-label text-[var(--muted)]">Se recibió con</span>
+          <ul className="mt-1.5 space-y-0.5">
+            {resumenes.map((resumen) => (
+              <li key={resumen.id}>
+                <Link
+                  prefetch={false}
+                  href={`/resumen/${resumen.id}`}
+                  className="text-[var(--accent)] hover:underline"
+                >
+                  {resumen.number}
+                </Link>{' '}
+                · {resumen.payrollWeek.label ?? `Semana ${resumen.payrollWeek.weekNumber}`} ·{' '}
+                <strong className="tabular-nums">
+                  $
+                  {Number(resumen.grandTotal).toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
+                </strong>{' '}
+                <span className="text-xs text-[var(--muted)]">
+                  · lo mandó {resumen.preparedByName}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
 
       {/* Qué semana se está aprobando, bien visible */}
       <div className="mb-5 rounded-xl border-2 border-[var(--accent)] bg-[var(--surface)] p-4">

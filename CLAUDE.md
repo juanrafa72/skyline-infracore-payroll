@@ -221,6 +221,12 @@ Al agregar una regla, va en el nivel puro.
   se escoge la gente. Está en la semana si lo escogieron **o** si ya tiene días
   o liquidación —sin eso, las semanas viejas se abrirían vacías— y no se saca
   si tiene trabajo encima — BR-420…424, BR-428.
+- **`payroll/resumen-aprobacion.ts`** + **`resumen-service.ts`** — el papel con
+  el que quien prepara manda la semana: los tres bloques, sus totales y el gran
+  total, con consecutivo `RA-`. Se arma ANTES de la transición (después, lo
+  editable ya está vacío y diría cero) y se congela DESPUÉS (antes, sería el
+  papel de un envío que pudo no ocurrir). No se recalcula al abrirlo, y la base
+  no deja modificarlo — BR-440…444.
 - **`/liquidar-cuadrillas`** — las cuadrillas NO van al ritmo de la gente: la
   nómina puede ir en la 33 mientras Hugo se liquida por la 25 y Jesús por la
   30, porque lo que manda es cuándo llega la medición. Pantalla propia con
@@ -495,8 +501,8 @@ netlify deploy --prod
 
 ## Estado
 
-**562 pruebas · 60 tablas · 24 migraciones · 27 pantallas** · `check`, `smoke`
-(45) y `flow` (106) en verde. 226 reglas de negocio documentadas.
+**569 pruebas · 61 tablas · 25 migraciones · 29 pantallas** · `check`, `smoke`
+(46) y `flow` (113) en verde. 231 reglas de negocio documentadas.
 
 **Lo que pidió el negocio el 15/08, ya construido:** la nómina de la semana
 tiene los TRES bloques con lo que de verdad se paga — personas, equipos y

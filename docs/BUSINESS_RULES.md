@@ -571,3 +571,18 @@ en equipos vamos en la 18, y en cuadrillas podemos tener una cuadrilla en week
 | BR-431 | La página de **Nómina sigue mostrando solo las cuadrillas de SU semana**. Mezclar semanas distintas en una vista que se llama «semana 33» haría creer que se está viendo todo lo de esa semana cuando no es así. | CONFIRMED (Rafael, 2026-08-16) |
 | BR-432 | Al cambiar de cuadrilla **no se arrastra la semana** de la anterior: se propone la última donde ESA cuadrilla tiene algo. Arrastrarla es exactamente el error que la pantalla existe para evitar. | CONFIRMED |
 | BR-433 | La pantalla abre en la cuadrilla que **tiene algo que liquidar**, no en la primera del abecedario. Abrir en una sin contratista y con la vista vacía hace creer que no hay nada que hacer. | CONFIRMED |
+
+## 45. El resumen con el que se manda la semana (BR-440 – BR-444)
+
+Rafael, 16/08: «es importante que Leo, cuando mande lo aprobado, pueda ver un
+resumen de lo que está aprobando para darle el último visto bueno, y ya llegue
+a mi parte de aprobación y asignación de empresa receptora. Documento resumen
+de todo con su consecutivo único».
+
+| # | Regla | Estado |
+|---|-------|--------|
+| BR-440 | Antes de enviar, quien prepara ve **qué** se va a mandar y **por cuánto**: personal, equipo rentado y cuadrillas, cada uno con su cuenta y su total, y el gran total. Un botón que solo dice un número suelto no permite dar un visto bueno. | CONFIRMED (Rafael, 2026-08-16) |
+| BR-441 | Al enviar, ese mismo resumen queda **congelado con un consecutivo** (`RA-SKYLINE-2026-0007`), con quién lo preparó y cuándo. Se puede citar por número entre quien prepara y quien aprueba. | CONFIRMED (Rafael, 2026-08-16) |
+| BR-442 | Los totales del resumen **no se recalculan al abrirlo**. Si después cambia un día y el neto cambia, el papel sigue diciendo lo de ese momento — es contra eso que se compara para darse cuenta de que algo se movió. La base lo respalda: el resumen no se modifica ni se borra. | CONFIRMED |
+| BR-443 | El resumen se arma **antes** de la transición y se congela **después**. Armarlo después daría cero (ya nada está editable) y congelarlo antes dejaría un papel de un envío que pudo no ocurrir. | CONFIRMED |
+| BR-444 | Una semana devuelta y vuelta a mandar genera un resumen **nuevo**; los dos quedan. El histórico de qué se mandó y cuándo es justamente el punto. | CONFIRMED |

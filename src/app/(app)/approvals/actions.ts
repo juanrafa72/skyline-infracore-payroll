@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { assertCan, requireUser } from '@/lib/auth/rbac'
+import { congelarResumen, loQueSeVaAMandar } from '@/lib/payroll/resumen-service'
 import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
 import { assignRecipientToPayables, generateOrders } from '@/lib/disbursement/orders'
@@ -195,6 +196,16 @@ export async function submitWeek(_previous: string | null, formData: FormData): 
     return 'No hay nóminas calculadas para enviar.'
   }
 
+  /*
+   * El resumen se arma ANTES de enviar, con lo que todavía está editable.
+   *
+   * Después del envío ya nada está en ese estado y la consulta devolvería
+   * vacío: el papel diría cero y sería justo el papel que dice cuánto se
+   * mandó.
+   */
+  const weekId = String(formData.get('weekId') ?? '')
+  const resumen = weekId ? await loQueSeVaAMandar(user.companyId, weekId) : null
+
   const result =
     ids.length > 0
       ? await applyTransition(user, ids, 'SUBMIT', null)
@@ -211,10 +222,21 @@ export async function submitWeek(_previous: string | null, formData: FormData): 
       ? await applyPayableTransition(user, 'EQUIPMENT', equipmentIds, 'SUBMIT', null)
       : { moved: 0, skipped: [] as Array<{ name: string; reason: string }> }
 
+  const moved = result.moved + crews.moved + machines.moved
+
+  /*
+   * El resumen queda congelado con su consecutivo, y solo si algo se movió: un
+   * papel de un envío que no ocurrió promete un pago inexistente.
+   */
+  let papel = ''
+  if (moved > 0 && resumen && weekId) {
+    const congelado = await congelarResumen(user, weekId, resumen)
+    if (congelado) papel = ` Resumen ${congelado.number}.`
+  }
+
   revalidatePath('/payroll')
   revalidatePath('/approvals')
 
-  const moved = result.moved + crews.moved + machines.moved
   const skipped = [
     ...result.skipped.map((row) => `${row.workerName}: ${row.reason}`),
     ...crews.skipped.map((row) => `${row.name}: ${row.reason}`),
@@ -224,7 +246,7 @@ export async function submitWeek(_previous: string | null, formData: FormData): 
   const parts = [`${result.moved} nómina(s)`]
   if (crews.moved > 0) parts.push(`${crews.moved} cuadrilla(s)`)
   if (machines.moved > 0) parts.push(`${machines.moved} equipo(s)`)
-  const summary = `${parts.join(' y ')} enviada(s) a aprobación.`
+  const summary = `${parts.join(' y ')} enviada(s) a aprobación.${papel}`
 
   if (skipped.length === 0) return `LISTO|${summary}`
   const detail = skipped.join(' · ')

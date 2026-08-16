@@ -37,6 +37,7 @@ import { periodOf } from '../src/lib/payroll/period'
 import { ratesStatus, saveMissingRate } from '../src/lib/payroll/rates-status/service'
 import { pendingBoard, weekFocus } from '../src/lib/payroll/home'
 import { cerrarAviso } from '../src/lib/payroll/exceptions/service'
+import { congelarResumen, loQueSeVaAMandar } from '../src/lib/payroll/resumen-service'
 import { evaluarGuardado, notaSuficiente } from '../src/lib/payroll/concurrencia'
 import { estadoDeLaSemana } from '../src/lib/payroll/concurrencia-service'
 import type { CurrentUser } from '../src/lib/auth/rbac'
@@ -72,6 +73,7 @@ async function cleanup() {
   await prisma.$executeRawUnsafe('ALTER TABLE payment_recipient DISABLE TRIGGER payment_recipient_keep_history')
   await prisma.$executeRawUnsafe('ALTER TABLE crew_payroll DISABLE TRIGGER crew_payroll_immutable')
   await prisma.$executeRawUnsafe('ALTER TABLE equipment_payroll DISABLE TRIGGER equipment_payroll_immutable')
+  await prisma.$executeRawUnsafe('ALTER TABLE approval_summary DISABLE TRIGGER approval_summary_immutable')
   try {
     await prisma.auditLog.deleteMany({ where: { companyId: PREFIX } })
     // Los renglones de orden apuntan a las liquidaciones con FK RESTRICT:
@@ -97,6 +99,8 @@ async function cleanup() {
     })
     await prisma.reportDispatch.deleteMany({ where: { companyId: PREFIX } })
     await prisma.reportRecipient.deleteMany({ where: { companyId: PREFIX } })
+    // El resumen tiene trigger de inmutable: se apaga arriba, aquí se borra.
+    await prisma.approvalSummary.deleteMany({ where: { companyId: PREFIX } })
     await prisma.paymentRecipient.deleteMany({ where: { companyId: PREFIX } })
     await prisma.$executeRawUnsafe('DELETE FROM document_sequence WHERE "companyId" = $1', PREFIX)
     await prisma.workEntry.deleteMany({ where: { companyId: PREFIX } })
@@ -129,6 +133,7 @@ async function cleanup() {
     await prisma.$executeRawUnsafe('ALTER TABLE payment_recipient ENABLE TRIGGER payment_recipient_keep_history')
     await prisma.$executeRawUnsafe('ALTER TABLE crew_payroll ENABLE TRIGGER crew_payroll_immutable')
     await prisma.$executeRawUnsafe('ALTER TABLE equipment_payroll ENABLE TRIGGER equipment_payroll_immutable')
+    await prisma.$executeRawUnsafe('ALTER TABLE approval_summary ENABLE TRIGGER approval_summary_immutable')
   }
 }
 
@@ -1110,6 +1115,72 @@ async function main() {
   check('quitado a propósito, no se vuelve a poner solo',
     trasQuitarlo.length === 1 && !trasQuitarlo[0]!.active,
     `${trasQuitarlo.length} fila(s)`)
+
+  // ── 20. El resumen con el que se manda la semana a aprobación
+  console.log('\n20. El resumen que Leo revisa antes de mandarla')
+  /*
+   * Se arma ANTES de enviar y se congela DESPUÉS. Las dos cosas importan: si
+   * se armara después, la consulta de lo editable ya vendría vacía y el papel
+   * diría cero; si se congelara antes, quedaría un papel de un envío que pudo
+   * no ocurrir.
+   */
+  const semanaResumen = await prisma.payrollWeek.create({
+    data: {
+      companyId: PREFIX, year: 2026, weekNumber: 35,
+      startDate: new Date('2026-08-23T00:00:00Z'), endDate: new Date('2026-08-29T00:00:00Z'),
+      label: 'Semana 35',
+    },
+  })
+  await prisma.workerPayroll.create({
+    data: {
+      companyId: PREFIX, payrollWeekId: semanaResumen.id, workerId: worker.id,
+      status: 'PREPARED', grossPay: '1000.00', deductionsTotal: '0.00', netPay: '1000.00',
+      daysFull: 5,
+    },
+  })
+  await prisma.equipmentPayroll.create({
+    data: {
+      companyId: PREFIX, payrollWeekId: semanaResumen.id, equipmentId: machine.id,
+      status: 'PREPARED', equipmentNameSnapshot: 'PLOW', daysTotal: 2, totalAmount: '900.00',
+    },
+  })
+
+  const previo = await loQueSeVaAMandar(PREFIX, semanaResumen.id)
+  check('el resumen suma los bloques antes de enviar',
+    toDecimalString(previo.total) === '1900.00', toDecimalString(previo.total))
+  check('y dice cuántos van en cada uno',
+    previo.personal.cuantos === 1 && previo.equipos.cuantos === 1 && previo.cuadrillas.cuantos === 0)
+
+  const papel = await congelarResumen(leo, semanaResumen.id, previo)
+  check('al enviar queda con consecutivo único',
+    /^RA-.+-2026-\d{4}$/.test(papel?.number ?? ''), String(papel?.number))
+
+  const guardado = await prisma.approvalSummary.findUniqueOrThrow({ where: { id: papel!.id } })
+  check('con los totales congelados, no recalculados',
+    guardado.grandTotal.toFixed(2) === '1900.00', guardado.grandTotal.toFixed(2))
+  check('y con quién lo preparó, congelado',
+    guardado.preparedByEmail === 'flow-leo@check', guardado.preparedByEmail)
+
+  // Lo que hace útil el papel: que no cambie cuando la semana cambia.
+  await prisma.workerPayroll.updateMany({
+    where: { companyId: PREFIX, payrollWeekId: semanaResumen.id },
+    data: { netPay: '7777.00' },
+  })
+  const trasElCambio = await prisma.approvalSummary.findUniqueOrThrow({ where: { id: papel!.id } })
+  check('si la semana cambia después, el resumen sigue diciendo lo de ese día',
+    trasElCambio.grandTotal.toFixed(2) === '1900.00', trasElCambio.grandTotal.toFixed(2))
+
+  // El cleanup del arranque apaga este candado para poder limpiar. Se enciende
+  // aquí para probar lo que de verdad ve el negocio.
+  await prisma.$executeRawUnsafe('ALTER TABLE approval_summary ENABLE TRIGGER approval_summary_immutable')
+  let seDejoBorrar = false
+  try {
+    await prisma.approvalSummary.delete({ where: { id: papel!.id } })
+    seDejoBorrar = true
+  } catch {
+    // La base lo impide: un resumen emitido es un hecho.
+  }
+  check('y la base no deja borrarlo', !seDejoBorrar)
 
   await cleanup()
 

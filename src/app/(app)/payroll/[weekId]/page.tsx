@@ -962,6 +962,7 @@ export default async function WeekPage({
 
           <div id="enviar">
           <SubmitWeek
+            weekId={week.id}
             highlight={filters.guardado === 'calculo'}
             /*
               Enviar con días sin registrar no está prohibido —una semana puede
