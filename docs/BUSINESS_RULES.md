@@ -471,3 +471,23 @@ así uno puede revisar datos entrados en semanas anteriores».
 | BR-380 | Cada día de la Base muestra **en qué va**, con las palabras del negocio: marcado = **Activo**, enviado = **Pdt. por aprobación**, aprobado = **Pdt. por pago**, con el dinero afuera = **Pagada**. Una devuelta con comentarios dice **Devuelta** —hay que corregirla, no está esperando a nadie— y un día del Excel dice **Archivo**, porque nunca va a tener nómina (BR-153). | CONFIRMED (Rafael, 2026-08-16) |
 | BR-381 | La columna que dice cuánto vale ese día se llama **«Vale el día»**, no «Se pagó». Es tarifa × jornada (día completo a $190 = $190; medio día = $95) y NO significa que el dinero salió del banco — eso lo dice el Estado. El nombre viejo confundía las dos cosas. | CONFIRMED (Rafael, 2026-08-16) |
 | BR-382 | El estado sale de la nómina de esa persona en esa semana, incluso cuando el día no generó línea de cálculo (los «No trabajó» no la generan). Sin eso, un día de una semana ya pagada saldría como «Activo» y la Base diría que falta algo que ya salió. | CONFIRMED |
+
+## 39. Dos personas en la misma semana (BR-390 – BR-395)
+
+Rafael lo decidió así: «que avise, pero si ya alguien trabajó en ella y la va a
+cambiar, tiene que pedirle poner una nota y que quede en la base la nota con el
+usuario que la cambió».
+
+El riesgo no se ve hasta que ocurre: la rejilla manda los SIETE días de cada
+persona cada vez que se guarda. Si Leo abre la semana el lunes, Rafael marca el
+martes a mediodía y Leo guarda a las 5 con su pantalla vieja, el martes de
+Rafael desaparece **sin que nadie se entere**.
+
+| # | Regla | Estado |
+|---|-------|--------|
+| BR-390 | Se avisa **solo** cuando otra persona guardó DESPUÉS de que se abrió la pantalla. Que uno mismo haya guardado dos veces no es choque: es marcar la semana día a día, y frenarlo haría inservible el guardado parcial. | CONFIRMED (Rafael, 2026-08-16) |
+| BR-391 | Al detectarlo **no se guarda nada** y se pide una nota (mínimo 5 caracteres). Con la nota escrita sí se guarda, y queda un `WORK_ENTRIES_OVERWRITTEN` en la auditoría con la nota como motivo, quién cambió y a quién le cambió el trabajo. | CONFIRMED (Rafael, 2026-08-16) |
+| BR-392 | El aviso **no cuesta el trabajo hecho**: aparece dentro del mismo formulario y lo marcado sigue en pantalla. Si costara volver a marcar la semana entera, el aviso saldría más caro que el choque que evita. | CONFIRMED |
+| BR-393 | Los cambios sobre trabajo ajeno se muestran **en la propia semana**, con nombre, fecha y nota. Guardados en una tabla que nadie abre serían como no existir — Rafael pidió que «quede en la base». | CONFIRMED (Rafael, 2026-08-16) |
+| BR-394 | Un día sin autor conocido —los 12.906 del Excel y todo lo guardado antes de esta protección— **no acusa a nadie**: sin `updatedById` no hay choque. Tratarlos como «otra persona» le pondría una pared a quien captura solo, que es el caso de casi todos los días. | CONFIRMED |
+| BR-395 | Si la marca de apertura llega vacía o ilegible, **se deja pasar**. Un formulario viejo o un campo que no llegó no puede convertirse en una pared: la protección es contra un accidente entre dos personas, no un candado. | CONFIRMED |

@@ -1,0 +1,11 @@
+-- Quién tocó el día por ÚLTIMA vez.
+--
+-- `createdById` dice quién lo creó, y eso no alcanza para saber si guardar
+-- ahora pisaría el trabajo de otra persona: si Leo crea la semana y Rafael
+-- corrige el martes, el día sigue diciendo «Leo». Sin este dato, el aviso de
+-- conflicto se equivoca en las dos direcciones — acusa a quien no fue y deja
+-- pasar a quien sí.
+--
+-- Nulo en lo viejo (importaciones y días guardados antes de esto): sin autor
+-- conocido no se acusa a nadie.
+ALTER TABLE "work_entry" ADD COLUMN IF NOT EXISTS "updatedById" TEXT;

@@ -22,6 +22,9 @@ import { offCyclePeriod, periodOf, type PayPeriodType } from '@/lib/payroll/peri
 import { reiniciarSemana } from '@/lib/payroll/reset'
 import { projectForDay, readProjectSelection } from '@/lib/payroll/grid'
 import { toIso } from '@/lib/payroll/week'
+import { evaluarGuardado, fechaDeApertura, notaSuficiente } from '@/lib/payroll/concurrencia'
+import { estadoDeLaSemana } from '@/lib/payroll/concurrencia-service'
+import type { RespuestaGuardado } from './[weekId]/GuardarDias'
 import { invalidateIfStale } from '@/lib/payroll/workflow/service'
 import { currentRoster, removeFromRoster, setRoster } from '@/lib/payroll/roster'
 import { addExtra, removeExtra } from '@/lib/payroll/extras/service'
@@ -102,7 +105,8 @@ function normalizeAmount(raw: string): string {
  * no se guarda como NO_WORK implícito, porque no es lo mismo no haber trabajado
  * que no haberlo registrado todavía.
  */
-export async function saveWorkEntries(formData: FormData) {
+export async function saveWorkEntries(formData: FormData): Promise<RespuestaGuardado> {
+  const user = await assertCan('payroll:edit')
   const company = await getActiveCompany()
   const weekId = String(formData.get('weekId') ?? '')
 
@@ -111,6 +115,50 @@ export async function saveWorkEntries(formData: FormData) {
   })
   if (!week) throw new Error('Semana no encontrada')
   if (week.status === 'CLOSED') throw new Error('La semana está cerrada')
+
+  /*
+   * ¿Alguien más tocó esta semana mientras la tenía abierta?
+   *
+   * La rejilla manda los SIETE días de cada persona cada vez: si Leo abre el
+   * lunes, Rafael marca el martes, y Leo guarda a las 5 con su pantalla vieja,
+   * el martes de Rafael desaparece sin que nadie se entere.
+   */
+  const abiertaEn = fechaDeApertura(String(formData.get('abiertaEn') ?? ''))
+  const estado = await estadoDeLaSemana(company.id, weekId)
+  const veredicto = evaluarGuardado(estado, { abiertaEn, usuarioId: user.id })
+
+  const nota = String(formData.get('notaCambio') ?? '')
+
+  if (veredicto.tipo === 'PISARIA' && !notaSuficiente(nota)) {
+    /*
+     * No se guarda nada, y se responde SIN recargar la pantalla.
+     *
+     * Un `redirect` aquí borraría las marcas que la persona acaba de hacer —
+     * podría ser la semana entera— y el aviso terminaría costando más que el
+     * choque que evita. Volviendo como respuesta, el formulario se queda
+     * intacto: solo aparece el recuadro pidiendo el porqué.
+     */
+    return { conflicto: { quien: veredicto.quien, mensaje: veredicto.mensaje } }
+  }
+
+  if (veredicto.tipo === 'PISARIA') {
+    // Se guarda, pero queda dicho quién cambió lo de quién y por qué.
+    await prisma.auditLog.create({
+      data: {
+        companyId: company.id,
+        userId: user.id,
+        userEmailSnapshot: user.email,
+        action: 'WORK_ENTRIES_OVERWRITTEN',
+        entityType: 'PayrollWeek',
+        entityId: weekId,
+        payrollWeekId: weekId,
+        oldValueJson: { tocadaPor: veredicto.quien, tocadaEn: estado.tocadaEn?.toISOString() },
+        newValueJson: { guardadaPor: user.name },
+        changedFields: ['workEntries'],
+        reason: nota.trim(),
+      },
+    })
+  }
 
   const extras = new Map<string, { amount: string; note: string }>()
   for (const [key, raw] of formData.entries()) {
@@ -241,6 +289,9 @@ export async function saveWorkEntries(formData: FormData) {
           payrollWeekId: week.id,
           additionalAmount: amount,
           additionalNote: amount === null ? null : note,
+          // Queda anotado quién lo tocó de último: es con lo que el próximo
+          // guardado sabe si estaría pisando el trabajo de otra persona.
+          updatedById: user.id,
           ...(choice.chose ? { projectId } : {}),
         },
         create: {
@@ -249,6 +300,8 @@ export async function saveWorkEntries(formData: FormData) {
           workerId,
           workDate,
           dayType,
+          createdById: user.id,
+          updatedById: user.id,
           status: dayType === 'NO_WORK' ? 'NO_WORK' : 'WORKED',
           additionalAmount: amount,
           additionalNote: amount === null ? null : note,

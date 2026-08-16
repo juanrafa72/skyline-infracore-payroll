@@ -853,6 +853,10 @@ model WorkEntry {
   sourceType    SourceType      @default(MANUAL)
   importRowId   String?
   createdById   String?
+  /// Quién lo tocó por ÚLTIMA vez. `createdById` no sirve para saber si
+  /// guardar pisaría el trabajo ajeno: si Leo crea la semana y Rafael corrige
+  /// el martes, el día seguiría diciendo «Leo». Nulo en lo importado.
+  updatedById   String?
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 

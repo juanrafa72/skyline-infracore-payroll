@@ -36,6 +36,8 @@ import { periodOf } from '../src/lib/payroll/period'
 import { ratesStatus, saveMissingRate } from '../src/lib/payroll/rates-status/service'
 import { pendingBoard, weekFocus } from '../src/lib/payroll/home'
 import { cerrarAviso } from '../src/lib/payroll/exceptions/service'
+import { evaluarGuardado, notaSuficiente } from '../src/lib/payroll/concurrencia'
+import { estadoDeLaSemana } from '../src/lib/payroll/concurrencia-service'
 import type { CurrentUser } from '../src/lib/auth/rbac'
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl() }) })
@@ -973,6 +975,60 @@ async function main() {
   })
   check('la orden que se queda sin renglones se anula sola (BR-191)',
     orderAfter.status === 'CANCELLED', orderAfter.status)
+
+  // ── 17. Dos personas capturando la MISMA semana
+  console.log('\n17. Que no se pisen dos personas en la misma semana')
+  /*
+   * El riesgo: la rejilla manda los SIETE días cada vez que se guarda. Si Leo
+   * abre la semana en la mañana, Rafael marca un día al mediodía, y Leo guarda
+   * en la tarde con su pantalla vieja, el día de Rafael desaparece sin que
+   * nadie se entere.
+   *
+   * Se prueba con el MISMO servicio que consulta el botón —no con una consulta
+   * escrita aquí—, porque una comprobación que se salta el código de la
+   * aplicación pasa en verde mientras la aplicación hace otra cosa.
+   */
+  const semanaChoque = await prisma.payrollWeek.create({
+    data: {
+      companyId: PREFIX, year: 2026, weekNumber: 32,
+      startDate: new Date('2026-08-02T00:00:00Z'), endDate: new Date('2026-08-08T00:00:00Z'),
+      label: 'Semana 32', status: 'OPEN',
+    },
+  })
+
+  const abrióLeo = new Date()
+  // Un respiro: sin él, la máquina guarda en el MISMO milisegundo en que se
+  // "abrió" la pantalla, y un empate no es un choque —es el mismo instante—.
+  // En la vida real median segundos: alguien abre, marca días y guarda.
+  await new Promise((listo) => setTimeout(listo, 5))
+  await prisma.workEntry.create({
+    data: {
+      companyId: PREFIX, payrollWeekId: semanaChoque.id, workerId: worker.id,
+      workDate: new Date('2026-08-03T00:00:00Z'), dayType: 'FULL_DAY',
+      operationId: operation.id,
+      createdById: rafael.id, updatedById: rafael.id,
+    },
+  })
+
+  const trasRafael = await estadoDeLaSemana(PREFIX, semanaChoque.id)
+  check('el sistema sabe quién tocó la semana de último',
+    trasRafael.tocadaPorNombre === 'Rafael', String(trasRafael.tocadaPorNombre))
+
+  const leoGuardaTarde = evaluarGuardado(trasRafael, { abiertaEn: abrióLeo, usuarioId: leo.id })
+  check('avisa a Leo que guardar pisaría lo de Rafael', leoGuardaTarde.tipo === 'PISARIA')
+  check('la nota vacía no alcanza para pisarlo', notaSuficiente('') === false)
+  check('con la nota escrita sí procede',
+    notaSuficiente('Rafael marcó mal el lunes, lo corrijo') === true)
+
+  const rafaelSigue = evaluarGuardado(trasRafael, { abiertaEn: abrióLeo, usuarioId: rafael.id })
+  check('a Rafael no le estorba seguir marcando su propia semana día a día',
+    rafaelSigue.tipo === 'LIBRE')
+
+  const semanaVieja = await estadoDeLaSemana(PREFIX, week.id)
+  check('los días importados, sin autor, no acusan a nadie',
+    semanaVieja.tocadaPor === null, String(semanaVieja.tocadaPor))
+  check('y por eso no frenan a quien captura solo',
+    evaluarGuardado(semanaVieja, { abiertaEn: abrióLeo, usuarioId: leo.id }).tipo === 'LIBRE')
 
   await cleanup()
 

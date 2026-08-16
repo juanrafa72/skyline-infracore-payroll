@@ -9,6 +9,7 @@ import { weekExtras } from '@/lib/payroll/extras/service'
 import { ratesStatus } from '@/lib/payroll/rates-status/service'
 import { shortDay, toIso } from '@/lib/payroll/week'
 import { calculateWeek, copyPreviousWeek, resetWeek, saveWorkEntries } from '../actions'
+import { GuardarDias } from './GuardarDias'
 import { puedeReiniciar } from '@/lib/payroll/reset'
 import { ayudaDe, bloquea } from '@/lib/payroll/exceptions'
 import { currentRoster } from '@/lib/payroll/roster'
@@ -91,7 +92,7 @@ export default async function WeekPage({
     ],
   }
 
-  const [chosenWorkers, entries, payrolls, exceptions, operations] = await Promise.all([
+  const [chosenWorkers, entries, payrolls, exceptions, operations, cambiosAjenos] = await Promise.all([
     prisma.worker.findMany({
       where: workerFilter,
       orderBy: { displayName: 'asc' },
@@ -110,6 +111,22 @@ export default async function WeekPage({
       where: { companyId: company.id, payrollWeekId: week.id, status: 'OPEN' },
     }),
     prisma.operation.findMany({ where: { companyId: company.id }, orderBy: { sortOrder: 'asc' } }),
+    /*
+     * Las veces que alguien cambió lo que otra persona había marcado.
+     *
+     * Lo pidió el negocio: no basta con avisar en el momento: la nota y el
+     * nombre tienen que quedar A LA VISTA en la semana. Guardado en una tabla
+     * que nadie abre, es como si no existiera.
+     */
+    prisma.auditLog.findMany({
+      where: {
+        companyId: company.id,
+        payrollWeekId: week.id,
+        action: 'WORK_ENTRIES_OVERWRITTEN',
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    }),
   ])
 
   const workers = chosenWorkers.filter((worker) => !removedIds.has(worker.id))
@@ -398,6 +415,12 @@ export default async function WeekPage({
   const recienEscogidos = filters.guardado === 'roster'
 
   /*
+   * Cuándo se armó esta pantalla, para detectar si alguien más guarda mientras
+   * tanto. Va como texto en el formulario y vuelve con él al guardar.
+   */
+  const abiertaEn = new Date().toISOString()
+
+  /*
    * Los proyectos que ya aparecen en esta semana, para ponerlos arriba en los
    * selectores. Se juntan de los días de la gente, de los equipos y de la
    * producción: los tres apuntan a la misma obra.
@@ -548,7 +571,36 @@ export default async function WeekPage({
               </Link>
             </div>
 
-            <form action={saveWorkEntries}>
+            {/*
+              Quién cambió lo que otra persona había marcado, y por qué.
+
+              Va aquí arriba y no en un registro aparte: el que abre la semana
+              es quien necesita saber que alguien la reescribió.
+            */}
+            {cambiosAjenos.length > 0 ? (
+              <div className="mb-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 text-sm">
+                <p className="brand-label text-[var(--muted)]">Cambios sobre trabajo de otra persona</p>
+                <ul className="mt-2 space-y-1">
+                  {cambiosAjenos.map((cambio) => {
+                    const quienPerdió =
+                      (cambio.oldValueJson as { tocadaPor?: string } | null)?.tocadaPor ??
+                      'otra persona'
+                    const quienCambió =
+                      (cambio.newValueJson as { guardadaPor?: string } | null)?.guardadaPor ??
+                      cambio.userEmailSnapshot
+                    return (
+                      <li key={cambio.id}>
+                        <strong>{quienCambió}</strong> cambió lo de {quienPerdió} ·{' '}
+                        {toIso(cambio.createdAt)}
+                        {cambio.reason ? <> — «{cambio.reason}»</> : null}
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            ) : null}
+
+            <GuardarDias action={saveWorkEntries} abiertaEn={abiertaEn}>
               <input type="hidden" name="weekId" value={week.id} />
 
               {/*
@@ -677,7 +729,7 @@ export default async function WeekPage({
               <div className="mt-4 flex flex-wrap gap-2">
                 <Button highlight={recienEscogidos}>Guardar días</Button>
               </div>
-            </form>
+            </GuardarDias>
 
             <Extras
               weekId={week.id}

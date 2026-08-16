@@ -342,6 +342,19 @@ candados en paralelo y fallaban "a veces" — no volver a paralelizarlas.
   del teléfono, alguien tanteando—, así que toda fecha de un filtro pasa por
   `fechaDeFiltro`: valida el formato Y que el día exista (`2026-02-31` pasa el
   formato). Lo que no se entiende se ignora y la pantalla abre mostrando todo.
+- **React reinicia el formulario cuando termina una acción de servidor.** Con
+  `<form action={…}>`, al terminar la acción React hace un reset: los `<select>`
+  con `defaultValue` vuelven a su PRIMERA opción, no a la guardada. Con un
+  `redirect` no se nota porque la pantalla se va; pero una acción que se queda
+  —un aviso que pide confirmar algo— deja la rejilla en blanco y el recuadro
+  prometiendo que lo marcado sigue ahí encima de una pantalla vacía. Cuando la
+  respuesta se muestra SIN navegar, el envío se hace a mano
+  (`onSubmit` + `preventDefault` + `useTransition`) — ver `GuardarDias.tsx`.
+- **Una Server Action llamada a mano recibe el `FormData` solo si va de PRIMER
+  argumento.** Con la firma `(previo, formData)` de `useActionState` llamada
+  directamente, al servidor le llega `{}`: el guardado corre sin un solo día,
+  no falla, y no avisa nada. Se ve en el registro del servidor como
+  `saveWorkEntries(null, {})`.
 - **Un cambio de estado puede dejar huérfano un documento.** Devolver una nómina
   que ya estaba dentro de una orden de desembolso dejaba la orden con el monto
   viejo, y tesorería habría transferido de más. Todo lo que saque a alguien de
@@ -434,8 +447,8 @@ netlify deploy --prod
 
 ## Estado
 
-**443 pruebas · 58 tablas · 20 migraciones · 25+ pantallas** · `check`, `smoke`
-(36) y `flow` (87) en verde. 190 reglas de negocio documentadas.
+**541 pruebas · 58 tablas · 21 migraciones · 26 pantallas** · `check`, `smoke`
+(44) y `flow` (95) en verde. 196 reglas de negocio documentadas.
 
 **Lo que pidió el negocio el 15/08, ya construido:** la nómina de la semana
 tiene los TRES bloques con lo que de verdad se paga — personas, equipos y
@@ -457,6 +470,14 @@ semanas nuevas sin relación con ellos. Ahora hay **/avisos** —con qué pasó,
 hacer y cierre con nota— , el archivo del Excel se archiva en bloque y no frena
 nada, y cada semana tiene **«empezar de cero»**, que borra el cálculo,
 conserva los días marcados y se niega en seco si algo ya se pagó.
+
+**Dos personas capturando la misma semana ya no se pisan** (decisión de
+Rafael, 16/08). La rejilla manda los siete días cada vez que se guarda: si Leo
+abre la semana y Rafael marca un día mientras tanto, el guardado de Leo borraba
+lo de Rafael sin que nadie se enterara. Ahora el sistema avisa, **no guarda
+nada**, y pide una nota para cambiar lo que otro trabajó; la nota queda con su
+nombre y **se ve en la propia semana**. Lo marcado no se pierde al recibir el
+aviso — BR-390…395.
 
 **La navegación se rehízo el 15/08** (pedido de Rafael: «visualmente lo veo
 enredado»). Cuatro cosas: se entra por **«Esta semana»** —qué falta y un botón
