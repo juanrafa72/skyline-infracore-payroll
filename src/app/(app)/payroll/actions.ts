@@ -30,7 +30,7 @@ import type { RespuestaGuardado } from './[weekId]/GuardarDias'
 import { invalidateIfStale } from '@/lib/payroll/workflow/service'
 import { currentRoster, removeFromRoster, setRoster } from '@/lib/payroll/roster'
 import { addExtra, removeExtra } from '@/lib/payroll/extras/service'
-import { alternarCuadrillaEnSemana, saveControlDays, saveCrewDays, syncCrewPayrolls } from '@/lib/payroll/crews/service'
+import { asignarContratista, alternarCuadrillaEnSemana, saveControlDays, saveCrewDays, syncCrewPayrolls } from '@/lib/payroll/crews/service'
 import {
   saveCrewBreakdown,
   saveExpectedTotal,
@@ -1169,4 +1169,24 @@ export async function capturarProduccionDeCuadrilla(
   revalidatePath(`/payroll/${weekId}`)
   revalidatePath('/liquidar-cuadrillas')
   return `LISTO|${crew.name}: ${Number(cantidad).toLocaleString('en-US')} ${etiqueta} × $${tarifa} = $${toDecimalString(amount)}. Presiona «Calcular nómina» para liquidarla.`
+}
+
+/** A quién se le paga una cuadrilla, sin salir de la semana. */
+export async function asignarContratistaACuadrilla(
+  _previous: string | null,
+  formData: FormData,
+): Promise<string> {
+  const user = await assertCan('payroll:edit')
+  const weekId = String(formData.get('weekId') ?? '')
+
+  const resultado = await asignarContratista(user, {
+    crewId: String(formData.get('crewId') ?? ''),
+    contractorId: String(formData.get('contractorId') ?? '') || null,
+    nombreNuevo: String(formData.get('nombreNuevo') ?? '') || null,
+  })
+
+  revalidatePath(`/payroll/${weekId}`)
+  revalidatePath('/liquidar-cuadrillas')
+  revalidatePath('/crews')
+  return resultado.ok ? `LISTO|${resultado.message}` : resultado.message
 }

@@ -164,6 +164,12 @@ export default async function LiquidarCuadrillasPage({
     (c) => c.id === crewId,
   )
 
+  const contratistas = await prisma.contractor.findMany({
+    where: { companyId: company.id, active: true },
+    orderBy: { name: 'asc' },
+    select: { id: true, name: true },
+  })
+
   const panel = vista?.payable
     ? await (async () => {
         const detalle = await contractorWeekView(company.id, vista.payable!.id)
@@ -245,6 +251,7 @@ export default async function LiquidarCuadrillasPage({
           loose={[]}
           panels={panel ? [panel] : []}
           disponibles={disponibles}
+          contractors={contratistas}
         />
       ) : (
         <EmptyState

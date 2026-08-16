@@ -155,6 +155,12 @@ export default async function WeekPage({
   const crewViews = await weekCrewViews(company.id, week.id)
   // Todas las del catálogo, para poder escoger cuál se liquida esta semana.
   const cuadrillasDisponibles = await cuadrillasParaLaSemana(company.id, week.id)
+  // Para poder decir a quién se le paga una cuadrilla sin salir de la semana.
+  const contratistas = await prisma.contractor.findMany({
+    where: { companyId: company.id, active: true },
+    orderBy: { name: 'asc' },
+    select: { id: true, name: true },
+  })
   const productionByCrew = new Map<string, typeof production>()
   const looseProduction: typeof production = []
   for (const row of production) {
@@ -815,6 +821,7 @@ export default async function WeekPage({
               panels={contractorPanels}
               loose={looseProduction.map(productionRow)}
               disponibles={cuadrillasDisponibles}
+              contractors={contratistas}
             />
           ) : null}
 

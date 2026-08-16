@@ -2,6 +2,7 @@
 
 import { useActionState, useState, useTransition } from 'react'
 import {
+  asignarContratistaACuadrilla,
   calculateWeek,
   capturarProduccionDeCuadrilla,
   saveCrewControlDays,
@@ -51,6 +52,109 @@ function currency(value: string | number): string {
  * control interno — por eso viven en una cuadrícula aparte de la de personal,
  * y guardarlos jamás toca un día pagado.
  */
+/**
+ * Decir a quién se le paga esta cuadrilla, sin salir de la semana.
+ *
+ * Doce de las «cuadrillas» que trajo el Excel son equipos de trabajo internos
+ * —CAMION, CUBO, DIRECCIONAL DRILL— y no tienen contratista. Descubrirlo al
+ * momento de liquidar y tener que salir a Catálogos para arreglarlo es lo que
+ * hacía la pantalla inservible. Se puede escribir uno nuevo: si el que trabajó
+ * no está en el catálogo, mandarlo a crearlo aparte es el mismo viaje.
+ *
+ * SIN formulario propio: vive dentro del formulario de los días de control.
+ */
+function AsignarContratista({
+  weekId,
+  crewId,
+  crewName,
+  contractors,
+}: {
+  weekId: string
+  crewId: string
+  crewName: string
+  contractors: ReadonlyArray<{ id: string; name: string }>
+}) {
+  const [pendiente, empezar] = useTransition()
+  const [mensaje, setMensaje] = useState<string | null>(null)
+  const [contractorId, setContractorId] = useState('')
+  const [nombreNuevo, setNombreNuevo] = useState('')
+
+  return (
+    <div className="mt-2 rounded-lg border border-red-200 bg-red-50/50 p-3">
+      <p className="mb-2 text-xs font-medium text-red-800">
+        ¿A quién se le paga {crewName}? Sin esto no se puede aprobar su pago.
+      </p>
+
+      <div className="flex flex-wrap items-end gap-2">
+        {contractors.length > 0 ? (
+          <label className="text-xs">
+            <span className="mb-0.5 block text-[var(--muted)]">Contratista</span>
+            <select
+              value={contractorId}
+              onChange={(evento) => {
+                setContractorId(evento.target.value)
+                if (evento.target.value) setNombreNuevo('')
+              }}
+              className="h-8 min-w-48 rounded border border-[var(--border)] bg-[var(--bg)] px-1 text-sm"
+            >
+              <option value="">— escoge —</option>
+              {contractors.map((contractor) => (
+                <option key={contractor.id} value={contractor.id}>
+                  {contractor.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+
+        <label className="text-xs">
+          <span className="mb-0.5 block text-[var(--muted)]">
+            {contractors.length > 0 ? '…o uno nuevo' : 'Nombre del contratista'}
+          </span>
+          <input
+            value={nombreNuevo}
+            onChange={(evento) => {
+              setNombreNuevo(evento.target.value)
+              if (evento.target.value) setContractorId('')
+            }}
+            placeholder="Ej.: Hugo"
+            className="h-8 w-44 rounded border border-[var(--border)] bg-[var(--bg)] px-2 text-sm"
+          />
+        </label>
+
+        <button
+          type="button"
+          disabled={pendiente}
+          onClick={() => {
+            setMensaje(null)
+            const datos = new FormData()
+            datos.set('weekId', weekId)
+            datos.set('crewId', crewId)
+            datos.set('contractorId', contractorId)
+            datos.set('nombreNuevo', nombreNuevo)
+            empezar(async () => {
+              setMensaje(await asignarContratistaACuadrilla(null, datos))
+            })
+          }}
+          className="inline-flex h-8 items-center rounded-full border border-red-300 bg-white px-4 text-xs font-medium hover:bg-red-100 disabled:opacity-45"
+        >
+          {pendiente ? 'Guardando…' : 'Guardar'}
+        </button>
+      </div>
+
+      {mensaje ? (
+        <p
+          className={`mt-1.5 text-xs ${
+            mensaje.startsWith('LISTO|') ? 'text-emerald-800' : 'text-amber-800'
+          }`}
+        >
+          {mensaje.replace(/^LISTO\|/, '')}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
 /**
  * Capturar lo que construyó una cuadrilla, sin salir de la semana.
  *
@@ -261,6 +365,8 @@ function EscogerCuadrilla({
   const [result, action, saving] = useActionState(toggleCuadrillaEnSemana, null)
   const [abierto, setAbierto] = useState(false)
   const faltantes = disponibles.filter((crew) => !crew.yaEsta)
+  const conContratista = faltantes.filter((crew) => crew.contractorName)
+  const sinContratista = faltantes.filter((crew) => !crew.contractorName)
 
   return (
     <div className="mx-3.5 mt-3">
@@ -313,17 +419,36 @@ function EscogerCuadrilla({
           <input type="hidden" name="weekId" value={weekId} />
           <label className="text-sm">
             <span className="mb-1 block text-xs text-[var(--muted)]">Cuál se liquida</span>
+            {/*
+              Primero las que tienen a quién pagarle.
+              Doce de las «cuadrillas» que trajo el Excel son equipos de trabajo
+              internos —CAMION, CUBO, DIRECCIONAL DRILL— y no se le pagan a
+              nadie. Mezcladas alfabéticamente tapaban a los contratistas, que
+              son los que uno viene a liquidar.
+            */}
             <select
               name="crewId"
               required
-              className="h-9 min-w-64 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2 text-sm"
+              className="h-9 min-w-72 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2 text-sm"
             >
-              {faltantes.map((crew) => (
-                <option key={crew.id} value={crew.id}>
-                  {crew.name}
-                  {crew.contractorName ? ` — se le paga a ${crew.contractorName}` : ' — SIN contratista'}
-                </option>
-              ))}
+              {conContratista.length > 0 ? (
+                <optgroup label="Se le paga a un contratista">
+                  {conContratista.map((crew) => (
+                    <option key={crew.id} value={crew.id}>
+                      {crew.name} — se le paga a {crew.contractorName}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
+              {sinContratista.length > 0 ? (
+                <optgroup label="Sin contratista — hay que decir a quién se le paga">
+                  {sinContratista.map((crew) => (
+                    <option key={crew.id} value={crew.id}>
+                      {crew.name}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
             </select>
           </label>
           <button
@@ -347,6 +472,7 @@ export function CrewsBlock({
   projects = [],
   panels = [],
   disponibles = [],
+  contractors = [],
 }: {
   weekId: string
   /** Días de la semana: [iso, etiqueta corta]. */
@@ -358,6 +484,8 @@ export function CrewsBlock({
   projects?: ReadonlyArray<{ id: string; name: string }>
   /** Desglose y conciliación por contratista, uno por liquidación calculada. */
   panels?: readonly ContractorPanel[]
+  /** Los contratistas del catálogo, para decir a quién se le paga. */
+  contractors?: ReadonlyArray<{ id: string; name: string }>
   /** Todas las cuadrillas de la compañía, para poder escoger cuál se liquida. */
   disponibles?: ReadonlyArray<{
     id: string
@@ -438,7 +566,7 @@ export function CrewsBlock({
                       <>se le paga a <strong>{crew.contractorName}</strong></>
                     ) : (
                       <span className="font-medium text-red-700">
-                        sin contratista — no se podrá aprobar hasta asignárselo en Cuadrillas
+                        sin contratista — dilo aquí abajo
                       </span>
                     )}
                   </p>
@@ -469,6 +597,16 @@ export function CrewsBlock({
                 No confundir con los días de control de su gente, que van
                 abajo: estos SÍ pagan, y le pagan al contratista.
               */}
+              {/* Lo primero que falta: a quién se le paga. */}
+              {!crew.hasContractor ? (
+                <AsignarContratista
+                  weekId={weekId}
+                  crewId={crew.crewId}
+                  crewName={crew.crewName}
+                  contractors={contractors}
+                />
+              ) : null}
+
               {/*
                 Sin liquidación todavía: aquí se captura lo que construyó, con
                 la tarifa a la vista. Antes había que irse a otra pantalla y

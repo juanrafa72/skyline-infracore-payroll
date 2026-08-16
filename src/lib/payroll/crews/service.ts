@@ -703,3 +703,66 @@ export async function alternarCuadrillaEnSemana(
   await prisma.crewWeekMember.deleteMany({ where: { payrollWeekId, crewId } })
   return { ok: true, message: `${crew.name} sale de esta semana.` }
 }
+
+/**
+ * A quién se le paga esa cuadrilla.
+ *
+ * Se puede hacer desde la semana, sin irse a Catálogos: doce de las
+ * «cuadrillas» que trajo el Excel son en realidad equipos de trabajo internos
+ * —CAMION, CUBO, DIRECCIONAL DRILL— y no tienen a nadie a quién pagarle.
+ * Descubrirlo al momento de liquidar y tener que salir a otra pantalla para
+ * arreglarlo es lo que hacía la lista inservible.
+ *
+ * Acepta el nombre de un contratista nuevo: si el que trabajó no está en el
+ * catálogo, obligar a crearlo aparte es el mismo viaje que se está evitando.
+ */
+export async function asignarContratista(
+  user: CurrentUser,
+  input: { crewId: string; contractorId?: string | null; nombreNuevo?: string | null },
+): Promise<{ ok: boolean; message: string }> {
+  const crew = await prisma.crew.findFirst({
+    where: { id: input.crewId, companyId: user.companyId },
+    select: { id: true, name: true },
+  })
+  if (!crew) return { ok: false, message: 'Esa cuadrilla no existe en esta compañía.' }
+
+  let contractorId = input.contractorId || null
+
+  const nombre = (input.nombreNuevo ?? '').trim()
+  if (!contractorId && nombre) {
+    /*
+     * Si ya existe uno con ese nombre se reutiliza. Crear «Hugo» dos veces
+     * partiría en dos su historial de pagos, que es justo lo que nadie nota
+     * hasta que le reclaman.
+     */
+    const existente = await prisma.contractor.findFirst({
+      where: { companyId: user.companyId, name: nombre },
+      select: { id: true },
+    })
+    contractorId =
+      existente?.id ??
+      (
+        await prisma.contractor.create({
+          data: { companyId: user.companyId, name: nombre, active: true },
+          select: { id: true },
+        })
+      ).id
+  }
+
+  if (!contractorId) {
+    return { ok: false, message: 'Escoge a quién se le paga, o escribe el nombre de uno nuevo.' }
+  }
+
+  const contratista = await prisma.contractor.findFirst({
+    where: { id: contractorId, companyId: user.companyId },
+    select: { id: true, name: true },
+  })
+  if (!contratista) return { ok: false, message: 'Ese contratista no existe en esta compañía.' }
+
+  await prisma.crew.update({
+    where: { id: crew.id },
+    data: { contractorId: contratista.id },
+  })
+
+  return { ok: true, message: `A ${crew.name} se le paga a ${contratista.name}.` }
+}
