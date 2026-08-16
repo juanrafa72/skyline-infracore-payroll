@@ -95,6 +95,12 @@ const GRUPOS: ReadonlyArray<{
         permission: 'payroll:approve',
       },
       {
+        href: '/report-recipients',
+        label: 'Envío de reportes',
+        detail: 'A qué correos llega el soporte de cada pago, y qué se ha mandado.',
+        permission: 'payment:view',
+      },
+      {
         href: '/users',
         label: 'Usuarios y roles',
         detail: 'Quién entra y qué puede hacer. Quien prepara no aprueba.',

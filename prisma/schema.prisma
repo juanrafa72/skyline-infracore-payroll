@@ -55,6 +55,7 @@ model Company {
   paymentRecipients  PaymentRecipient[]
   disbursementOrders DisbursementOrder[]
   billingRates       BillingRate[]
+  reportRecipients   ReportRecipient[]
 
   @@map("company")
 }
@@ -1727,6 +1728,7 @@ model PaymentRecipient {
   advances Advance[]
   crewPayrolls      CrewPayroll[]
   equipmentPayrolls EquipmentPayroll[]
+  reportRecipients  ReportRecipient[]
 
   @@unique([companyId, normalizedName])
   @@index([companyId, active])
@@ -1807,6 +1809,7 @@ model DisbursementOrder {
   items       DisbursementOrderItem[]
   payments    Payment[]
   documents   DisbursementDocument[]
+  dispatches  ReportDispatch[]
 
   @@unique([companyId, orderNumber])
   @@index([companyId, status])
@@ -1887,6 +1890,113 @@ enum DisbursementDocumentKind {
   PAYMENT_PROOF // comprobante bancario
   ORDER_PDF     // el desprendible emitido
   OTHER
+}
+
+/// A quién se le mandan los reportes por correo.
+///
+/// El negocio lo pidió con dos casos concretos —la auxiliar contable y la
+/// empresa receptora— «y las que sean necesarias». Por eso es una lista y no
+/// dos campos fijos: mañana entra el revisor fiscal y no hay que tocar código.
+model ReportRecipient {
+  id        String @id @default(uuid(7))
+  companyId String
+
+  name  String
+  email String
+  /// Qué reportes recibe. Vacío = todos los de la compañía.
+  kinds String[] @default([])
+
+  /// Cuando está atado a una empresa receptora, solo recibe SUS órdenes: al
+  /// contratista no se le manda el desprendible de otro.
+  paymentRecipientId String?
+
+  /// Copia oculta: contabilidad suele querer copia sin que el proveedor la vea.
+  bcc Boolean @default(false)
+
+  active    Boolean  @default(true)
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company          Company           @relation(fields: [companyId], references: [id])
+  paymentRecipient PaymentRecipient? @relation(fields: [paymentRecipientId], references: [id])
+  dispatches       ReportDispatchTarget[]
+
+  @@unique([companyId, email, paymentRecipientId])
+  @@index([companyId, active])
+  @@map("report_recipient")
+}
+
+/// Un reporte enviado, con su consecutivo único.
+///
+/// Queda constancia de QUÉ se mandó, a quién, cuándo y con qué número. Sin
+/// esto, «¿ya le mandaste el soporte a contabilidad?» no tiene respuesta
+/// verificable — y el consecutivo permite reclamar el que falta.
+model ReportDispatch {
+  id        String @id @default(uuid(7))
+  companyId String
+
+  /// `RP-SKYLINE-2026-0012`. Único por compañía y año.
+  reportNumber String
+  kind         ReportKind
+
+  /// Qué documento se mandó. Para el desprendible, la orden.
+  disbursementOrderId String?
+
+  subject String
+  /// Nombre del adjunto tal como salió.
+  fileName String?
+
+  status       ReportDispatchStatus @default(QUEUED)
+  /// Por qué falló, si falló. Un envío fallido que no se explica se repite.
+  failureReason String?
+
+  sentById   String?
+  sentByName String?
+  createdAt  DateTime  @default(now())
+  sentAt     DateTime?
+
+  order   DisbursementOrder?     @relation(fields: [disbursementOrderId], references: [id])
+  targets ReportDispatchTarget[]
+
+  @@unique([companyId, reportNumber])
+  @@index([companyId, createdAt])
+  @@map("report_dispatch")
+}
+
+/// A quién le llegó cada envío, con el correo congelado.
+///
+/// El correo se copia: si mañana cambia la dirección de la auxiliar contable,
+/// el registro tiene que seguir diciendo a dónde se mandó ese día.
+model ReportDispatchTarget {
+  id         String @id @default(uuid(7))
+  dispatchId String
+
+  reportRecipientId String?
+  emailSnapshot     String
+  nameSnapshot      String
+  bcc               Boolean @default(false)
+
+  dispatch  ReportDispatch   @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+  recipient ReportRecipient? @relation(fields: [reportRecipientId], references: [id])
+
+  @@index([dispatchId])
+  @@map("report_dispatch_target")
+}
+
+enum ReportKind {
+  /// El desprendible de una orden de desembolso.
+  DISBURSEMENT_PDF
+  /// Resumen semanal de nómina.
+  WEEKLY_SUMMARY
+  OTHER
+}
+
+enum ReportDispatchStatus {
+  /// Registrado, esperando salir.
+  QUEUED
+  SENT
+  FAILED
 }
 
 /// Consecutivos por compañía y año.

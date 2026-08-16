@@ -10,7 +10,7 @@ import { prisma } from '@/lib/db/client'
  * mismo consecutivo hacen imposible rastrear un movimiento de dinero.
  */
 
-export type SequenceKind = 'DISBURSEMENT_ORDER'
+export type SequenceKind = 'DISBURSEMENT_ORDER' | 'REPORT_DISPATCH'
 
 interface Row {
   lastNumber: number
@@ -46,3 +46,6 @@ export async function nextNumber(
 export function formatOrderNumber(companyCode: string, year: number, number: number): string {
   return `OD-${companyCode}-${year}-${String(number).padStart(4, '0')}`
 }
+
+// El consecutivo de los reportes se arma en `@/lib/mail/reports`, junto al
+// resto de lo puro: este archivo importa Prisma y no se puede probar sin base.

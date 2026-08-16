@@ -387,3 +387,14 @@ poder verificar contra lo que dice SharePoint.
 | BR-311 | El histórico se arma con los **snapshots de la orden**, nunca con consultas vivas: si mañana cambia el nombre de una empresa receptora o de un trabajador, el histórico sigue diciendo lo que decía el día del pago (extiende BR-186, BR-248). | CONFIRMED |
 | BR-312 | «Falta por pagar» es **lo que falta de cada orden**, no su total: una orden pagada a medias ya movió parte del dinero. Una orden **anulada no cuenta como pendiente** — ya no va a salir. | CONFIRMED |
 | BR-313 | El rango de fechas se mide por la **fecha de pago** cuando existe, y por el período de la semana cuando no: una orden sin pagar todavía no tiene fecha de pago, y dejarla fuera del filtro la escondería justo cuando hay que perseguirla. | CONFIRMED |
+
+## 32. Envío de reportes por correo (BR-320 – BR-325)
+
+| # | Regla | Estado |
+|---|-------|--------|
+| BR-320 | **Cada reporte enviado lleva un consecutivo único** (`RP-SKYLINE-2026-0012`), sacado con la misma instrucción atómica de las órdenes. Sirve para reclamar el que falta: con un asunto de correo repetido eso es imposible. | CONFIRMED (Rafael, 2026-08-15) |
+| BR-321 | Los destinatarios son una **lista configurable**, no dos campos fijos: el negocio pidió la auxiliar contable y la empresa receptora «y las que sean necesarias». Cada uno puede recibir todos los reportes o solo ciertos tipos, y en copia oculta si se marca. | CONFIRMED (Rafael, 2026-08-15) |
+| BR-322 | Un destinatario atado a una empresa receptora recibe **SOLO las órdenes de esa empresa**. Mandarle a un contratista el desprendible de otro le expone lo que se le paga a un tercero. | CONFIRMED |
+| BR-323 | El registro del envío se crea **siempre**, incluso si el correo falla: queda el consecutivo, a quién iba (con el correo **congelado**) y el motivo del fallo. Un envío fallido sin rastro se repite sin que nadie se entere. | CONFIRMED |
+| BR-324 | Un envío **ya realizado es inmutable** (trigger `report_dispatch_sent_is_immutable`): es la prueba de que el soporte salió. Para volver a mandarlo se hace un envío nuevo, con su propio consecutivo. | CONFIRMED |
+| BR-325 | **Sin cuenta de correo configurada, la aplicación NO dice que envió.** Queda en modo registro: numera, guarda a quién iba y avisa en pantalla que falta conectar la cuenta y que hay que mandar el PDF a mano. Marcar como enviado algo que no salió haría que contabilidad diera por recibido lo que nunca llegó. Las credenciales van en el entorno (`SMTP_*`), nunca en la base: una clave en la base termina copiada a un respaldo. | CONFIRMED |

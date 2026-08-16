@@ -71,6 +71,7 @@ const ROUTES = [
   '/avisos',
   '/disbursements',
   '/historico',
+  '/report-recipients',
   '/recipients',
   '/payments',
   '/users',

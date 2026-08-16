@@ -12,6 +12,7 @@ import {
   payOrder,
 } from '@/lib/disbursement/orders'
 import { applyTransition } from '@/lib/payroll/workflow/service'
+import { enviarDesprendible } from '@/lib/mail/dispatch-service'
 import { applyPayableTransition } from '@/lib/payroll/workflow/payables'
 
 /**
@@ -225,5 +226,23 @@ export async function generateMissingOrdersAction(): Promise<string> {
   })
 
   revalidateAll()
+  return result.ok ? `LISTO|${result.message}` : result.message
+}
+
+/**
+ * Manda el desprendible de la orden por correo, con su consecutivo.
+ *
+ * Va a quien esté configurado en «Envío de reportes»: la auxiliar contable y,
+ * si se configuró, la empresa receptora de ESTA orden.
+ */
+export async function sendOrderReport(
+  _previous: string | null,
+  formData: FormData,
+): Promise<string> {
+  const user = await assertCan('payment:view')
+
+  const result = await enviarDesprendible(user, String(formData.get('orderId') ?? ''))
+  revalidatePath('/disbursements')
+  revalidatePath('/report-recipients')
   return result.ok ? `LISTO|${result.message}` : result.message
 }

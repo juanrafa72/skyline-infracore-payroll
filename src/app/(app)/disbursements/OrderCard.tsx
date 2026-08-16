@@ -9,6 +9,7 @@ import {
   sendToAccountingAction,
   returnItemsAction,
 } from './actions'
+import { SendReport } from './SendReport'
 
 export interface OrderWorker {
   /** Renglón de la orden: puede ser una persona, una cuadrilla o un equipo. */
@@ -305,6 +306,9 @@ export function OrderCard({ data, canPay }: { data: OrderCardData; canPay: boole
         >
           Descargar PDF
         </a>
+
+        {/* El mismo desprendible, pero por correo y con su consecutivo. */}
+        <SendReport orderId={data.id} />
 
         {canPay && !settled && pending.length > 0 ? (
           <button
