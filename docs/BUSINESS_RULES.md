@@ -590,3 +590,13 @@ de todo con su consecutivo único».
 | BR-434 | El bloque de equipos abre en **«Activos»**: los que están en obra esta semana, rentados y propios juntos, con la rejilla de días igual que la de la gente. Rentados y Propios parten ese mismo grupo; «Todos» es el catálogo donde se activan. Pedido de Rafael: «una sección de activos para seleccionar cuáles están activos en este momento; se marcan los días igual que arriba». | CONFIRMED (Rafael, 2026-08-16) |
 | BR-435 | Una cuadrilla recién agregada **se puede usar de una vez**: se captura lo que construyó en la misma semana, con la tarifa a la vista y editable, y la cuenta se ve mientras se teclea. Antes agregarla no servía de nada —sin producción no hay liquidación, sin liquidación no hay desglose— y la producción se capturaba en otra pantalla que además exigía una negociación creada de antemano. | CONFIRMED (Rafael, 2026-08-16) |
 | BR-436 | Si esa cuadrilla no tenía negociación para esa unidad y ese precio, **se le crea** al capturar. Es la misma información; obligar a registrarla aparte antes de poder usarla es lo que hacía la pantalla inservible. La fecha tiene que caer dentro de la semana: fuera del corte se liquidaría en otra y nadie entendería por qué desapareció. | CONFIRMED |
+
+## 46. Que la semana se explique sola (BR-450 – BR-452)
+
+Rafael, 16/08: «cada vez haz lo más intuitivo».
+
+| # | Regla | Estado |
+|---|-------|--------|
+| BR-450 | **Cada bloque dice en qué va**, con las mismas palabras: la gente («falta registrar el martes»), los equipos («falta el proveedor de 1 equipo») y las cuadrillas («falta capturar lo que construyó 1 cuadrilla»). Lo que frena se dice donde se puede arreglar, no cuando revienta el cálculo — enterarse al final obliga a devolverse. | CONFIRMED (Rafael, 2026-08-16) |
+| BR-451 | El botón dice **qué va a calcular**: «Calcular nómina (3 personas, 4 equipos, 2 cuadrillas)». Con tres bloques en pantalla, un botón mudo obliga a devolverse a contar para saber si va a incluir lo que uno acaba de capturar. Cuenta lo mismo que el motor va a mirar; si contara otra cosa, prometería un cálculo que no ocurre. | CONFIRMED (Rafael, 2026-08-16) |
+| BR-452 | El paso siguiente aparece **donde uno está mirando**. Tras capturar la producción de una cuadrilla, el botón de calcular sale ahí mismo: decir «presiona Calcular nómina» con ese botón al final de una página larga es mandar a buscar. | CONFIRMED |

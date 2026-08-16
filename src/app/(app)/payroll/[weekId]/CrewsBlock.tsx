@@ -2,6 +2,7 @@
 
 import { useActionState, useState, useTransition } from 'react'
 import {
+  calculateWeek,
   capturarProduccionDeCuadrilla,
   saveCrewControlDays,
   toggleCuadrillaEnSemana,
@@ -77,6 +78,7 @@ function CapturarProduccion({
   projects: ReadonlyArray<{ id: string; name: string }>
 }) {
   const [pendiente, empezar] = useTransition()
+  const [calculando, calcular] = useTransition()
   const [mensaje, setMensaje] = useState<string | null>(null)
   const [cantidad, setCantidad] = useState('')
   const [tarifa, setTarifa] = useState('')
@@ -196,13 +198,38 @@ function CapturarProduccion({
       </div>
 
       {mensaje ? (
-        <p
-          className={`mt-2 text-xs ${
-            mensaje.startsWith('LISTO|') ? 'text-emerald-800' : 'text-amber-800'
-          }`}
-        >
-          {mensaje.replace(/^LISTO\|/, '')}
-        </p>
+        <div className="mt-2">
+          <p
+            className={`text-xs ${
+              mensaje.startsWith('LISTO|') ? 'text-emerald-800' : 'text-amber-800'
+            }`}
+          >
+            {mensaje.replace(/^LISTO\|/, '').replace(' Presiona «Calcular nómina» para liquidarla.', '')}
+          </p>
+
+          {/*
+            El paso siguiente, aquí mismo.
+            Decir «presiona Calcular nómina» y dejar ese botón al final de una
+            página larga es mandar a buscar: quien acaba de capturar está
+            mirando ESTE punto de la pantalla.
+          */}
+          {mensaje.startsWith('LISTO|') ? (
+            <button
+              type="button"
+              disabled={calculando}
+              onClick={() => {
+                const datos = new FormData()
+                datos.set('weekId', weekId)
+                calcular(async () => {
+                  await calculateWeek(datos)
+                })
+              }}
+              className="paso-siguiente mt-2 inline-flex h-8 items-center rounded-full bg-[var(--accent)] px-4 text-xs font-medium text-white disabled:opacity-45"
+            >
+              {calculando ? 'Calculando…' : 'Calcular nómina y liquidarla'}
+            </button>
+          ) : null}
+        </div>
       ) : null}
     </div>
   )
@@ -218,6 +245,7 @@ function EscogerCuadrilla({
   weekId,
   disponibles,
   enLaSemana,
+  sinCapturar,
 }: {
   weekId: string
   disponibles: ReadonlyArray<{
@@ -227,6 +255,8 @@ function EscogerCuadrilla({
     yaEsta: boolean
   }>
   enLaSemana: number
+  /** Cuántas están en la semana pero todavía sin nada capturado. */
+  sinCapturar: number
 }) {
   const [result, action, saving] = useActionState(toggleCuadrillaEnSemana, null)
   const [abierto, setAbierto] = useState(false)
@@ -237,6 +267,21 @@ function EscogerCuadrilla({
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[var(--hover)] px-3 py-2">
         <span className="text-sm">
           <strong>{enLaSemana}</strong> cuadrilla{enLaSemana === 1 ? '' : 's'} en esta semana
+          {/*
+            En qué van, igual que lo dice el bloque de la gente. Un bloque que
+            no dice si le falta algo obliga a recorrerlo entero para saberlo.
+          */}
+          <span
+            className={`mt-0.5 block text-xs ${
+              sinCapturar > 0 ? 'font-medium text-amber-700' : 'text-[var(--muted)]'
+            }`}
+          >
+            {enLaSemana === 0
+              ? 'Agrega la que vas a liquidar.'
+              : sinCapturar > 0
+                ? `Falta capturar lo que construyó ${sinCapturar === 1 ? '1 cuadrilla' : `${sinCapturar} cuadrillas`}.`
+                : 'Todas tienen su producción capturada.'}
+          </span>
         </span>
         {faltantes.length > 0 ? (
           <button
@@ -342,7 +387,14 @@ export function CrewsBlock({
         producción capturada, así que no había por dónde empezar con una
         cuadrilla nueva — y pueden trabajar varias a la vez.
       */}
-      <EscogerCuadrilla weekId={weekId} disponibles={disponibles} enLaSemana={crews.length} />
+      <EscogerCuadrilla
+        weekId={weekId}
+        disponibles={disponibles}
+        enLaSemana={crews.length}
+        sinCapturar={
+          crews.filter((crew) => !crew.payable && crew.production.length === 0).length
+        }
+      />
 
       {result ? (
         <p

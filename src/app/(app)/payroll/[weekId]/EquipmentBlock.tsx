@@ -192,6 +192,30 @@ export function EquipmentBlock({
     [rows],
   )
 
+  /*
+   * Qué le falta al bloque para poder calcular.
+   *
+   * Solo se mira lo que de verdad frena: un rentado sin costo diario no
+   * calcula y sin proveedor no se aprueba (BR-121). El propio no le debe nada
+   * a nadie, así que no se le reclama.
+   */
+  const pendientes = useMemo(() => {
+    const activos = rows.filter((row) => row.enLaSemana)
+    const rentados = activos.filter((row) => row.ownership === 'RENTED')
+    const faltas: string[] = []
+
+    const sinCosto = rentados.filter((row) => !row.dailyCost).length
+    if (sinCosto > 0) faltas.push(`el costo diario de ${sinCosto} equipo(s)`)
+
+    const sinProveedor = rentados.filter((row) => !row.hasVendor).length
+    if (sinProveedor > 0) faltas.push(`el proveedor de ${sinProveedor} equipo(s)`)
+
+    const sinDias = activos.filter((row) => row.markedDays.length === 0).length
+    if (sinDias > 0) faltas.push(`marcar los días de ${sinDias} equipo(s)`)
+
+    return faltas
+  }, [rows])
+
   // Los proyectos de la semana, arriba: son 21 y el selector sale en cada fila.
   const grupos = useMemo(
     () => agruparProyectos(projects, projectsInUse),
@@ -272,6 +296,23 @@ export function EquipmentBlock({
             equipo(s){' '}
             {filtro === 'ACTIVOS' ? 'en obra' : filtro === 'RENTED' ? 'rentado(s)' : 'propio(s)'} en
             esta semana
+            {/*
+              En qué va el bloque, con las mismas palabras que el de la gente.
+              Lo que falta se dice AQUÍ y no cuando revienta el cálculo: un
+              equipo rentado sin proveedor no se puede aprobar, y enterarse al
+              final obliga a devolverse.
+            */}
+            <span
+              className={`mt-0.5 block text-xs ${
+                pendientes.length > 0 ? 'font-medium text-amber-700' : 'text-[var(--muted)]'
+              }`}
+            >
+              {cuenta.activos === 0
+                ? 'Agrega en «Todos» los que estuvieron en obra.'
+                : pendientes.length > 0
+                  ? `Falta ${pendientes.join(' · ')}.`
+                  : 'Todo listo para calcular.'}
+            </span>
           </span>
           <button
             type="button"

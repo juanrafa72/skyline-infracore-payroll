@@ -411,6 +411,19 @@ export default async function WeekPage({
     hoy: toIso(new Date()),
   })
 
+  /*
+   * Qué va a entrar al cálculo, dicho en el botón.
+   *
+   * Se cuenta lo mismo que el motor va a mirar: gente con días marcados,
+   * equipos en la semana y cuadrillas con algo capturado. Si el botón contara
+   * otra cosa, prometería un cálculo que no ocurre.
+   */
+  const queSeCalcula = [
+    `${workersWithDays.size} persona${workersWithDays.size === 1 ? '' : 's'}`,
+    `${equipmentRows.filter((row) => row.enLaSemana).length} equipo(s)`,
+    `${crewViews.length} cuadrilla(s)`,
+  ].join(', ')
+
   const totals = payrolls.reduce(
     (accumulator, payroll) => ({
       gross: accumulator.gross + Number(payroll.grossPay),
@@ -819,8 +832,14 @@ export default async function WeekPage({
             ) : null}
             <form action={calculateWeek} className="mt-2">
               <input type="hidden" name="weekId" value={week.id} />
+              {/*
+                El botón dice QUÉ va a calcular, no solo «calcular».
+                Con tres bloques en la pantalla, un botón mudo obliga a
+                devolverse a contar para saber si va a incluir la cuadrilla que
+                uno acaba de capturar.
+              */}
               <Button variant="secondary" highlight={recienGuardado}>
-                Calcular nómina
+                Calcular nómina ({queSeCalcula})
               </Button>
             </form>
           </section>
