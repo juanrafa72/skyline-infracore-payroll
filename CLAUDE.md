@@ -336,6 +336,12 @@ candados en paralelo y fallaban "a veces" — no volver a paralelizarlas.
   bloqueo, puerta de aprobación) necesita su pantalla para levantarla, con nota
   y autor, en el mismo cambio que la crea. Y todo lo que se pueda hacer mal
   necesita cómo deshacerse, o el negocio no puede ni practicar.
+- **`new Date('lo-que-sea')` no falla: devuelve una fecha inválida.** Y revienta
+  después, ya dentro de la consulta, con un error del motor en pantalla. Lo que
+  llega por la dirección lo escribe cualquiera —un enlace viejo, un corrector
+  del teléfono, alguien tanteando—, así que toda fecha de un filtro pasa por
+  `fechaDeFiltro`: valida el formato Y que el día exista (`2026-02-31` pasa el
+  formato). Lo que no se entiende se ignora y la pantalla abre mostrando todo.
 - **Un cambio de estado puede dejar huérfano un documento.** Devolver una nómina
   que ya estaba dentro de una orden de desembolso dejaba la orden con el monto
   viejo, y tesorería habría transferido de más. Todo lo que saque a alguien de

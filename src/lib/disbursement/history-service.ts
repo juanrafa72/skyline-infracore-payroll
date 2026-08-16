@@ -1,5 +1,10 @@
 import { prisma } from '@/lib/db/client'
-import { aplicarFiltros, type FiltroHistorico, type PagoHistorico } from './history'
+import {
+  aplicarFiltros,
+  fechaDeFiltro,
+  type FiltroHistorico,
+  type PagoHistorico,
+} from './history'
 
 /**
  * El histórico de pagos contra la base de datos.
@@ -38,10 +43,13 @@ export async function historicoDePagos(
    * período de la semana: una orden sin pagar todavía no tiene fecha de pago,
    * y dejarla fuera del filtro la escondería justo cuando hay que perseguirla.
    */
-  if (filtro.desde || filtro.hasta) {
+  const desde = fechaDeFiltro(filtro.desde)
+  const hasta = fechaDeFiltro(filtro.hasta)
+
+  if (desde || hasta) {
     const rango: Record<string, Date> = {}
-    if (filtro.desde) rango.gte = new Date(`${filtro.desde}T00:00:00Z`)
-    if (filtro.hasta) rango.lte = new Date(`${filtro.hasta}T00:00:00Z`)
+    if (desde) rango.gte = desde
+    if (hasta) rango.lte = hasta
     where.OR = [{ paymentDate: rango }, { paymentDate: null, periodEnd: rango }]
   }
 

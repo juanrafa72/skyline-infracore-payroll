@@ -159,6 +159,25 @@ export function totalesPorReceptora(filas: readonly PagoHistorico[]): TotalPorRe
     .sort((a, b) => Number(b.pagado) - Number(a.pagado))
 }
 
+/**
+ * Una fecha del filtro, o `null` si no sirve.
+ *
+ * Lo que llega en la dirección lo escribe cualquiera: un enlace viejo, un
+ * corrector del teléfono, alguien tanteando. `new Date('no-es-fecha')` no
+ * falla — devuelve una fecha inválida que revienta más adelante, ya dentro de
+ * la consulta, con un error del motor en pantalla. Aquí se filtra antes: una
+ * fecha que no se entiende se ignora, y la pantalla abre mostrando todo.
+ */
+export function fechaDeFiltro(raw: string | null | undefined): Date | null {
+  if (!raw) return null
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null
+  const fecha = new Date(`${raw}T00:00:00Z`)
+  // El 2026-02-31 pasa el formato pero no existe.
+  if (Number.isNaN(fecha.getTime())) return null
+  if (fecha.toISOString().slice(0, 10) !== raw) return null
+  return fecha
+}
+
 /** Filtra por tipo de pagable y por texto, sobre los renglones ya cargados. */
 export function aplicarFiltros(
   filas: readonly PagoHistorico[],

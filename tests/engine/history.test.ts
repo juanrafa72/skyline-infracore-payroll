@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  fechaDeFiltro,
   resumirHistorico,
   totalesPorReceptora,
   type PagoHistorico,
@@ -146,5 +147,37 @@ describe('sin datos', () => {
     expect(r.pendiente).toBe('0.00')
     expect(r.receptoras).toBe(0)
     expect(totalesPorReceptora([])).toEqual([])
+  })
+})
+
+describe('fechas que llegan por la dirección', () => {
+  it('acepta una fecha bien escrita', () => {
+    expect(fechaDeFiltro('2026-08-16')?.toISOString().slice(0, 10)).toBe('2026-08-16')
+  })
+
+  it('ignora lo que no es una fecha, en vez de reventar', () => {
+    /*
+     * `new Date('no-es-fecha')` no falla: devuelve una fecha inválida que
+     * revienta después, ya dentro de la consulta, con un error del motor en
+     * pantalla. Fue un HTTP 500 real en /historico.
+     */
+    for (const basura of ['no-es-fecha', 'abc', '2026', '16/08/2026', '', ' ', 'null']) {
+      expect(fechaDeFiltro(basura)).toBeNull()
+    }
+  })
+
+  it('ignora un día que no existe aunque tenga forma de fecha', () => {
+    expect(fechaDeFiltro('2026-02-31')).toBeNull()
+    expect(fechaDeFiltro('2026-13-01')).toBeNull()
+    expect(fechaDeFiltro('2027-02-29')).toBeNull()
+  })
+
+  it('sí acepta el 29 de febrero de un año bisiesto', () => {
+    expect(fechaDeFiltro('2028-02-29')).not.toBeNull()
+  })
+
+  it('nulo y sin valor no son error: significan «sin filtro»', () => {
+    expect(fechaDeFiltro(null)).toBeNull()
+    expect(fechaDeFiltro(undefined)).toBeNull()
   })
 })

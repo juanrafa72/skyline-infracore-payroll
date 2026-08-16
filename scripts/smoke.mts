@@ -71,6 +71,14 @@ const ROUTES = [
   '/avisos',
   '/disbursements',
   '/historico',
+  /*
+   * El histórico con fechas que NO son fechas.
+   * Lo que llega en la dirección lo escribe cualquiera —un enlace viejo, un
+   * corrector, alguien tanteando— y `new Date('abc')` no falla: devuelve una
+   * fecha inválida que revienta ya dentro de la consulta. Fue un 500 real.
+   */
+  '/historico?desde=no-es-fecha&hasta=tampoco',
+  '/historico?desde=2026-02-31',
   '/report-recipients',
   '/recipients',
   '/payments',
