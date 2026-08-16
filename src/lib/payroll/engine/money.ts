@@ -149,6 +149,73 @@ export function multiplyQuantity(value: Cents, quantity: string | number): Cents
   return multiplyRatio(value, scaled, 100n)
 }
 
+/**
+ * PRECIO UNITARIO con hasta 4 decimales, en diezmilésimas de dólar.
+ *
+ * Un precio por pie NO es un importe: $0.3025 el pie es una tarifa legítima, y
+ * `toCents` la rechaza —con razón— porque como importe tendría precisión que
+ * el sistema no puede pagar. Pero la tarifa sí necesita esos decimales: sobre
+ * 10.000 pies, redondearla a $0.30 se lleva $25 por delante.
+ *
+ * Por eso la base guarda `Decimal(18,4)` en `appliedPrice`, y aquí el precio
+ * viaja en diezmilésimas hasta que se multiplica por la cantidad. El redondeo
+ * a centavos ocurre UNA sola vez, sobre el resultado final.
+ */
+export function priceToTenThousandths(price: string | number): bigint {
+  const raw = typeof price === 'number' ? formatPrice(price) : price.trim()
+  const cleaned = raw.replace(/[$\s]/g, '').replace(/,/g, '')
+  const match = MONEY_PATTERN.exec(cleaned)
+  if (!match) throw new RangeError(`Precio no reconocido: ${JSON.stringify(price)}`)
+
+  const [, sign, whole, fraction = ''] = match
+  if (fraction.length > 4) {
+    throw new RangeError(
+      `Precio con más de 4 decimales: ${price}. La base solo guarda 4 y redondear aquí ` +
+        'escondería una diferencia.',
+    )
+  }
+  const value = BigInt(whole ?? '0') * 10_000n + BigInt(fraction.padEnd(4, '0'))
+  return sign === '-' ? -value : value
+}
+
+function formatPrice(value: number): string {
+  if (!Number.isFinite(value)) throw new RangeError(`Precio no finito: ${value}`)
+  const scaled = value * 10_000
+  const rounded = Math.round(scaled)
+  if (Math.abs(scaled - rounded) > 1e-6) {
+    throw new RangeError(`El precio ${value} tiene más de 4 decimales.`)
+  }
+  return (rounded / 10_000).toFixed(4)
+}
+
+/**
+ * Cantidad × precio unitario = importe en centavos.
+ *
+ * Ejemplo del negocio: 10.000 pies × $0.30 = $3.000,00. La multiplicación se
+ * hace entera (cantidad en centésimas × precio en diezmilésimas) y se redondea
+ * a centavos UNA vez al final — nunca en cadena.
+ */
+export function unitPriceTotal(quantity: string | number, price: string | number): Cents {
+  const q = quantityToHundredths(quantity) // centésimas de unidad
+  const p = priceToTenThousandths(price) // diezmilésimas de dólar
+  // q/100 unidades × p/10000 dólares = q·p/1.000.000 dólares = q·p/10.000 centavos
+  const negative = q < 0n !== p < 0n
+  const scaled = (q < 0n ? -q : q) * (p < 0n ? -p : p)
+  const quotient = scaled / 10_000n
+  const remainder = scaled % 10_000n
+  const rounded = remainder * 2n >= 10_000n ? quotient + 1n : quotient
+  return (negative ? -rounded : rounded) as Cents
+}
+
+/** Un precio unitario de vuelta a texto, con sus 4 decimales. */
+export function priceToDecimalString(tenThousandths: bigint): string {
+  const negative = tenThousandths < 0n
+  const abs = negative ? -tenThousandths : tenThousandths
+  const whole = abs / 10_000n
+  const fraction = (abs % 10_000n).toString().padStart(4, '0')
+  return `${negative ? '-' : ''}${whole}.${fraction}`
+}
+
 /** Convierte una cantidad decimal (máx. 2 decimales) a centésimas enteras. */
 export function quantityToHundredths(quantity: string | number): bigint {
   const raw = typeof quantity === 'number' ? formatQuantity(quantity) : quantity.trim()

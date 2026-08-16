@@ -20,6 +20,7 @@ import { AddWorkerInline, ChooseWorkers } from './ChooseWorkers'
 import { CrewsBlock } from './CrewsBlock'
 import { EquipmentBlock } from './EquipmentBlock'
 import { weekCrewViews } from '@/lib/payroll/crews/service'
+import { contractorWeekView, suggestBreakdown } from '@/lib/payroll/contractors/service'
 import { weekEquipmentViews } from '@/lib/payroll/equipment/service'
 import { ESTADO_NOMINA, TIPO_TARIFA, label } from '@/lib/payroll/labels'
 import { ProjectDays } from './ProjectDays'
@@ -182,6 +183,42 @@ export default async function WeekPage({
     controlDays: view.controlDays,
     production: (productionByCrew.get(view.crewId) ?? []).map(productionRow),
   }))
+
+  /*
+   * Desglose y conciliación por contratista.
+   *
+   * Solo para las cuadrillas que ya tienen liquidación: sin ella no hay contra
+   * qué conciliar. Cada panel trae además la gente sugerida de la cuadrilla,
+   * para no teclear la lista completa la primera vez.
+   */
+  const contractorPanels = (
+    await Promise.all(
+      crewViews
+        .filter((view) => view.payable !== null)
+        .map(async (view) => {
+          const detail = await contractorWeekView(company.id, view.payable!.id)
+          if (!detail) return null
+          const suggestion =
+            detail.members.length === 0
+              ? await suggestBreakdown(company.id, detail.crewPayrollId)
+              : []
+          return {
+            crewPayrollId: detail.crewPayrollId,
+            crewName: detail.crewName,
+            contractorName: detail.contractorName,
+            editable:
+              user.permissions.has('payroll:edit') &&
+              ['DRAFT', 'PREPARED', 'REJECTED'].includes(detail.status),
+            members: detail.members,
+            production: detail.production,
+            expectedTotal: detail.expectedTotal,
+            suggestion,
+            // Si la propuesta ya trae tarifas, salió de la semana pasada.
+            suggestionFromLastWeek: suggestion.some((s) => s.rateAmount !== undefined),
+          }
+        }),
+    )
+  ).filter((panel): panel is NonNullable<typeof panel> => panel !== null)
 
   const showChooser = workers.length === 0 || filters.paso === 'personas'
 
@@ -622,6 +659,7 @@ export default async function WeekPage({
               weekId={week.id}
               shortDays={days.map((iso) => ({ iso, label: shortDay(iso) }))}
               crews={crewsForBlock}
+              panels={contractorPanels}
               loose={looseProduction.map(productionRow)}
             />
           ) : null}

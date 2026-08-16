@@ -327,3 +327,21 @@ Quien corregía el problema seguía bloqueado para siempre.
 | BR-254 | Cada aviso se muestra con **qué pasó** y **qué hacer** en palabras del negocio, nunca el código en inglés. Un código sin texto propio cae en un texto genérico, jamás en el código crudo. | CONFIRMED |
 | BR-255 | «Empezar de cero» borra las liquidaciones de los tres pagables y sus avisos, y **conserva** los días marcados, la producción capturada y los descuentos y adicionales manuales. Deshace el CÁLCULO, no el trabajo: volver a teclear lo capturado es lo que hace odiosa una aplicación. | CONFIRMED |
 | BR-256 | «Empezar de cero» se **niega por completo** si algún pagable de la semana está `PAID`, `RECONCILED` o `CLOSED` — no borra nada y lo explica (regla 6: lo pagado se corrige con un ajuste). Antes de borrar, cada pagable sale de su orden por `detachPayable`, que recalcula el total y anula la orden que se quede vacía (BR-191). Exige motivo y queda en el audit log como `WEEK_RESET`. | CONFIRMED |
+
+## 26. Contratistas: calculadora y conciliación (BR-260 – BR-266)
+
+El ejemplo que dio el negocio: **Hugo** trabajó un proyecto a **$0.30 por pie**,
+construyó **10.000 pies** → se le deben **$3.000**. Hugo tiene gente a cargo
+(Francisco, Juan, Eduardo) con la tarifa que él pactó con cada uno. Le pagamos
+a Hugo un solo cheque y él le paga a los suyos, pero llevamos el desglose para
+poder verificar contra lo que dice SharePoint.
+
+| # | Regla | Estado |
+|---|-------|--------|
+| BR-260 | Lo que se le paga a un contratista por una semana es **Σ (cantidad × tarifa)** de su producción. La tarifa se puede editar en cualquier momento mientras la liquidación sea editable, y la cuenta se rehace. | CONFIRMED (Rafael, 2026-08-15) |
+| BR-261 | Un **precio unitario** admite hasta **4 decimales** y viaja en diezmilésimas hasta multiplicarse por la cantidad (`unitPriceTotal`); el redondeo a centavos ocurre UNA vez, sobre el resultado. `toCents` sigue rechazando más de 2 decimales para IMPORTES, y hace bien: son cosas distintas. Redondear $0.3025 a $0.30 sobre 10.000 pies se lleva $25. | CONFIRMED |
+| BR-262 | El desglose de una cuadrilla (`CrewPayrollMember`) NO genera pagos ni entra al motor: el pago sale completo al contratista (BR-242). Existe para hacer **verificable** el total. El contratista lleva su propio renglón (`isContractor`) porque su parte también cuenta en la suma. | CONFIRMED (Rafael, 2026-08-15) |
+| BR-263 | Cada renglón del desglose lleva su tarifa, su unidad (semana/día/pie/unidad/fijo) y su cantidad, **editables al montar la nómina** sin tocar el catálogo: lo pactado con la gente de un contratista cambia de semana a semana. El nombre queda congelado en el renglón. | CONFIRMED (Rafael, 2026-08-15) |
+| BR-264 | Lo que dice la fuente externa (`expectedTotal`) se **teclea**: Microsoft rechaza extraer la base de SharePoint (406, etiqueta de confidencialidad). Vacío = sin conciliar, que NO es cero — regla 11. Queda quién concilió y cuándo. | CONFIRMED |
+| BR-265 | La conciliación **muestra la diferencia**, jamás la ajusta — regla 10. Cuatro estados: cuadra, no cuadra, falta el desglose, sin conciliar. Con desglose se compara contra la suma del desglose; sin él, contra la producción, y se avisa que falta. | CONFIRMED |
+| BR-266 | El desglose de una liquidación **pagada** es intocable (trigger `crew_payroll_member_frozen_when_paid`): es el soporte de por qué salió esa plata. Guardar el desglose invalida la aprobación si ya la había — quien aprobó vio otra tabla. | CONFIRMED |

@@ -276,6 +276,7 @@ model Worker {
   payments    Payment[]
   periodMemberships PayrollWeekMember[]
   crewShares  CrewMemberShare[]
+  crewPayrollMembers CrewPayrollMember[]
 
   @@unique([companyId, code])
   @@index([companyId, status])
@@ -890,6 +891,18 @@ model CrewPayroll {
   recipientAssignedById String?
   recipientAssignedAt   DateTime?
 
+  /// CONCILIACIÓN CONTRA LA FUENTE EXTERNA (hoy SharePoint).
+  ///
+  /// Lo que la fuente dice que se le debe al contratista por esta semana, tal
+  /// como lo teclea quien prepara. Nuestro cálculo (producción × tarifa, más
+  /// lo de la gente del crew) tiene que dar lo mismo; si no, la diferencia se
+  /// MUESTRA y no se tapa — regla 10. Nulo = todavía no se ha conciliado.
+  expectedTotal      Decimal?  @db.Decimal(18, 2)
+  expectedSource     String?
+  expectedNote       String?
+  reconciledById     String?
+  reconciledAt       DateTime?
+
   notes     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -901,9 +914,56 @@ model CrewPayroll {
   paymentRecipient PaymentRecipient? @relation(fields: [paymentRecipientId], references: [id])
   disbursementItem DisbursementOrderItem?
 
+  members CrewPayrollMember[]
+
   @@unique([companyId, payrollWeekId, crewId])
   @@index([companyId, payrollWeekId, status])
   @@map("crew_payroll")
+}
+
+/// Cómo se reparte por dentro la liquidación de una cuadrilla.
+///
+/// Al contratista (Hugo) se le paga UN total por la producción de la semana, y
+/// de ahí él le paga a su gente (Francisco, Juan, Eduardo) a la tarifa que
+/// pactó con cada uno. Nosotros NO le pagamos a esa gente —el pago sale
+/// completo al contratista, BR-242— pero sí llevamos la cuenta para poder
+/// CONCILIAR: lo de la gente más la parte del contratista tiene que dar lo que
+/// dice la fuente externa.
+///
+/// Por eso esta tabla no genera pagos ni entra al motor de nómina. Es el
+/// desglose que hace verificable el total.
+model CrewPayrollMember {
+  id            String @id @default(uuid(7))
+  companyId     String
+  crewPayrollId String
+
+  /// Ficha de la persona, cuando existe en el catálogo. Puede ir vacío: el
+  /// contratista a veces reporta gente que nunca entró como trabajador nuestro.
+  workerId String?
+  /// Nombre congelado. Es lo que se lee en el desglose aunque la ficha cambie.
+  nameSnapshot String
+
+  /// El contratista mismo se lleva un renglón: su parte también cuenta para
+  /// que la suma cuadre con lo que dice la fuente.
+  isContractor Boolean @default(false)
+
+  /// Lo pactado con esa persona. Se edita al montar la nómina sin tocar el
+  /// catálogo: la tarifa de un contratista con su gente cambia por semana.
+  rateAmount Decimal  @db.Decimal(18, 2)
+  rateUnit   String   @default("WEEK")
+  quantity   Decimal  @default(1) @db.Decimal(14, 2)
+  /// rateAmount × quantity, en centavos y redondeado una sola vez.
+  amount     Decimal  @db.Decimal(18, 2)
+
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  crewPayroll CrewPayroll @relation(fields: [crewPayrollId], references: [id], onDelete: Cascade)
+  worker      Worker?     @relation(fields: [workerId], references: [id])
+
+  @@index([companyId, crewPayrollId])
+  @@map("crew_payroll_member")
 }
 
 /// Liquidación semanal de un EQUIPO RENTADO (camión, máquina): días marcados ×

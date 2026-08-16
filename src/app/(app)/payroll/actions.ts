@@ -26,6 +26,11 @@ import { invalidateIfStale } from '@/lib/payroll/workflow/service'
 import { currentRoster, removeFromRoster, setRoster } from '@/lib/payroll/roster'
 import { addExtra, removeExtra } from '@/lib/payroll/extras/service'
 import { saveControlDays, syncCrewPayrolls } from '@/lib/payroll/crews/service'
+import {
+  saveCrewBreakdown,
+  saveExpectedTotal,
+  type MemberInput,
+} from '@/lib/payroll/contractors/service'
 import { saveEquipmentDays, syncEquipmentPayrolls } from '@/lib/payroll/equipment/service'
 
 /**
@@ -839,4 +844,47 @@ export async function resetWeek(formData: FormData) {
   revalidatePath('/approvals')
   revalidatePath('/disbursements')
   redirect(`/payroll/${weekId}?msg=${encodeURIComponent(result.message)}`)
+}
+
+/**
+ * Guarda de una vez el desglose de la gente del contratista y lo que dice la
+ * fuente externa.
+ *
+ * Van juntos a propósito: quien monta la nómina teclea las tarifas y el total
+ * de SharePoint en la misma pasada, y guardar por separado dejaría una mitad
+ * conciliada contra la otra vieja.
+ */
+export async function saveContractorBreakdown(
+  _previous: string | null,
+  formData: FormData,
+): Promise<string> {
+  const user = await assertCan('payroll:edit')
+  const crewPayrollId = String(formData.get('crewPayrollId') ?? '')
+
+  let filas: MemberInput[]
+  try {
+    filas = JSON.parse(String(formData.get('filas') ?? '[]')) as MemberInput[]
+  } catch {
+    return 'No se pudo leer la tabla. Recarga la página e inténtalo de nuevo.'
+  }
+
+  const desglose = await saveCrewBreakdown(user, {
+    crewPayrollId,
+    members: filas.filter((fila) => fila.name?.trim()),
+  })
+  if (!desglose.ok) return desglose.message
+
+  const conciliacion = await saveExpectedTotal(user, {
+    crewPayrollId,
+    expectedTotal: String(formData.get('expectedTotal') ?? ''),
+  })
+
+  const week = await prisma.crewPayroll.findUnique({
+    where: { id: crewPayrollId },
+    select: { payrollWeekId: true },
+  })
+  if (week) revalidatePath(`/payroll/${week.payrollWeekId}`)
+
+  if (!conciliacion.ok) return conciliacion.message
+  return `LISTO|${desglose.message} ${conciliacion.message}`
 }

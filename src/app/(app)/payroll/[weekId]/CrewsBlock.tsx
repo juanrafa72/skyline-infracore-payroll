@@ -2,6 +2,7 @@
 
 import { useActionState } from 'react'
 import { saveCrewControlDays } from '../actions'
+import { ContractorBreakdown, type ContractorPanel } from './ContractorBreakdown'
 
 export interface CrewProductionRow {
   id: string
@@ -44,6 +45,7 @@ export function CrewsBlock({
   shortDays,
   crews,
   loose,
+  panels = [],
 }: {
   weekId: string
   /** Días de la semana: [iso, etiqueta corta]. */
@@ -51,6 +53,8 @@ export function CrewsBlock({
   crews: readonly CrewView[]
   /** Producción sin cuadrilla (histórica): visible para que no se pierda. */
   loose: readonly CrewProductionRow[]
+  /** Desglose y conciliación por contratista, uno por liquidación calculada. */
+  panels?: readonly ContractorPanel[]
 }) {
   const [result, action, saving] = useActionState(saveCrewControlDays, null)
   const ok = result !== null && result.startsWith('LISTO|')
@@ -211,6 +215,18 @@ export function CrewsBlock({
           </div>
         ) : null}
       </form>
+
+      {/*
+        Contratistas: qué construyó cada uno, cómo se reparte entre su gente y
+        si eso cuadra con lo que dice SharePoint.
+
+        Va FUERA del formulario de días de control: son dos guardados distintos
+        y un <form> dentro de otro es HTML inválido — el navegador descarta el
+        de adentro y su botón termina enviando el de afuera.
+      */}
+      {panels.map((panel) => (
+        <ContractorBreakdown key={panel.crewPayrollId} panel={panel} />
+      ))}
 
       {loose.length > 0 ? (
         <div className="border-t border-[var(--border)] px-3.5 py-2.5">
