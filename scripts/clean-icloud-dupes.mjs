@@ -10,8 +10,18 @@
  */
 import { readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const ROOT = new URL('..', import.meta.url).pathname
+/*
+ * `fileURLToPath` y NO `.pathname`.
+ *
+ * Esta carpeta vive en «Documentos - MacBook Pro de Juan», con espacios, y
+ * `.pathname` los devuelve como %20. `readdir` no encuentra esa ruta, el
+ * `catch` de abajo se traga el error y el script termina diciendo que todo
+ * está bien sin haber mirado un solo archivo. Estuvo así hasta el 16/08:
+ * el guardián de los duplicados de iCloud no guardaba nada.
+ */
+const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const SKIP = new Set(['node_modules', '.git'])
 const DUPLICATE = /^(.*?) \d+(\.[^.]+)?$/
 
@@ -21,7 +31,11 @@ async function walk(directory) {
   let entries
   try {
     entries = await readdir(directory, { withFileTypes: true })
-  } catch {
+  } catch (error) {
+    // Una carpeta que desaparece a mitad del recorrido es normal; que no se
+    // pueda leer la RAÍZ no lo es, y callarlo fue justo lo que escondió el
+    // error durante semanas.
+    if (directory === ROOT) throw error
     return
   }
 

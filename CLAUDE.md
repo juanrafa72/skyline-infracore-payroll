@@ -73,7 +73,7 @@ npx vitest run -t "medio día paga exactamente"     # una prueba por nombre
 npm run test:watch
 
 npm run db:migrate           # prisma migrate dev
-npm run db:seed              # compañías, roles, permisos, reglas sin confirmar
+npm run db:seed              # compañías, roles, permisos, reglas sin confirmar, contabilidad (BR-410)
 npm run user:create "Nombre" correo@x.com PAYROLL_PREPARER SKYLINE,INFRACORE
 npm run clean                # borra los duplicados que crea iCloud ("archivo 2.ts")
 ```
@@ -163,8 +163,12 @@ Al agregar una regla, va en el nivel puro.
   — BR-280…282.
 - **`mail/`** — envío de reportes con consecutivo único. `reports.ts` decide
   quién recibe qué (un destinatario atado a una receptora **solo** ve SUS
-  órdenes); `transport.ts` elige la salida y, **sin cuenta configurada, NO dice
-  que envió**: registra y avisa. `dispatch-service.ts` toca la base —
+  órdenes); `transport.ts` elige la salida **por compañía** —`SMTP_FROM_<CÓDIGO>`,
+  sin herencia entre Skyline e Infracore porque cada una manda desde su dominio
+  (BR-414)— y, **sin cuenta configurada, NO dice que envió**: registra y avisa.
+  `auto-destinatarios.ts` (puro) decide si la empresa receptora entra sola a la
+  lista: lo hace cuando su ficha tiene correo, y **se calla en cuanto alguien
+  la corrige o la quita** (BR-416…419). `dispatch-service.ts` toca la base —
   BR-320…325.
 - **`payroll/exceptions/`** — qué avisos frenan un pago y cuáles no, y cómo se
   cierran. `index.ts` es puro: `bloquea()` es la única definición de «esto
@@ -196,6 +200,26 @@ Al agregar una regla, va en el nivel puro.
 - **`payroll/estimate.ts`** — lo que va sumando la rejilla mientras se marca.
   Puro y en centavos aunque solo alimente una barra: es dinero que alguien mira
   para decidir.
+- **`payroll/progreso.ts`** — hasta dónde va la captura de la semana. Se marca
+  día a día pero solo se manda a aprobación al final, y sin esto una semana a
+  medias se ve igual que una terminada. La regla que lo hace usable: **los días
+  que no han llegado no faltan** — reclamar el sábado un martes convierte el
+  aviso en ruido que se aprende a ignorar. Puro, recibe hoy como dato —
+  BR-400…404.
+- **`payroll/concurrencia.ts`** + **`concurrencia-service.ts`** — que dos
+  personas capturando la misma semana no se pisen. La rejilla manda los SIETE
+  días cada vez que se guarda, así que el guardado de uno borra lo que el otro
+  acaba de marcar. Avisa, no guarda nada, y pide una nota que queda con su
+  nombre. Que uno mismo guarde dos veces NO es choque, y un día sin autor
+  conocido (los del Excel) no acusa a nadie — BR-390…395.
+- **`payroll/base/`** — la pantalla «Base»: un renglón por día capturado de los
+  TRES pagables, con filtros en la URL y descarga a Excel. La tarifa sale
+  congelada de `PayrollLine`, nunca de la vigente hoy: mostraría como pagado
+  algo que nunca se pagó — BR-370…373, BR-380…382.
+- **`catalog/availability.ts`** — activar y desactivar personas y equipos.
+  Nunca borra —los registros viejos los citan—; solo deja de ofrecerlos en las
+  listas, que es lo que pidió el negocio cuando alguien sube de tarifa y se
+  crea un segundo registro.
 - **`payroll/home.ts`** — lo que responde «¿qué hago ahora?». `weekFocus` elige
   la semana donde ESTÁ el trabajo (la última con días propios o liquidaciones),
   no la del calendario, y jamás una de las 149 del Excel (sus días son
@@ -293,6 +317,13 @@ candados en paralelo y fallaban "a veces" — no volver a paralelizarlas.
   CHECKs y triggers que Prisma no sabe generar.
 - **`include: { relacion: false }` en Prisma** no es válido: compila, pasa el
   typecheck y revienta al abrir la página. Hay regla de lint.
+- **Una llave única compuesta con una columna que puede ir en nulo no sirve
+  para `upsert`.** Prisma rechaza el nulo dentro de la llave («Argument
+  `paymentRecipientId` must not be null») y hay que hacer `findFirst` + `create`
+  — así lo hacen la semilla y `agregarDestinatario`. Peor: en Postgres dos
+  nulos **no** se consideran iguales, así que esa misma llave tampoco impide
+  duplicados. Donde importe, va un índice único parcial
+  (`... WHERE "columna" IS NULL`), como en `report_recipient` — BR-415.
 - **Trigger `BEFORE ... FOR EACH ROW` en Postgres**: en un `DELETE` hay que
   `RETURN OLD`. Devolver `NEW` (que es `NULL`) cancela el borrado **sin avisar**.
 - **`<Link>` precarga por defecto.** Con páginas dinámicas, cada enlace visible
@@ -306,7 +337,14 @@ candados en paralelo y fallaban "a veces" — no volver a paralelizarlas.
   un daño que no existía. Toda consulta nueva del script va filtrada por
   `companyId`.
 - **iCloud** sincroniza esta carpeta y crea copias `archivo 2.ts` que rompen la
-  compilación. `npm run clean` corre antes de cada `typecheck`. `node_modules`
+  compilación. `npm run clean` corre antes de cada `typecheck`. Ese guardián
+  **estuvo roto hasta el 16/08**: armaba la ruta con `.pathname`, que devuelve
+  los espacios de «Documentos - MacBook Pro de Juan» como `%20`, `readdir`
+  fallaba y el `catch` se tragaba el error — el script decía que todo estaba
+  bien sin haber mirado un archivo. Se arregló con `fileURLToPath`, y ahora un
+  fallo al leer la RAÍZ revienta en vez de callarse. Moraleja para cualquier
+  guion nuevo de este proyecto: la ruta lleva espacios, y un `catch` vacío
+  convierte una herramienta en un adorno. `node_modules`
   vive fuera (enlace a `~/.local/`); `.next` **no** puede moverse: rompe la
   resolución de módulos de Turbopack.
 - **Errores de uso NO se lanzan**, se devuelven como mensaje. Una excepción en
