@@ -171,14 +171,14 @@ function CapturarProduccion({
   weekId,
   crewId,
   crewName,
-  desde,
+  semanaLabel,
   projects,
 }: {
   weekId: string
   crewId: string
   crewName: string
-  /** Primer día de la semana: la fecha que se propone. */
-  desde: string
+  /** La semana que se está capturando: «Semana 34 · 2026». */
+  semanaLabel: string
   projects: ReadonlyArray<{ id: string; name: string }>
 }) {
   const [pendiente, empezar] = useTransition()
@@ -186,7 +186,6 @@ function CapturarProduccion({
   const [mensaje, setMensaje] = useState<string | null>(null)
   const [cantidad, setCantidad] = useState('')
   const [tarifa, setTarifa] = useState('')
-  const [fecha, setFecha] = useState(desde)
   const [proyecto, setProyecto] = useState('')
   const [unidad, setUnidad] = useState('FOOT')
 
@@ -240,15 +239,18 @@ function CapturarProduccion({
           />
         </label>
 
-        <label className="text-xs">
-          <span className="mb-0.5 block text-[var(--muted)]">Fecha</span>
-          <input
-            type="date"
-            value={fecha}
-            onChange={(e) => setFecha(e.target.value)}
-            className="h-8 rounded border border-[var(--border)] bg-[var(--bg)] px-2 text-sm"
-          />
-        </label>
+        {/*
+          La semana, no una fecha suelta: «todo lo trabajamos sobre semana».
+          Se muestra y no se escoge porque ya se escogió al entrar aquí; poner
+          un calendario invitaba a teclear un día de otra semana, que después
+          se liquidaría en otra parte sin que nadie entendiera por qué.
+        */}
+        <div className="text-xs">
+          <span className="mb-0.5 block text-[var(--muted)]">Semana</span>
+          <span className="inline-flex h-8 items-center rounded border border-[var(--border)] bg-[var(--surface)] px-2 text-sm">
+            {semanaLabel}
+          </span>
+        </div>
 
         {projects.length > 0 ? (
           <label className="text-xs">
@@ -278,7 +280,6 @@ function CapturarProduccion({
             datos.set('crewId', crewId)
             datos.set('cantidad', cantidad)
             datos.set('tarifa', tarifa)
-            datos.set('fecha', fecha)
             datos.set('unidad', unidad)
             datos.set('projectId', proyecto)
             empezar(async () => {
@@ -473,6 +474,7 @@ export function CrewsBlock({
   panels = [],
   disponibles = [],
   contractors = [],
+  semanaLabel = '',
 }: {
   weekId: string
   /** Días de la semana: [iso, etiqueta corta]. */
@@ -486,6 +488,8 @@ export function CrewsBlock({
   panels?: readonly ContractorPanel[]
   /** Los contratistas del catálogo, para decir a quién se le paga. */
   contractors?: ReadonlyArray<{ id: string; name: string }>
+  /** La semana que se está trabajando: «Semana 34 · 2026». */
+  semanaLabel?: string
   /** Todas las cuadrillas de la compañía, para poder escoger cuál se liquida. */
   disponibles?: ReadonlyArray<{
     id: string
@@ -617,7 +621,7 @@ export function CrewsBlock({
                   weekId={weekId}
                   crewId={crew.crewId}
                   crewName={crew.crewName}
-                  desde={shortDays[0]?.iso ?? ''}
+                  semanaLabel={semanaLabel}
                   projects={projects}
                 />
               ) : null}

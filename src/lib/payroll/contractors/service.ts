@@ -220,6 +220,8 @@ export interface ContractorWeekView {
   crewPayrollId: string
   crewName: string
   contractorName: string | null
+  /** La semana que se está liquidando: «Semana 34 · 2026». */
+  weekLabel: string
   status: string
   expectedTotal: string | null
   expectedSource: string | null
@@ -257,6 +259,7 @@ export async function contractorWeekView(
       members: { orderBy: [{ isContractor: 'asc' }, { nameSnapshot: 'asc' }] },
       crew: { select: { name: true } },
       contractor: { select: { name: true } },
+      payrollWeek: { select: { label: true, weekNumber: true, year: true } },
     },
   })
   if (!payable) return null
@@ -288,6 +291,12 @@ export async function contractorWeekView(
     crewPayrollId: payable.id,
     crewName: payable.crewNameSnapshot || payable.crew.name,
     contractorName: payable.contractorNameSnapshot ?? payable.contractor?.name ?? null,
+    /*
+     * El negocio trabaja por SEMANA, no por fecha suelta: «todo lo trabajamos
+     * sobre semana». Toda la producción de esta liquidación es de la misma, así
+     * que se dice una vez arriba en vez de repetir la fecha en cada renglón.
+     */
+    weekLabel: `${payable.payrollWeek.label ?? `Semana ${payable.payrollWeek.weekNumber}`} · ${payable.payrollWeek.year}`,
     status: payable.status,
     expectedTotal: payable.expectedTotal?.toFixed(2) ?? null,
     expectedSource: payable.expectedSource,

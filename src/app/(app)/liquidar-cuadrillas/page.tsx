@@ -182,6 +182,7 @@ export default async function LiquidarCuadrillasPage({
           crewPayrollId: detalle.crewPayrollId,
           crewName: detalle.crewName,
           contractorName: detalle.contractorName,
+          weekLabel: detalle.weekLabel,
           editable:
             user.permissions.has('payroll:edit') &&
             ['DRAFT', 'PREPARED', 'REJECTED'].includes(detalle.status),
@@ -252,6 +253,7 @@ export default async function LiquidarCuadrillasPage({
           panels={panel ? [panel] : []}
           disponibles={disponibles}
           contractors={contratistas}
+          semanaLabel={`${semana.label ?? `Semana ${semana.weekNumber}`} · ${semana.year}`}
         />
       ) : (
         <EmptyState

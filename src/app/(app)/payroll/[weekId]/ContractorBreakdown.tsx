@@ -30,13 +30,14 @@ export interface BreakdownProduction {
   amount: string
   unitLabel: string
   projectName: string | null
-  date: string
 }
 
 export interface ContractorPanel {
   crewPayrollId: string
   crewName: string
   contractorName: string | null
+  /** La semana que se liquida. Todo el detalle es de ella. */
+  weekLabel: string
   editable: boolean
   members: readonly BreakdownMember[]
   production: readonly BreakdownProduction[]
@@ -177,7 +178,7 @@ export function ContractorBreakdown({ panel }: { panel: ContractorPanel }) {
         <h3 className="text-sm font-semibold">
           {panel.contractorName ?? panel.crewName}
           <span className="ml-2 font-normal text-[var(--muted)]">
-            — lo que construyó y cómo se reparte
+            — lo que construyó en la {panel.weekLabel} y cómo se reparte
           </span>
         </h3>
       </div>
@@ -188,11 +189,11 @@ export function ContractorBreakdown({ panel }: { panel: ContractorPanel }) {
           <table className="w-full border-collapse text-sm">
             <thead className="bg-[var(--hover)]">
               <tr>
-                {['Fecha', 'Proyecto', 'Cantidad', 'Tarifa', 'Se le paga'].map((h, i) => (
+                {['Proyecto', 'Cantidad', 'Tarifa', 'Se le paga'].map((h, i) => (
                   <th
                     key={h}
                     className={`px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)] ${
-                      i > 1 ? 'text-right' : 'text-left'
+                      i > 0 ? 'text-right' : 'text-left'
                     }`}
                   >
                     {h}
@@ -203,7 +204,6 @@ export function ContractorBreakdown({ panel }: { panel: ContractorPanel }) {
             <tbody>
               {panel.production.map((row) => (
                 <tr key={row.id} className="border-t border-[var(--border)]">
-                  <td className="px-3 py-2">{row.date}</td>
                   <td className="px-3 py-2">{row.projectName ?? '—'}</td>
                   <td className="px-3 py-2 text-right tabular-nums">
                     {Number(row.quantity).toLocaleString('en-US')} {row.unitLabel}

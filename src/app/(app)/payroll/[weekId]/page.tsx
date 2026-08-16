@@ -257,6 +257,7 @@ export default async function WeekPage({
             crewPayrollId: detail.crewPayrollId,
             crewName: detail.crewName,
             contractorName: detail.contractorName,
+            weekLabel: detail.weekLabel,
             editable:
               user.permissions.has('payroll:edit') &&
               ['DRAFT', 'PREPARED', 'REJECTED'].includes(detail.status),
@@ -822,6 +823,7 @@ export default async function WeekPage({
               loose={looseProduction.map(productionRow)}
               disponibles={cuadrillasDisponibles}
               contractors={contratistas}
+              semanaLabel={`${week.label ?? `Semana ${week.weekNumber}`} · ${week.year}`}
             />
           ) : null}
 
