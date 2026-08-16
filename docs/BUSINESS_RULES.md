@@ -378,3 +378,12 @@ poder verificar contra lo que dice SharePoint.
 | BR-302 | El plazo de aviso es **por documento** (un seguro con 30 días, un cambio de aceite con 7), entre 0 y 365. Un documento **sin** fecha de vencimiento —un título de propiedad— NO está vencido: es `SIN_VENCIMIENTO`, la misma regla 11 de siempre. | CONFIRMED |
 | BR-303 | Lo vencido y lo por vencer aparecen en el **tablero de inicio**, no solo dentro de la ficha: nadie entra equipo por equipo a revisar fechas. Lo vencido es crítico —esa máquina está trabajando sin cobertura—, lo por vencer es advertencia. | CONFIRMED |
 | BR-304 | Un documento reemplazado por su renovación se **archiva, no se borra**: la historia de pólizas de una máquina es parte de su hoja de vida. Archivado deja de avisar — si no, cada póliza vieja avisaría para siempre. | CONFIRMED |
+
+## 31. Histórico de pagos (BR-310 – BR-313)
+
+| # | Regla | Estado |
+|---|-------|--------|
+| BR-310 | Existe un **histórico de todo lo pagado**: qué se pagó, a quién, cuándo, cómo (medio, banco, referencia) y **contra qué** (cada renglón con su detalle). Con filtros por fecha, empresa receptora, tipo de pagable y texto libre, todos en la URL para poder guardar o compartir una consulta. | CONFIRMED (Rafael, 2026-08-15) |
+| BR-311 | El histórico se arma con los **snapshots de la orden**, nunca con consultas vivas: si mañana cambia el nombre de una empresa receptora o de un trabajador, el histórico sigue diciendo lo que decía el día del pago (extiende BR-186, BR-248). | CONFIRMED |
+| BR-312 | «Falta por pagar» es **lo que falta de cada orden**, no su total: una orden pagada a medias ya movió parte del dinero. Una orden **anulada no cuenta como pendiente** — ya no va a salir. | CONFIRMED |
+| BR-313 | El rango de fechas se mide por la **fecha de pago** cuando existe, y por el período de la semana cuando no: una orden sin pagar todavía no tiene fecha de pago, y dejarla fuera del filtro la escondería justo cuando hay que perseguirla. | CONFIRMED |

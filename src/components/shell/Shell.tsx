@@ -43,6 +43,9 @@ const NAV: ReadonlyArray<{
     group: 'Consultar',
     items: [
       { href: '/dashboard', label: 'Números', permission: 'dashboard:view' },
+      // Qué se pagó, a quién, cuándo y cómo — la trazabilidad que pidió el
+      // negocio para tener control de lo que ya salió del banco.
+      { href: '/historico', label: 'Histórico de pagos', permission: 'payment:view' },
       { href: '/margin', label: 'Rentabilidad', permission: 'dashboard:view' },
       { href: '/reports', label: 'Reportes', permission: 'payroll:view' },
     ],
