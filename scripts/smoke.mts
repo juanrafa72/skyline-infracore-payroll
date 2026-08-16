@@ -170,6 +170,7 @@ async function main() {
     ['/workers', '/workers/'],
     ['/crews', '/crews/'],
     ['/contractors', '/contractors/'],
+    ['/equipment', '/equipment/'],
   ] as const) {
     const html = (await get(list)).body
     const found = html.match(new RegExp(`${prefix}(${UUID})`))

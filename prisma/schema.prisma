@@ -563,9 +563,79 @@ model Equipment {
   vendor  Vendor? @relation(fields: [vendorId], references: [id])
   entries EquipmentEntry[]
   payrolls EquipmentPayroll[]
+  records EquipmentRecord[]
 
   @@unique([companyId, code])
   @@map("equipment")
+}
+
+/// Hoja de vida de un equipo: seguros, títulos, mantenimientos.
+///
+/// Sirve para dos cosas que el negocio pidió juntas: tener identificada cada
+/// máquina, y que el sistema AVISE antes de que se venza un seguro. Por eso la
+/// fecha de vencimiento es un campo propio y no algo que haya que ir a leer
+/// dentro del PDF: un aviso que dependa de adivinar la fecha de un documento
+/// escaneado falla justo cuando importa.
+///
+/// El archivo vive en SharePoint; aquí solo la referencia — igual que el resto
+/// de documentos del sistema (ver CLAUDE.md, fronteras de proveedores).
+model EquipmentRecord {
+  id          String              @id @default(uuid(7))
+  companyId   String
+  equipmentId String
+  kind        EquipmentRecordKind
+
+  /// Cómo se llama en la vida real: «Póliza SURA 2026», «Cambio de aceite».
+  title String
+  /// Número de póliza, placa, factura del taller.
+  reference String?
+
+  /// Desde cuándo rige, y hasta cuándo. `expiresAt` nulo = no vence (un título
+  /// de propiedad) o todavía no se sabe. Nulo NO significa vencido.
+  issuedAt  DateTime? @db.Date
+  expiresAt DateTime? @db.Date
+
+  /// Con cuántos días de anticipación avisar. Un seguro se renueva con tiempo;
+  /// un cambio de aceite, no.
+  alertDaysBefore Int @default(30)
+
+  /// Para mantenimientos: a qué kilometraje u hora de motor toca el siguiente.
+  meterAtService  Int?
+  nextServiceMeter Int?
+
+  /// El archivo en SharePoint. Vacío mientras no se haya subido: el aviso de
+  /// vencimiento no depende de que exista el documento.
+  fileName String?
+  fileRef  String?
+
+  cost     Decimal? @db.Decimal(18, 2)
+  vendorId String?
+  notes    String?
+
+  /// Un documento reemplazado por su renovación deja de avisar, pero NO se
+  /// borra: el histórico de pólizas de un camión es parte de su hoja de vida.
+  active Boolean @default(true)
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  equipment Equipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  vendor    Vendor?   @relation(fields: [vendorId], references: [id])
+
+  @@index([companyId, equipmentId, active])
+  @@index([companyId, expiresAt])
+  @@map("equipment_record")
+}
+
+enum EquipmentRecordKind {
+  INSURANCE    // seguro / póliza
+  TITLE        // título de propiedad, tarjeta
+  REGISTRATION // matrícula, permiso de circulación
+  INSPECTION   // revisión técnica
+  MAINTENANCE  // cambio de aceite, servicio
+  WARRANTY
+  OTHER
 }
 
 enum EquipmentKind {
@@ -601,6 +671,7 @@ model Vendor {
   payments  Payment[]
   debts     Debt[]
   equipmentPayrolls EquipmentPayroll[]
+  equipmentRecords  EquipmentRecord[]
 
   @@unique([companyId, name])
   @@map("vendor")

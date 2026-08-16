@@ -1,7 +1,9 @@
+import Link from 'next/link'
 import { Badge, PageHeader } from '@/components/ui'
 import { assertCan } from '@/lib/auth/rbac'
 import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
+import { vencimientosPendientes } from '@/lib/equipment/records-service'
 import {
   EquipmentCreatePanel,
   EquipmentRowForm,
@@ -33,7 +35,8 @@ export default async function EquipmentPage() {
   const company = await getActiveCompany()
   const canManage = user.permissions.has('equipment:manage')
 
-  const [equipment, vendors] = await Promise.all([
+  const hoy = new Date().toISOString().slice(0, 10)
+  const [equipment, vendors, avisos] = await Promise.all([
     prisma.equipment.findMany({
       where: { companyId: company.id },
       include: { vendor: { select: { name: true } } },
@@ -44,7 +47,14 @@ export default async function EquipmentPage() {
       orderBy: { name: 'asc' },
       select: { id: true, name: true },
     }),
+    vencimientosPendientes(company.id, hoy),
   ])
+
+  // Cuántos documentos por atender tiene cada equipo, para verlo en la lista.
+  const alertasPorEquipo = new Map<string, number>()
+  for (const aviso of avisos) {
+    alertasPorEquipo.set(aviso.equipmentId, (alertasPorEquipo.get(aviso.equipmentId) ?? 0) + 1)
+  }
 
   const rows: EquipmentListRow[] = equipment.map((machine) => ({
     id: machine.id,
@@ -55,6 +65,7 @@ export default async function EquipmentPage() {
     dailyCost: machine.dailyCost ? machine.dailyCost.toFixed(2) : null,
     vendorId: machine.vendorId,
     vendorName: machine.vendor?.name ?? null,
+    alertas: alertasPorEquipo.get(machine.id) ?? 0,
   }))
 
   const rented = rows.filter((row) => row.ownership === 'RENTED')
@@ -89,9 +100,21 @@ export default async function EquipmentPage() {
           rows.map((row) => (
             <li key={row.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
               <div className="min-w-[220px] flex-1">
-                <p className="text-sm font-semibold">{row.name}</p>
+                {/* El nombre abre la ficha: seguros, títulos y mantenimientos. */}
+                <Link
+                  prefetch={false}
+                  href={`/equipment/${row.id}`}
+                  className="text-sm font-semibold hover:underline"
+                >
+                  {row.name}
+                </Link>
                 <p className="text-xs text-[var(--muted)]">
                   {row.code} · {row.kindLabel}
+                  {row.alertas > 0 ? (
+                    <span className="ml-1 font-medium text-amber-700">
+                      · {row.alertas} documento(s) por atender
+                    </span>
+                  ) : null}
                 </p>
               </div>
 

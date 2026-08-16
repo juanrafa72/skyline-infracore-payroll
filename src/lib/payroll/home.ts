@@ -16,6 +16,7 @@
  *    invitaría a calcular una nómina de 2023 que ya se pagó por fuera.
  */
 import { prisma } from '@/lib/db/client'
+import { vencimientosPendientes } from '@/lib/equipment/records-service'
 import { cuantosFrenan } from '@/lib/payroll/exceptions/service'
 import { workersMissingRateCount } from '@/lib/payroll/rates-status/service'
 import { toIso, weekRangeOf } from '@/lib/payroll/week'
@@ -222,6 +223,16 @@ export async function pendingBoard(companyId: string, onDate: string): Promise<P
       }),
     ])
 
+  /*
+   * Documentos de equipo vencidos o por vencer. Se cuentan aparte del bloque
+   * de arriba porque el plazo de aviso es POR DOCUMENTO (un seguro avisa con
+   * 30 días, un cambio de aceite con 7) y eso no se resuelve con una sola
+   * comparación en SQL sin repetir la regla que ya vive en `equipment/records`.
+   */
+  const avisosEquipo = await vencimientosPendientes(companyId, onDate)
+  const documentosVencidos = avisosEquipo.filter((a) => a.estado.estado === 'VENCIDO').length
+  const documentosPorVencer = avisosEquipo.length - documentosVencidos
+
   const items: PendingItem[] = []
 
   if (missingRates > 0) {
@@ -251,6 +262,29 @@ export async function pendingBoard(companyId: string, onDate: string): Promise<P
       detail: 'Les falta proveedor o costo diario. Sin eso no se liquida el alquiler.',
       href: '/equipment',
       tone: 'warning',
+    })
+  }
+
+  /*
+   * Seguros, matrículas y mantenimientos vencidos o por vencer.
+   *
+   * Va en el tablero de inicio a propósito: el negocio pidió enterarse ANTES,
+   * y nadie entra equipo por equipo a revisar fechas. Lo vencido pesa más que
+   * lo que está por vencer — una máquina trabajando sin seguro es un riesgo
+   * distinto a uno que se renueva la otra semana.
+   */
+  if (documentosVencidos > 0 || documentosPorVencer > 0) {
+    const vencido = documentosVencidos > 0
+    items.push({
+      key: 'documentos-equipo',
+      title: vencido
+        ? `${documentosVencidos} documento(s) de equipo VENCIDO(S)`
+        : `${documentosPorVencer} documento(s) de equipo por vencer`,
+      detail: vencido
+        ? 'Seguros, matrículas o revisiones ya vencidas: esas máquinas están trabajando sin eso.'
+        : 'Se vencen pronto. Renuévalos antes de que la máquina quede descubierta.',
+      href: '/equipment',
+      tone: vencido ? 'critical' : 'warning',
     })
   }
 

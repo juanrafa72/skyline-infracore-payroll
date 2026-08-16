@@ -368,3 +368,13 @@ poder verificar contra lo que dice SharePoint.
 | # | Regla | Estado |
 |---|-------|--------|
 | BR-290 | Al guardar los días, el botón **«Calcular nómina» late** y la página baja hasta él; al calcular, late **«Enviar a aprobación»**. La aplicación señala sola dónde seguir. El pulso es lento y se **detiene solo** tras unos segundos —una animación eterna se vuelve ruido que el ojo ignora— y se apaga por completo para quien pidió menos movimiento en su sistema (`prefers-reduced-motion`), dejando en su lugar un borde marcado. La marca viaja en la URL (`?guardado=`), no en un estado del navegador: tiene que sobrevivir a la recarga que hace el servidor al guardar. | CONFIRMED (Rafael, 2026-08-15) |
+
+## 30. Hoja de vida de equipos (BR-300 – BR-304)
+
+| # | Regla | Estado |
+|---|-------|--------|
+| BR-300 | Cada equipo tiene una **hoja de vida**: seguros, títulos, matrículas, revisiones, mantenimientos y garantías, con su número, fechas, costo y quién lo expidió. El archivo vive en SharePoint; la base guarda la referencia (fronteras de proveedores). | CONFIRMED (Rafael, 2026-08-15) |
+| BR-301 | La fecha de vencimiento se **teclea**, no se deduce del PDF. El aviso tiene que ser infalible: uno que dependa de que un robot lea bien un documento escaneado falla justo cuando importa, y uno se entera cuando ya venció. | CONFIRMED (Rafael, 2026-08-15) |
+| BR-302 | El plazo de aviso es **por documento** (un seguro con 30 días, un cambio de aceite con 7), entre 0 y 365. Un documento **sin** fecha de vencimiento —un título de propiedad— NO está vencido: es `SIN_VENCIMIENTO`, la misma regla 11 de siempre. | CONFIRMED |
+| BR-303 | Lo vencido y lo por vencer aparecen en el **tablero de inicio**, no solo dentro de la ficha: nadie entra equipo por equipo a revisar fechas. Lo vencido es crítico —esa máquina está trabajando sin cobertura—, lo por vencer es advertencia. | CONFIRMED |
+| BR-304 | Un documento reemplazado por su renovación se **archiva, no se borra**: la historia de pólizas de una máquina es parte de su hoja de vida. Archivado deja de avisar — si no, cada póliza vieja avisaría para siempre. | CONFIRMED |

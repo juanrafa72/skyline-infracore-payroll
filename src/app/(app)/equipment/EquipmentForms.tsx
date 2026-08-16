@@ -17,6 +17,8 @@ export interface EquipmentListRow {
   dailyCost: string | null
   vendorId: string | null
   vendorName: string | null
+  /** Documentos de su hoja de vida vencidos o por vencer. */
+  alertas: number
 }
 
 const OWNERSHIP = [
