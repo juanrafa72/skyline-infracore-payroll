@@ -34,7 +34,7 @@ import {
   saveExpectedTotal,
   type MemberInput,
 } from '@/lib/payroll/contractors/service'
-import { saveEquipmentDays, syncEquipmentPayrolls } from '@/lib/payroll/equipment/service'
+import { alternarEquipoEnSemana, saveEquipmentDays, syncEquipmentPayrolls } from '@/lib/payroll/equipment/service'
 
 /**
  * Abre un período de pago.
@@ -1002,4 +1002,28 @@ export async function saveContractorBreakdown(
 
   if (!conciliacion.ok) return conciliacion.message
   return `LISTO|${desglose.message} ${conciliacion.message}`
+}
+
+/**
+ * Agrega o saca un equipo de la semana.
+ *
+ * Lo pidió el negocio: la semana ofrecía TODAS las máquinas activas siempre, y
+ * no había cómo decir cuáles estuvieron en obra. Ahora se escogen, como se
+ * escoge la gente.
+ */
+export async function toggleEquipoEnSemana(
+  _previous: string | null,
+  formData: FormData,
+): Promise<string> {
+  const user = await assertCan('payroll:edit')
+  const weekId = String(formData.get('weekId') ?? '')
+
+  const resultado = await alternarEquipoEnSemana(
+    user,
+    weekId,
+    String(formData.get('equipmentId') ?? ''),
+  )
+
+  revalidatePath(`/payroll/${weekId}`)
+  return resultado.ok ? `LISTO|${resultado.message}` : resultado.message
 }

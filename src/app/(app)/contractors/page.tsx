@@ -31,6 +31,7 @@ export default async function ContractorsPage() {
   return (
     <>
       <PageHeader
+        back={{ href: '/catalogos', label: 'Catálogos' }}
         title="Contratistas"
         subtitle={`${contractors.length} en ${company.displayName}${
           totalOwed > 0 ? ` · $${money(totalOwed)} prestados sin recuperar` : ''

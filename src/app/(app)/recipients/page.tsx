@@ -46,6 +46,7 @@ export default async function RecipientsPage() {
   return (
     <>
       <PageHeader
+        back={{ href: '/catalogos', label: 'Catálogos' }}
         title="Empresas receptoras"
         subtitle={`A dónde se manda el dinero · ${company.displayName}`}
       />

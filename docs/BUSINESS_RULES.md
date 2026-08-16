@@ -532,3 +532,24 @@ diferente».
 | BR-417 | El automatismo **se calla en cuanto una persona opina**: si el destinatario fue corregido con el lápiz, cambiar el correo de la ficha NO lo pisa; si lo desactivaron, no se vuelve a poner. Un automatismo que insiste después de que le dijeron que no devuelve un correo que alguien quitó a propósito, y el soporte de una empresa termina en la bandeja equivocada. | CONFIRMED (Rafael, 2026-08-16) |
 | BR-418 | Cuando el correo de la ficha cambia y el destinatario **todavía era el automático** (dice exactamente el correo anterior), lo sigue. Sin saber cuál era el anterior no se toca nada: es preferible quedarse corto a pisar una corrección. | CONFIRMED |
 | BR-419 | El destinatario automático se nombra con el **contacto** de la empresa si lo hay («Isaac Ceballos»), no repitiendo el nombre de la empresa, que ya sale en la columna de al lado. | CONFIRMED |
+
+## 42. Los equipos de la semana se escogen (BR-420 – BR-424)
+
+Rafael, 16/08: «cuando llegamos a equipos de la semana no deja agregar o quitar
+equipos; cuando entro a administrar equipos me muestra todos pero no me deja
+activarlos para la semana y tampoco volver al menú anterior».
+
+| # | Regla | Estado |
+|---|-------|--------|
+| BR-420 | La semana tiene **su propia lista de equipos**, como tiene su lista de gente. Antes ofrecía todas las máquinas activas de la compañía, siempre: con cincuenta, quien marca los días recorre una lista donde la mayoría no estuvo en obra, y marcar el equipo equivocado le paga a un proveedor que no trabajó. | CONFIRMED (Rafael, 2026-08-16) |
+| BR-421 | Tres pestañas: **Rentados** y **Propios** muestran los de ESTA semana; **Todos** es el catálogo y es donde se agregan o se sacan. Si la semana no tiene ningún equipo todavía, abre en «Todos» — mostrar una lista vacía sin decir dónde está el botón fue exactamente lo que dejó al negocio sin salida. | CONFIRMED (Rafael, 2026-08-16) |
+| BR-422 | Un equipo está en la semana si **alguien lo escogió o si ya tiene días o liquidación**. Lo segundo no es un detalle: las semanas anteriores a esta lista no tienen a nadie escogido, y sin esa regla se abrirían vacías y parecería que se borró lo capturado. | CONFIRMED |
+| BR-423 | **No se saca de la semana un equipo con trabajo encima.** Con días marcados los borraría sin rastro; con liquidación calculada dejaría plata apuntando a un equipo que ya no está. Primero se le quitan los días o se devuelve la liquidación — actos conscientes y con autor. | CONFIRMED |
+| BR-424 | El botón de agregar va **fuera** del formulario de días. Un `<form>` dentro de otro es HTML inválido: el navegador descarta el de adentro y su botón termina guardando los días en vez de agregar el equipo. | CONFIRMED |
+
+## 43. Poder devolverse, y ver el estado de un vistazo (BR-425 – BR-426)
+
+| # | Regla | Estado |
+|---|-------|--------|
+| BR-425 | Las doce pantallas que cuelgan de Catálogos llevan **«← Catálogos»**. Son rutas de primer nivel, así que el menú lateral no marcaba dónde estaba uno ni ofrecía la vuelta: se entraba a Equipos y no había camino de regreso. Un botón para entrar sin botón para salir es medio camino. | CONFIRMED (Rafael, 2026-08-16) |
+| BR-426 | Activar y desactivar personas y equipos es **un solo botón que muestra el ESTADO**: verde «Activo», rojo «Inactivo». Antes decía la acción («Sacar de las listas»), que obliga a leer para saber en qué estado está — al recorrer una lista de 149 personas uno mira el color, no el texto. | CONFIRMED (Rafael, 2026-08-16) |

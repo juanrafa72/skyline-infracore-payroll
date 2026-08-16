@@ -5,13 +5,33 @@ export function PageHeader({
   title,
   subtitle,
   action,
+  back,
 }: {
   title: string
   subtitle?: string
   action?: ReactNode
+  /**
+   * De dónde se vino, para poder devolverse.
+   *
+   * Las doce pantallas que cuelgan de Catálogos son rutas de primer nivel, así
+   * que el menú lateral no marca dónde está uno ni ofrece la vuelta: quien
+   * entraba a Equipos quedaba sin camino de regreso y tenía que usar la flecha
+   * del navegador o adivinar. Un botón para entrar sin botón para salir es
+   * medio camino.
+   */
+  back?: { href: string; label: string }
 }) {
   return (
     <div className="mb-6 border-b border-[var(--border)] pb-4">
+      {back ? (
+        <Link
+          prefetch={false}
+          href={back.href}
+          className="mb-2 inline-flex items-center gap-1 text-sm text-[var(--muted)] hover:text-[var(--accent)] hover:underline"
+        >
+          <span aria-hidden>←</span> {back.label}
+        </Link>
+      ) : null}
       {/* Filete de la marca: el mismo degradado del sitio, en pequeño. */}
       <span className="brand-gradient mb-3 block h-1 w-12 rounded-full" />
       <div className="flex flex-wrap items-end justify-between gap-3">

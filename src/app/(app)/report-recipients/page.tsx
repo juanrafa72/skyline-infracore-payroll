@@ -68,6 +68,7 @@ export default async function ReportRecipientsPage() {
   return (
     <>
       <PageHeader
+        back={{ href: '/catalogos', label: 'Catálogos' }}
         title="Envío de reportes"
         subtitle={`${company.displayName} · a quién le llegan los soportes por correo`}
       />

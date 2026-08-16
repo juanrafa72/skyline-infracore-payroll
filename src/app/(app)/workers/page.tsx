@@ -59,6 +59,7 @@ export default async function WorkersPage({
   return (
     <>
       <PageHeader
+        back={{ href: '/catalogos', label: 'Catálogos' }}
         title="Trabajadores"
         subtitle={
           verTodos

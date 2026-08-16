@@ -19,7 +19,11 @@ export default async function ProjectsPage() {
 
   return (
     <>
-      <PageHeader title="Proyectos" subtitle={company.displayName} />
+      <PageHeader
+        title="Proyectos"
+        subtitle={company.displayName}
+        back={{ href: '/catalogos', label: 'Catálogos' }}
+      />
 
       <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
         <DataTable

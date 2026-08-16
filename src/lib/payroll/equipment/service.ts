@@ -4,6 +4,7 @@ import { equipmentTotal } from '@/lib/payroll/engine/payables'
 import { toCents, toDecimalString } from '@/lib/payroll/engine/money'
 import { invalidateEquipmentIfStale } from '@/lib/payroll/workflow/payables'
 import { toIso } from '@/lib/payroll/week'
+import { estaEnLaSemana, puedeSacarse } from './roster'
 
 /**
  * Equipo rentado: sus días marcados se vuelven una liquidación semanal que se
@@ -323,6 +324,11 @@ export interface EquipmentWeekView {
   projectByDay: Readonly<Record<string, string>>
   /** Proyecto de la ficha del equipo. Se propone al marcar un día nuevo. */
   defaultProjectId: string | null
+  /**
+   * Está en ESTA semana: alguien lo escogió, o ya tiene días o liquidación.
+   * Los que no lo están solo salen en «Todos», para poder agregarlos.
+   */
+  enLaSemana: boolean
 }
 
 /**
@@ -337,7 +343,7 @@ export async function weekEquipmentViews(
   companyId: string,
   payrollWeekId: string,
 ): Promise<EquipmentWeekView[]> {
-  const [machines, entries, payables] = await Promise.all([
+  const [machines, entries, payables, escogidos] = await Promise.all([
     prisma.equipment.findMany({
       where: { companyId, status: 'ACTIVE' },
       include: { vendor: { select: { name: true } } },
@@ -345,7 +351,13 @@ export async function weekEquipmentViews(
     }),
     prisma.equipmentEntry.findMany({ where: { companyId, payrollWeekId } }),
     prisma.equipmentPayroll.findMany({ where: { companyId, payrollWeekId } }),
+    prisma.equipmentWeekMember.findMany({
+      where: { companyId, payrollWeekId },
+      select: { equipmentId: true },
+    }),
   ])
+
+  const escogidosIds = new Set(escogidos.map((row) => row.equipmentId))
 
   const payableByEquipment = new Map(payables.map((row) => [row.equipmentId, row]))
   const daysByEquipment = new Map<string, string[]>()
@@ -379,8 +391,78 @@ export async function weekEquipmentViews(
           }
         : null,
       markedDays: daysByEquipment.get(machine.id) ?? [],
+      enLaSemana: estaEnLaSemana({
+        equipmentId: machine.id,
+        escogido: escogidosIds.has(machine.id),
+        diasMarcados: (daysByEquipment.get(machine.id) ?? []).length,
+        tieneLiquidacion: payable !== undefined,
+      }),
       projectByDay,
       defaultProjectId: machine.assignedProjectId,
     }
   })
+}
+
+export interface ResultadoRoster {
+  ok: boolean
+  message: string
+}
+
+/**
+ * Agrega o saca un equipo de la semana.
+ *
+ * Agregar es libre: es decir «esta máquina estuvo por aquí». Sacar no, si ya
+ * tiene trabajo encima — la regla vive en `roster.ts` y se prueba aparte.
+ */
+export async function alternarEquipoEnSemana(
+  user: CurrentUser,
+  payrollWeekId: string,
+  equipmentId: string,
+): Promise<ResultadoRoster> {
+  const [equipo, semana] = await Promise.all([
+    prisma.equipment.findFirst({
+      where: { id: equipmentId, companyId: user.companyId },
+      select: { id: true, name: true },
+    }),
+    prisma.payrollWeek.findFirst({
+      where: { id: payrollWeekId, companyId: user.companyId },
+      select: { id: true, status: true },
+    }),
+  ])
+  if (!equipo) return { ok: false, message: 'Ese equipo no existe en esta compañía.' }
+  if (!semana) return { ok: false, message: 'Esa semana no existe en esta compañía.' }
+  if (semana.status === 'CLOSED') {
+    return { ok: false, message: 'La semana está cerrada: ya no se le agregan ni se le quitan equipos.' }
+  }
+
+  const [miembro, dias, liquidacion] = await Promise.all([
+    prisma.equipmentWeekMember.findUnique({
+      where: { payrollWeekId_equipmentId: { payrollWeekId, equipmentId } },
+    }),
+    prisma.equipmentEntry.count({ where: { companyId: user.companyId, payrollWeekId, equipmentId } }),
+    prisma.equipmentPayroll.findFirst({
+      where: { companyId: user.companyId, payrollWeekId, equipmentId },
+      select: { id: true },
+    }),
+  ])
+
+  const estado = {
+    equipmentId,
+    escogido: miembro !== null,
+    diasMarcados: dias,
+    tieneLiquidacion: liquidacion !== null,
+  }
+
+  if (!estaEnLaSemana(estado)) {
+    await prisma.equipmentWeekMember.create({
+      data: { companyId: user.companyId, payrollWeekId, equipmentId, addedById: user.id },
+    })
+    return { ok: true, message: `${equipo.name} entra en esta semana. Márcale los días que estuvo.` }
+  }
+
+  const veredicto = puedeSacarse(estado)
+  if (!veredicto.puede) return { ok: false, message: `${equipo.name}: ${veredicto.porque}` }
+
+  await prisma.equipmentWeekMember.deleteMany({ where: { payrollWeekId, equipmentId } })
+  return { ok: true, message: `${equipo.name} sale de esta semana. Sigue en el catálogo.` }
 }

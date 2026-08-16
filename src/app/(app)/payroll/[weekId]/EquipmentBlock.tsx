@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import { useActionState } from 'react'
 import { agruparProyectos } from '@/lib/payroll/project-order'
-import { saveEquipmentWeekDays } from '../actions'
+import { saveEquipmentWeekDays, toggleEquipoEnSemana } from '../actions'
 
 export interface EquipmentRow {
   equipmentId: string
@@ -19,6 +19,8 @@ export interface EquipmentRow {
   markedDays: ReadonlyArray<string>
   /** A qué proyecto se le carga, hoy. */
   projectId: string | null
+  /** Está en ESTA semana. Los que no, solo salen en «Todos». */
+  enLaSemana: boolean
 }
 
 export interface ProjectOption {
@@ -28,11 +30,48 @@ export interface ProjectOption {
 
 type Filtro = 'TODOS' | 'RENTED' | 'OWNED'
 
+/*
+ * Rentados y Propios muestran los de ESTA semana. «Todos» muestra el catálogo
+ * completo, y es donde se agregan o se sacan — así lo pidió el negocio.
+ */
 const FILTROS: ReadonlyArray<{ value: Filtro; label: string }> = [
   { value: 'RENTED', label: 'Rentados' },
   { value: 'OWNED', label: 'Propios' },
   { value: 'TODOS', label: 'Todos' },
 ]
+
+/** El botón que mete o saca un equipo de la semana. */
+function EnLaSemana({ weekId, row }: { weekId: string; row: EquipmentRow }) {
+  const [result, action, saving] = useActionState(toggleEquipoEnSemana, null)
+  const problema = result !== null && !result.startsWith('LISTO|')
+
+  return (
+    <div>
+      <form action={action}>
+        <input type="hidden" name="weekId" value={weekId} />
+        <input type="hidden" name="equipmentId" value={row.equipmentId} />
+        <button
+          type="submit"
+          disabled={saving}
+          aria-pressed={row.enLaSemana}
+          className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition disabled:opacity-45 ${
+            row.enLaSemana
+              ? 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+              : 'border-[var(--border)] hover:bg-[var(--hover)]'
+          }`}
+          title={
+            row.enLaSemana
+              ? `${row.name} está en esta semana. Oprime para sacarlo (no se puede si ya tiene días o liquidación).`
+              : `Mete ${row.name} en esta semana para poder marcarle días.`
+          }
+        >
+          {saving ? '…' : row.enLaSemana ? '✓ En la semana' : '+ Agregar'}
+        </button>
+      </form>
+      {problema ? <p className="mt-1 text-xs text-amber-800">{result}</p> : null}
+    </div>
+  )
+}
 
 function currency(value: string): string {
   return Number(value).toLocaleString('en-US', {
@@ -80,18 +119,30 @@ export function EquipmentBlock({
    * que sí genera una transferencia. Salvo que no haya ningún rentado: ahí
    * mostrar una lista vacía sería peor.
    */
-  const hayRentados = rows.some((row) => row.ownership === 'RENTED')
-  const [filtro, setFiltro] = useState<Filtro>(hayRentados ? 'RENTED' : 'TODOS')
+  const hayEnLaSemana = rows.some((row) => row.enLaSemana)
+  const hayRentados = rows.some((row) => row.ownership === 'RENTED' && row.enLaSemana)
+  /*
+   * Si la semana no tiene ningún equipo todavía, abre en «Todos»: es donde se
+   * agregan, y mostrar una lista vacía sin decir dónde está el botón fue
+   * exactamente lo que dejó al negocio sin salida.
+   */
+  const [filtro, setFiltro] = useState<Filtro>(
+    !hayEnLaSemana ? 'TODOS' : hayRentados ? 'RENTED' : 'OWNED',
+  )
 
   const visibles = useMemo(
-    () => (filtro === 'TODOS' ? rows : rows.filter((row) => row.ownership === filtro)),
+    () =>
+      filtro === 'TODOS'
+        ? rows
+        : rows.filter((row) => row.ownership === filtro && row.enLaSemana),
     [rows, filtro],
   )
 
   const cuenta = useMemo(
     () => ({
-      rentados: rows.filter((r) => r.ownership === 'RENTED').length,
-      propios: rows.filter((r) => r.ownership === 'OWNED').length,
+      rentados: rows.filter((r) => r.ownership === 'RENTED' && r.enLaSemana).length,
+      propios: rows.filter((r) => r.ownership === 'OWNED' && r.enLaSemana).length,
+      todos: rows.length,
     }),
     [rows],
   )
@@ -133,6 +184,7 @@ export function EquipmentBlock({
                 {opcion.label}
                 {opcion.value === 'RENTED' ? ` (${cuenta.rentados})` : null}
                 {opcion.value === 'OWNED' ? ` (${cuenta.propios})` : null}
+                {opcion.value === 'TODOS' ? ` (${cuenta.todos})` : null}
               </button>
             ))}
           </div>
@@ -151,16 +203,67 @@ export function EquipmentBlock({
         </p>
       ) : null}
 
+      {/*
+        «Todos» es la pantalla de ADMINISTRAR: se agregan y se sacan de la
+        semana. Va fuera del formulario de días a propósito — un <form> dentro
+        de otro es HTML inválido: el navegador descarta el de adentro y su
+        botón termina guardando los días en vez de agregar el equipo.
+      */}
+      {filtro === 'TODOS' ? (
+        <div className="p-3.5">
+          <p className="mb-3 text-xs text-[var(--muted)]">
+            Marca aquí qué equipos estuvieron en obra esta semana. Los días se marcan en{' '}
+            <strong>Rentados</strong> y <strong>Propios</strong>.
+          </p>
+
+          {rows.length === 0 ? (
+            <p className="text-sm text-[var(--muted)]">
+              No hay equipos en el catálogo.{' '}
+              <Link prefetch={false} href="/equipment" className="text-[var(--accent)] underline">
+                Se crean en Catálogos → Equipos
+              </Link>
+              .
+            </p>
+          ) : (
+            <ul className="divide-y divide-[var(--border)] rounded-lg border border-[var(--border)]">
+              {rows.map((row) => (
+                <li
+                  key={row.equipmentId}
+                  className="flex flex-wrap items-center justify-between gap-2 px-3 py-2"
+                >
+                  <span className="text-sm">
+                    <strong className="font-medium">{row.name}</strong>
+                    <span
+                      className={`ml-2 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                        row.ownership === 'RENTED'
+                          ? 'bg-amber-100 text-amber-900'
+                          : 'bg-[var(--hover)] text-[var(--muted)]'
+                      }`}
+                    >
+                      {row.ownership === 'RENTED' ? 'rentado' : 'propio'}
+                    </span>
+                    <span className="ml-2 text-xs text-[var(--muted)]">
+                      {row.kindLabel}
+                      {row.markedDays.length > 0
+                        ? ` · ${row.markedDays.length} día(s) marcado(s)`
+                        : ''}
+                    </span>
+                  </span>
+                  <EnLaSemana weekId={weekId} row={row} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : (
       <form action={action}>
         <input type="hidden" name="weekId" value={weekId} />
 
         {visibles.length === 0 ? (
           <p className="p-3.5 text-sm text-[var(--muted)]">
-            No hay equipos {filtro === 'RENTED' ? 'rentados' : 'propios'} activos.{' '}
-            <Link prefetch={false} href="/equipment" className="text-[var(--accent)] underline">
-              Se crean en Catálogos → Equipos
-            </Link>
-            .
+            Ningún equipo {filtro === 'RENTED' ? 'rentado' : 'propio'} está en esta semana. Ve a{' '}
+            <strong>Todos</strong> y oprime <strong>+ Agregar</strong> en los que estuvieron en
+            obra.
           </p>
         ) : (
           <div className="overflow-x-auto p-3.5">
@@ -304,6 +407,7 @@ export function EquipmentBlock({
           </span>
         </div>
       </form>
+      )}
     </section>
   )
 }

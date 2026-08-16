@@ -16,6 +16,7 @@ export default async function CustomersPage() {
   return (
     <>
       <PageHeader
+        back={{ href: '/catalogos', label: 'Catálogos' }}
         title="Clientes"
         subtitle="Quién nos contrata y nos paga. En los Excel esta era la columna EMPRESA."
       />

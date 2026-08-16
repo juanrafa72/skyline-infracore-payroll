@@ -620,6 +620,7 @@ model Equipment {
   vendor  Vendor? @relation(fields: [vendorId], references: [id])
   entries EquipmentEntry[]
   payrolls EquipmentPayroll[]
+  weekMembers EquipmentWeekMember[]
   records EquipmentRecord[]
 
   @@unique([companyId, code])
@@ -769,6 +770,7 @@ model PayrollWeek {
   crewPayrolls      CrewPayroll[]
   equipmentPayrolls EquipmentPayroll[]
   equipmentEntries  EquipmentEntry[]
+  equipmentMembers  EquipmentWeekMember[]
   crewDayEntries    CrewDayEntry[]
 
   @@unique([companyId, year, weekNumber])
@@ -1176,6 +1178,31 @@ model EquipmentPayroll {
 /// día completo o no se alquila — no hay medias jornadas de retroexcavadora.
 /// Vive aparte de WorkEntry a propósito: persona ≠ equipo (regla 9), y
 /// mezclarlos fue exactamente el vicio de los Excel.
+/// Qué equipos van en ESTA semana.
+///
+/// Antes la semana ofrecía todas las máquinas activas de la compañía, siempre.
+/// Con ocho se aguanta; con cincuenta, quien marca los días recorre una lista
+/// donde la mayoría no estuvo en obra, y marcar el equipo equivocado cuesta
+/// plata de verdad — el rentado se le paga a un proveedor.
+///
+/// Es la misma idea que `PayrollWeekMember` para la gente: la semana se arma
+/// escogiendo quién (y qué) trabajó.
+model EquipmentWeekMember {
+  id            String   @id @default(uuid(7))
+  companyId     String
+  payrollWeekId String
+  equipmentId   String
+  addedById     String?
+  addedAt       DateTime @default(now())
+
+  payrollWeek PayrollWeek @relation(fields: [payrollWeekId], references: [id], onDelete: Cascade)
+  equipment   Equipment   @relation(fields: [equipmentId], references: [id])
+
+  @@unique([payrollWeekId, equipmentId])
+  @@index([companyId, payrollWeekId])
+  @@map("equipment_week_member")
+}
+
 model EquipmentEntry {
   id            String   @id @default(uuid(7))
   companyId     String

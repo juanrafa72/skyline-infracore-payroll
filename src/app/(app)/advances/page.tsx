@@ -50,6 +50,7 @@ export default async function AdvancesPage() {
   return (
     <>
       <PageHeader
+        back={{ href: '/catalogos', label: 'Catálogos' }}
         title="Préstamos"
         subtitle={`Lo que se adelantó y falta por recuperar · ${company.displayName}`}
       />

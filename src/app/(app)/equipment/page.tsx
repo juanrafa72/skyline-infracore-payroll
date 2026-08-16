@@ -76,6 +76,7 @@ export default async function EquipmentPage() {
   return (
     <>
       <PageHeader
+        back={{ href: '/catalogos', label: 'Catálogos' }}
         title="Equipos"
         subtitle={`${company.displayName} · el alquiler se le paga al proveedor del equipo, nunca al equipo`}
       />

@@ -38,6 +38,7 @@ export default async function WorkerRatesPage() {
   return (
     <>
       <PageHeader
+        back={{ href: '/catalogos', label: 'Catálogos' }}
         title="Tarifas faltantes"
         subtitle={`${company.displayName} · una persona sin tarifa bloquea el envío de su semana completa`}
       />

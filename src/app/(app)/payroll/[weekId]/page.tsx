@@ -203,6 +203,7 @@ export default async function WeekPage({
     projectId:
       view.markedDays.map((key) => view.projectByDay[key]).find(Boolean) ??
       view.defaultProjectId,
+    enLaSemana: view.enLaSemana,
   }))
 
   const crewsForBlock = crewViews.map((view) => ({

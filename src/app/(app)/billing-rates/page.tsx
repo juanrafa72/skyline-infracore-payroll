@@ -56,6 +56,7 @@ export default async function BillingRatesPage() {
   return (
     <>
       <PageHeader
+        back={{ href: '/catalogos', label: 'Catálogos' }}
         title="Tarifas de venta"
         subtitle={`Lo que el cliente nos paga · ${company.displayName}`}
       />

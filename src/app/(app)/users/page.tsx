@@ -37,6 +37,7 @@ export default async function UsersPage() {
   return (
     <>
       <PageHeader
+        back={{ href: '/catalogos', label: 'Catálogos' }}
         title="Usuarios y roles"
         subtitle="Quién entra al sistema y qué puede hacer. Ningún nombre está fijo en el código."
       />

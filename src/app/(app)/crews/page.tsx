@@ -20,6 +20,7 @@ export default async function CrewsPage() {
   return (
     <>
       <PageHeader
+        back={{ href: '/catalogos', label: 'Catálogos' }}
         title="Cuadrillas"
         subtitle="Una cuadrilla es un equipo de trabajo, nunca una persona ni una máquina."
       />
