@@ -1,11 +1,19 @@
 /**
  * Crea un usuario y le asigna un rol en una compañía.
  *
- * La contraseña se genera aquí y se muestra UNA sola vez: no queda guardada en
- * ningún lado en texto plano. Quien la reciba debe cambiarla al entrar.
+ * Normalmente la contraseña se genera aquí y se muestra UNA sola vez: no queda
+ * guardada en ningún lado en texto plano, y quien la reciba tiene que cambiarla
+ * al entrar.
+ *
+ * Se puede dar una contraseña a propósito —último argumento— para las pruebas
+ * del negocio, donde varias personas necesitan entrar con una clave acordada.
+ * En ese caso NO se pide cambiarla al entrar: pedirlo dejaría inservible la
+ * clave que se acaba de repartir. Para uso real, crear el usuario sin
+ * contraseña y dejar que el sistema la genere.
  *
  * Uso:
  *   npx tsx scripts/create-user.mts "Leo" leo@skylinenext.com PAYROLL_PREPARER SKYLINE,INFRACORE
+ *   npx tsx scripts/create-user.mts "Leo" leo@x.com PAYROLL_PREPARER SKYLINE clave-acordada
  */
 import 'dotenv/config'
 import { randomBytes } from 'node:crypto'
@@ -16,7 +24,7 @@ import { hashPassword } from '../src/lib/auth/password'
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl() }) })
 
-const [name, email, roleCode, companyCodes = 'SKYLINE'] = process.argv.slice(2)
+const [name, email, roleCode, companyCodes = 'SKYLINE', claveDada] = process.argv.slice(2)
 
 if (!name || !email || !roleCode) {
   console.error('Uso: npx tsx scripts/create-user.mts "Nombre" correo ROL COMPAÑIAS')
@@ -30,19 +38,25 @@ if (!role) {
   process.exit(1)
 }
 
-const password = randomBytes(9).toString('base64url')
-const passwordHash = await hashPassword(password + 'aa') // asegura el largo mínimo
-const finalPassword = password + 'aa'
+if (claveDada && claveDada.length < 10) {
+  console.error(`La contraseña tiene ${claveDada.length} caracteres y el mínimo son 10.`)
+  process.exit(1)
+}
+
+const finalPassword = claveDada ?? `${randomBytes(9).toString('base64url')}aa` // el 'aa' asegura el largo mínimo
+const passwordHash = await hashPassword(finalPassword)
+// Una clave escogida a propósito no se pide cambiar: se acaba de repartir.
+const mustChangePassword = !claveDada
 
 const user = await prisma.user.upsert({
   where: { email: email.toLowerCase() },
-  update: { name, passwordHash, status: 'ACTIVE', mustChangePassword: true },
+  update: { name, passwordHash, status: 'ACTIVE', mustChangePassword },
   create: {
     email: email.toLowerCase(),
     name,
     passwordHash,
     status: 'ACTIVE',
-    mustChangePassword: true,
+    mustChangePassword,
   },
 })
 
@@ -61,7 +75,11 @@ for (const code of companyCodes.split(',').map((value) => value.trim())) {
 }
 
 console.log(`\nUsuario listo: ${user.email}`)
-console.log(`Contraseña temporal: ${finalPassword}`)
-console.log('\nEntrégala por un medio seguro. Solo se muestra ahora.')
+console.log(`Contraseña: ${finalPassword}`)
+console.log(
+  mustChangePassword
+    ? '\nEs temporal y solo se muestra ahora: entrégala por un medio seguro. Se pide cambiarla al entrar.'
+    : '\nQuedó la que escogiste y NO se pide cambiarla al entrar (es para pruebas). Para uso real, cámbiala desde la pantalla de la cuenta.',
+)
 
 await prisma.$disconnect()
