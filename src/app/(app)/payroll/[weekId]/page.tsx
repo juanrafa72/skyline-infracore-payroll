@@ -7,6 +7,7 @@ import { getActiveCompany } from '@/lib/company/context'
 import { prisma } from '@/lib/db/client'
 import { weekExtras } from '@/lib/payroll/extras/service'
 import { ratesStatus } from '@/lib/payroll/rates-status/service'
+import { progresoDeLaSemana } from '@/lib/payroll/progreso'
 import { shortDay, toIso } from '@/lib/payroll/week'
 import { calculateWeek, copyPreviousWeek, resetWeek, saveWorkEntries } from '../actions'
 import { GuardarDias } from './GuardarDias'
@@ -392,6 +393,21 @@ export default async function WeekPage({
     ]),
   )
 
+  /*
+   * Hasta dónde va la captura.
+   *
+   * Lo preguntó el negocio: se marca día a día pero solo se manda a aprobación
+   * al final de la semana. Sin esto, una semana a medias y una terminada se
+   * ven idénticas — y se manda sin el jueves, o se deja quieta una que ya
+   * estaba lista.
+   */
+  const progreso = progresoDeLaSemana({
+    dias: days,
+    personas: workers.length,
+    registradas: new Set(entryMap.keys()),
+    hoy: toIso(new Date()),
+  })
+
   const totals = payrolls.reduce(
     (accumulator, payroll) => ({
       gross: accumulator.gross + Number(payroll.grossPay),
@@ -561,6 +577,17 @@ export default async function WeekPage({
               <span className="text-sm">
                 <strong>{workers.length}</strong> persona{workers.length === 1 ? '' : 's'} en esta
                 semana
+                {/*
+                  Cómo va la captura. Se puede guardar cuantas veces se quiera;
+                  lo que faltaba era ver en qué punto va.
+                */}
+                <span
+                  className={`mt-0.5 block text-xs ${
+                    progreso.alDia ? 'text-[var(--muted)]' : 'font-medium text-amber-700'
+                  }`}
+                >
+                  {progreso.resumen}
+                </span>
               </span>
               <Link
                 prefetch={false}
@@ -927,6 +954,12 @@ export default async function WeekPage({
           <div id="enviar">
           <SubmitWeek
             highlight={filters.guardado === 'calculo'}
+            /*
+              Enviar con días sin registrar no está prohibido —una semana puede
+              cerrarse antes de tiempo por un corte—, pero sí tiene que doler
+              verlo: lo que no se registró, no se paga.
+            */
+            faltaPorRegistrar={progreso.alDia ? null : progreso.resumen}
             payrolls={payrolls
               .filter((payroll) => ['PREPARED', 'REJECTED'].includes(payroll.status))
               .map((payroll) => ({

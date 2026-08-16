@@ -71,10 +71,19 @@ export default async function InicioPage() {
 
           {focus.step === 2 && can('payroll:create') ? (
             <Task
-              title="Calcular la nómina"
-              detail={`Ya marcaste los días de ${focus.peopleWithDays} persona(s). Ahora el sistema saca las cuentas y tú la mandas a aprobación.`}
+              /*
+                Con días sin registrar, lo que sigue NO es calcular: es
+                terminar de marcar. Empujar a calcular una semana a medias es
+                empujar a pagar de menos.
+              */
+              title={focus.captura ? 'Seguir marcando los días' : 'Calcular la nómina'}
+              detail={
+                focus.captura
+                  ? `${focus.captura} Ya marcaste los días de ${focus.peopleWithDays} persona(s).`
+                  : `Ya marcaste los días de ${focus.peopleWithDays} persona(s). Ahora el sistema saca las cuentas y tú la mandas a aprobación.`
+              }
               href={weekHref}
-              button="Ir a calcular"
+              button={focus.captura ? 'Ir a marcar' : 'Ir a calcular'}
             />
           ) : null}
 

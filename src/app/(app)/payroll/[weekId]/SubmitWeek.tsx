@@ -17,6 +17,7 @@ export function SubmitWeek({
   blockedByErrors,
   alreadySent,
   highlight = false,
+  faltaPorRegistrar = null,
 }: {
   payrolls: ReadonlyArray<{ id: string; name: string; net: string }>
   /** Liquidaciones de cuadrilla y de equipo listas para el mismo envío. */
@@ -26,6 +27,12 @@ export function SubmitWeek({
   alreadySent: number
   /** Viene de calcular: este es el paso siguiente y late para señalarlo. */
   highlight?: boolean
+  /**
+   * Qué días de la semana quedaron sin registrar, dicho en una frase. `null`
+   * cuando está todo. NO bloquea: avisa. Una semana puede cerrarse antes de
+   * tiempo, pero nadie debería enviarla sin darse cuenta de que le faltan días.
+   */
+  faltaPorRegistrar?: string | null
 }) {
   const [result, action] = useActionState(submitWeek, null)
   const ok = result?.startsWith('LISTO|')
@@ -101,6 +108,13 @@ export function SubmitWeek({
             </li>
           ))}
         </ul>
+      ) : null}
+
+      {faltaPorRegistrar ? (
+        <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-2.5 text-sm text-amber-900">
+          <strong>Ojo:</strong> {faltaPorRegistrar} Lo que no quede registrado no se paga en esta
+          semana.
+        </p>
       ) : null}
 
       {blockedByErrors > 0 ? (

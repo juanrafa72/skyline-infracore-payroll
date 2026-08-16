@@ -447,8 +447,8 @@ netlify deploy --prod
 
 ## Estado
 
-**541 pruebas · 58 tablas · 21 migraciones · 26 pantallas** · `check`, `smoke`
-(44) y `flow` (95) en verde. 196 reglas de negocio documentadas.
+**538 pruebas · 58 tablas · 21 migraciones · 26 pantallas** · `check`, `smoke`
+(44) y `flow` (99) en verde. 201 reglas de negocio documentadas.
 
 **Lo que pidió el negocio el 15/08, ya construido:** la nómina de la semana
 tiene los TRES bloques con lo que de verdad se paga — personas, equipos y
@@ -478,6 +478,14 @@ lo de Rafael sin que nadie se enterara. Ahora el sistema avisa, **no guarda
 nada**, y pide una nota para cambiar lo que otro trabajó; la nota queda con su
 nombre y **se ve en la propia semana**. Lo marcado no se pierde al recibir el
 aviso — BR-390…395.
+
+**El guardado parcial ya se ve** (16/08). Se puede marcar día a día y mandar a
+aprobación al final —eso siempre funcionó—, pero una semana a medias se veía
+igual que una terminada. Ahora la semana dice hasta dónde va («vas al día:
+todo registrado hasta el miércoles», «falta registrar el martes»), el tablero
+propone **seguir marcando** en vez de calcular, y enviar con días sin
+registrar avisa sin bloquear. Los días que todavía no llegan no cuentan como
+pendientes — BR-400…404.
 
 **La navegación se rehízo el 15/08** (pedido de Rafael: «visualmente lo veo
 enredado»). Cuatro cosas: se entra por **«Esta semana»** —qué falta y un botón

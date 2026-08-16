@@ -491,3 +491,21 @@ Rafael desaparece **sin que nadie se entere**.
 | BR-393 | Los cambios sobre trabajo ajeno se muestran **en la propia semana**, con nombre, fecha y nota. Guardados en una tabla que nadie abre serían como no existir — Rafael pidió que «quede en la base». | CONFIRMED (Rafael, 2026-08-16) |
 | BR-394 | Un día sin autor conocido —los 12.906 del Excel y todo lo guardado antes de esta protección— **no acusa a nadie**: sin `updatedById` no hay choque. Tratarlos como «otra persona» le pondría una pared a quien captura solo, que es el caso de casi todos los días. | CONFIRMED |
 | BR-395 | Si la marca de apertura llega vacía o ilegible, **se deja pasar**. Un formulario viejo o un campo que no llegó no puede convertirse en una pared: la protección es contra un accidente entre dos personas, no un candado. | CONFIRMED |
+
+## 40. Guardado parcial: hasta dónde va la semana (BR-400 – BR-404)
+
+Rafael: «si uno va a empezar a tirar la nómina día a día, pero no la va a pasar
+a aprobación hasta final de la semana, ¿cómo se maneja eso?».
+
+Guardar cuantas veces se quiera ya funcionaba. Lo que faltaba era **verlo**:
+una semana a medias y una terminada se veían idénticas, y esa confusión cuesta
+en las dos direcciones — o se manda a aprobación sin el jueves, o se deja
+quieta una semana que ya estaba lista.
+
+| # | Regla | Estado |
+|---|-------|--------|
+| BR-400 | **Los días que no han llegado no faltan.** Marcar el sábado un martes no tiene sentido, y contarlo como pendiente volvería el aviso ruido que se aprende a ignorar. Solo cuentan los días ya corridos. | CONFIRMED (Rafael, 2026-08-16) |
+| BR-401 | El aviso dice **qué días** faltan por su nombre («falta registrar el martes»), no un porcentaje ni un conteo de casillas. Un número no le dice a nadie qué hacer. Solo cuando ningún día está en blanco del todo se habla de casillas sueltas. | CONFIRMED |
+| BR-402 | «No trabajó» **cuenta como registrado**: es una respuesta, no un vacío. Lo que falta es la casilla en «—», que significa que nadie la ha mirado. | CONFIRMED |
+| BR-403 | Con días sin registrar, el paso que propone el tablero es **seguir marcando**, no calcular. Empujar a calcular una semana a medias es empujar a pagar de menos. | CONFIRMED |
+| BR-404 | Enviar a aprobación con días sin registrar **avisa pero no bloquea**: una semana puede cerrarse antes de tiempo (un corte, alguien que se retira). Lo que no puede es pasar desapercibido — «lo que no quede registrado no se paga en esta semana». | CONFIRMED |

@@ -1030,6 +1030,23 @@ async function main() {
   check('y por eso no frenan a quien captura solo',
     evaluarGuardado(semanaVieja, { abiertaEn: abrióLeo, usuarioId: leo.id }).tipo === 'LIBRE')
 
+  // ── 18. Hasta dónde va la captura de la semana
+  console.log('\n18. Que se vea si la semana está a medias')
+  /*
+   * La semana del choque tiene UN día marcado de siete. Vista desde el
+   * tablero tiene que decir que falta, y decir QUÉ falta: si una semana a
+   * medias se ve igual que una terminada, se manda a aprobación sin el jueves
+   * y esos días no se le pagan a nadie.
+   */
+  const comoVa = await weekFocus(PREFIX)
+  check('el tablero mira la semana donde está el trabajo',
+    comoVa.weekId === semanaChoque.id, `${comoVa.label}`)
+  check('avisa que la semana está a medias', comoVa.captura !== null, String(comoVa.captura))
+  check('dice qué días faltan, con nombre',
+    (comoVa.captura ?? '').includes('domingo'), String(comoVa.captura))
+  check('y que ya pasó, así que no se llenan solos',
+    (comoVa.captura ?? '').includes('ya pasó'), String(comoVa.captura))
+
   await cleanup()
 
   console.log(`\n${passed}/${passed + failed} comprobaciones correctas`)

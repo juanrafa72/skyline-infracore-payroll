@@ -19,6 +19,7 @@ import { prisma } from '@/lib/db/client'
 import { vencimientosPendientes } from '@/lib/equipment/records-service'
 import { cuantosFrenan } from '@/lib/payroll/exceptions/service'
 import { ratesStatus, workersMissingRateCount } from '@/lib/payroll/rates-status/service'
+import { progresoDeLaSemana } from '@/lib/payroll/progreso'
 import { CON_TRABAJO_NUESTRO } from '@/lib/payroll/week-scope'
 import { toIso, weekRangeOf } from '@/lib/payroll/week'
 
@@ -44,6 +45,14 @@ export interface WeekFocus {
   paid: number
   /** Órdenes de desembolso de esa semana todavía sin pagar del todo. */
   openOrders: number
+  /**
+   * Hasta dónde va la captura de días, en una frase. `null` cuando ya no
+   * aplica —la semana pasó de marcar días— o cuando está al día.
+   *
+   * Se marca día a día pero solo se manda a aprobación al final: sin esto,
+   * una semana a medias y una terminada se ven igual desde el tablero.
+   */
+  captura: string | null
   /** 1 marcar · 2 calcular · 3 aprobar · 4 pagar · 5 todo al día. */
   step: 1 | 2 | 3 | 4 | 5
   /**
@@ -84,13 +93,15 @@ export async function weekFocus(companyId: string): Promise<WeekFocus> {
       approvedUnpaid: 0,
       paid: 0,
       openOrders: 0,
+      captura: null,
       step: 1,
       nextWeekLabel: null,
       nextWeekStart: null,
     }
   }
 
-  const [people, workers, crews, equipment, openOrders] = await Promise.all([
+  const [people, workers, crews, equipment, openOrders, marcados, enLaSemana] =
+    await Promise.all([
     prisma.workEntry.findMany({
       where: { companyId, payrollWeekId: week.id, isControlOnly: false },
       select: { workerId: true },
@@ -118,6 +129,15 @@ export async function weekFocus(companyId: string): Promise<WeekFocus> {
         status: { in: ['PENDING_PAYMENT', 'PARTIALLY_PAID'] },
       },
     }),
+    // Qué casillas de la rejilla ya tienen respuesta, para saber hasta dónde
+    // va la captura. Los días de control no cuentan: anotan, no pagan.
+    prisma.workEntry.findMany({
+      where: { companyId, payrollWeekId: week.id, isControlOnly: false },
+      select: { workerId: true, workDate: true },
+    }),
+    prisma.payrollWeekMember.count({
+      where: { companyId, payrollWeekId: week.id, removedAt: null },
+    }),
   ])
 
   const rows = [...workers, ...crews, ...equipment]
@@ -143,6 +163,28 @@ export async function weekFocus(companyId: string): Promise<WeekFocus> {
             ? 4
             : 5
 
+  /*
+   * Hasta dónde va la captura — solo mientras se está capturando.
+   *
+   * Después de enviar a aprobación la frase sobraría: ya no se marcan días, y
+   * un aviso que no se puede atender es ruido.
+   */
+  const dias: string[] = []
+  for (
+    let cursor = new Date(week.startDate);
+    toIso(cursor) <= toIso(week.endDate);
+    cursor.setUTCDate(cursor.getUTCDate() + 1)
+  ) {
+    dias.push(toIso(cursor))
+  }
+  const progreso = progresoDeLaSemana({
+    dias,
+    personas: Math.max(enLaSemana, people.length),
+    registradas: new Set(marcados.map((dia) => `${dia.workerId}:${toIso(dia.workDate)}`)),
+    hoy: today,
+  })
+  const captura = step <= 2 && !progreso.alDia ? progreso.resumen : null
+
   // Cuando la semana mostrada ya está saldada y hoy cae más adelante, lo que
   // sigue es abrir la nueva. No se abre sola: abrir un período es un acto de
   // quien prepara, no un efecto de mirar una pantalla.
@@ -161,6 +203,7 @@ export async function weekFocus(companyId: string): Promise<WeekFocus> {
     approvedUnpaid,
     paid,
     openOrders,
+    captura,
     step,
     nextWeekLabel: settled && ahead ? `Semana del ${calendar.startDate}` : null,
     nextWeekStart: settled && ahead ? calendar.startDate : null,
