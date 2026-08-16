@@ -21,6 +21,8 @@ import { snapshotRevenue } from '@/lib/margin/service'
 import { offCyclePeriod, periodOf, type PayPeriodType } from '@/lib/payroll/period'
 import { reiniciarSemana } from '@/lib/payroll/reset'
 import { projectForDay, readProjectSelection } from '@/lib/payroll/grid'
+import { UNIDAD_MEDIDA } from '@/lib/payroll/labels'
+import { multiplyQuantity } from '@/lib/payroll/engine/money'
 import { toIso } from '@/lib/payroll/week'
 import { evaluarGuardado, fechaDeApertura, notaSuficiente } from '@/lib/payroll/concurrencia'
 import { estadoDeLaSemana } from '@/lib/payroll/concurrencia-service'
@@ -1049,4 +1051,122 @@ export async function toggleCuadrillaEnSemana(
 
   revalidatePath(`/payroll/${weekId}`)
   return resultado.ok ? `LISTO|${resultado.message}` : resultado.message
+}
+
+/**
+ * Capturar lo que construyó una cuadrilla, desde la misma semana.
+ *
+ * Nació de un callejón real: agregar una cuadrilla a la semana no servía de
+ * nada. Sin producción no hay liquidación, sin liquidación no hay desglose, y
+ * la producción se capturaba en OTRA pantalla que además exigía una
+ * negociación creada de antemano. Quien agregaba a Jesús se quedaba mirando
+ * «aún sin liquidar» sin nada que oprimir.
+ *
+ * Aquí se captura con la tarifa a la vista y editable —«10.000 pies a $0.30»—,
+ * que es como el negocio lo dice. Si esa cuadrilla no tenía negociación para
+ * esa unidad y ese precio, se le crea: es la misma información, y obligar a
+ * registrarla aparte antes de poder usarla es lo que hacía la pantalla
+ * inservible.
+ */
+export async function capturarProduccionDeCuadrilla(
+  _previous: string | null,
+  formData: FormData,
+): Promise<string> {
+  const user = await assertCan('payroll:edit')
+  const company = await getActiveCompany()
+
+  const weekId = String(formData.get('weekId') ?? '')
+  const crewId = String(formData.get('crewId') ?? '')
+  const fecha = String(formData.get('fecha') ?? '')
+  const cantidad = String(formData.get('cantidad') ?? '').trim()
+  const tarifa = String(formData.get('tarifa') ?? '').trim()
+  const unidad = String(formData.get('unidad') ?? 'FOOT')
+  const projectId = String(formData.get('projectId') ?? '') || null
+
+  if (!/^\d+(\.\d{1,2})?$/.test(cantidad) || Number(cantidad) <= 0) {
+    return 'Escribe cuánto se construyó, en números. Ejemplo: 10000'
+  }
+  if (!/^\d+(\.\d{1,4})?$/.test(tarifa) || Number(tarifa) <= 0) {
+    return 'Escribe la tarifa que se le paga por unidad. Ejemplo: 0.30'
+  }
+
+  const semana = await prisma.payrollWeek.findFirst({
+    where: { id: weekId, companyId: company.id },
+    select: { id: true, startDate: true, endDate: true, status: true },
+  })
+  if (!semana) return 'Esa semana no existe en esta compañía.'
+  if (semana.status === 'CLOSED') return 'La semana está cerrada.'
+
+  const crew = await prisma.crew.findFirst({
+    where: { id: crewId, companyId: company.id },
+    select: { id: true, name: true },
+  })
+  if (!crew) return 'Esa cuadrilla no existe en esta compañía.'
+
+  /*
+   * La fecha cae dentro de la semana o no se guarda: una producción fuera del
+   * corte se liquidaría en otra semana y nadie entendería por qué desapareció.
+   */
+  const desde = toIso(semana.startDate)
+  const hasta = toIso(semana.endDate)
+  const dia = fecha || desde
+  if (dia < desde || dia > hasta) {
+    return `Esa fecha no cae en esta semana (${desde} → ${hasta}).`
+  }
+
+  const etiqueta = UNIDAD_MEDIDA[unidad] ?? 'unidades'
+
+  // ¿Ya hay una negociación igual? Se reutiliza; si no, se crea.
+  let pricing = await prisma.crewPricing.findFirst({
+    where: {
+      companyId: company.id,
+      crewId,
+      unitOfMeasure: unidad,
+      pricePerUnit: tarifa,
+      active: true,
+      effectiveFrom: { lte: new Date(`${dia}T00:00:00Z`) },
+    },
+    orderBy: { effectiveFrom: 'desc' },
+  })
+
+  if (!pricing) {
+    pricing = await prisma.crewPricing.create({
+      data: {
+        companyId: company.id,
+        crewId,
+        projectId,
+        unitCode: unidad,
+        unitLabel: etiqueta,
+        unitOfMeasure: unidad,
+        pricePerUnit: tarifa,
+        effectiveFrom: new Date(`${dia}T00:00:00Z`),
+        notes: 'Creada al capturar la producción desde la semana.',
+        createdById: user.id,
+      },
+    })
+  }
+
+  const amount = multiplyQuantity(toCents(tarifa), cantidad)
+
+  await prisma.production.create({
+    data: {
+      companyId: company.id,
+      payrollWeekId: semana.id,
+      crewId,
+      pricingId: pricing.id,
+      projectId: projectId ?? pricing.projectId,
+      productionDate: new Date(`${dia}T00:00:00Z`),
+      unitCode: pricing.unitCode,
+      unitLabel: pricing.unitLabel,
+      unitOfMeasure: pricing.unitOfMeasure,
+      quantity: cantidad,
+      appliedPrice: tarifa,
+      amount: toDecimalString(amount),
+      createdById: user.id,
+    },
+  })
+
+  revalidatePath(`/payroll/${weekId}`)
+  revalidatePath('/liquidar-cuadrillas')
+  return `LISTO|${crew.name}: ${Number(cantidad).toLocaleString('en-US')} ${etiqueta} × $${tarifa} = $${toDecimalString(amount)}. Presiona «Calcular nómina» para liquidarla.`
 }

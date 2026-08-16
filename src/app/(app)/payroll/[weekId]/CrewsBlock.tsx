@@ -1,7 +1,11 @@
 'use client'
 
-import { useActionState, useState } from 'react'
-import { saveCrewControlDays, toggleCuadrillaEnSemana } from '../actions'
+import { useActionState, useState, useTransition } from 'react'
+import {
+  capturarProduccionDeCuadrilla,
+  saveCrewControlDays,
+  toggleCuadrillaEnSemana,
+} from '../actions'
 import { ContractorBreakdown, type ContractorPanel } from './ContractorBreakdown'
 
 export interface CrewProductionRow {
@@ -46,6 +50,164 @@ function currency(value: string | number): string {
  * control interno — por eso viven en una cuadrícula aparte de la de personal,
  * y guardarlos jamás toca un día pagado.
  */
+/**
+ * Capturar lo que construyó una cuadrilla, sin salir de la semana.
+ *
+ * Agregar una cuadrilla no servía de nada: sin producción no hay liquidación,
+ * sin liquidación no hay desglose que editar, y la producción se capturaba en
+ * otra pantalla que además exigía una negociación creada de antemano. Quien
+ * agregaba a Jesús se quedaba mirando «aún sin liquidar» sin nada que oprimir.
+ *
+ * Se pide como lo dice el negocio —«10.000 pies a $0.30»— y con la tarifa
+ * editable. SIN formulario propio: vive dentro del formulario de los días de
+ * control, y un <form> dentro de otro es HTML inválido.
+ */
+function CapturarProduccion({
+  weekId,
+  crewId,
+  crewName,
+  desde,
+  projects,
+}: {
+  weekId: string
+  crewId: string
+  crewName: string
+  /** Primer día de la semana: la fecha que se propone. */
+  desde: string
+  projects: ReadonlyArray<{ id: string; name: string }>
+}) {
+  const [pendiente, empezar] = useTransition()
+  const [mensaje, setMensaje] = useState<string | null>(null)
+  const [cantidad, setCantidad] = useState('')
+  const [tarifa, setTarifa] = useState('')
+  const [fecha, setFecha] = useState(desde)
+  const [proyecto, setProyecto] = useState('')
+  const [unidad, setUnidad] = useState('FOOT')
+
+  const total =
+    Number(cantidad) > 0 && Number(tarifa) > 0
+      ? (Number(cantidad) * Number(tarifa)).toLocaleString('en-US', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })
+      : null
+
+  return (
+    <div className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--hover)] p-3">
+      <p className="mb-2 text-xs font-medium">
+        ¿Qué construyó {crewName} esta semana?
+      </p>
+
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="text-xs">
+          <span className="mb-0.5 block text-[var(--muted)]">Cantidad</span>
+          <input
+            value={cantidad}
+            onChange={(e) => setCantidad(e.target.value)}
+            inputMode="decimal"
+            placeholder="10000"
+            className="h-8 w-28 rounded border border-[var(--border)] bg-[var(--bg)] px-2 text-sm"
+          />
+        </label>
+
+        <label className="text-xs">
+          <span className="mb-0.5 block text-[var(--muted)]">Unidad</span>
+          <select
+            value={unidad}
+            onChange={(e) => setUnidad(e.target.value)}
+            className="h-8 rounded border border-[var(--border)] bg-[var(--bg)] px-1 text-sm"
+          >
+            <option value="FOOT">pies</option>
+            <option value="METER">metros</option>
+            <option value="UNIT">unidades</option>
+          </select>
+        </label>
+
+        <label className="text-xs">
+          <span className="mb-0.5 block text-[var(--muted)]">Se le paga por unidad</span>
+          <input
+            value={tarifa}
+            onChange={(e) => setTarifa(e.target.value)}
+            inputMode="decimal"
+            placeholder="0.30"
+            className="h-8 w-24 rounded border border-[var(--border)] bg-[var(--bg)] px-2 text-sm"
+          />
+        </label>
+
+        <label className="text-xs">
+          <span className="mb-0.5 block text-[var(--muted)]">Fecha</span>
+          <input
+            type="date"
+            value={fecha}
+            onChange={(e) => setFecha(e.target.value)}
+            className="h-8 rounded border border-[var(--border)] bg-[var(--bg)] px-2 text-sm"
+          />
+        </label>
+
+        {projects.length > 0 ? (
+          <label className="text-xs">
+            <span className="mb-0.5 block text-[var(--muted)]">Proyecto</span>
+            <select
+              value={proyecto}
+              onChange={(e) => setProyecto(e.target.value)}
+              className="h-8 rounded border border-[var(--border)] bg-[var(--bg)] px-1 text-sm"
+            >
+              <option value="">— sin proyecto —</option>
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+
+        <button
+          type="button"
+          disabled={pendiente}
+          onClick={() => {
+            setMensaje(null)
+            const datos = new FormData()
+            datos.set('weekId', weekId)
+            datos.set('crewId', crewId)
+            datos.set('cantidad', cantidad)
+            datos.set('tarifa', tarifa)
+            datos.set('fecha', fecha)
+            datos.set('unidad', unidad)
+            datos.set('projectId', proyecto)
+            empezar(async () => {
+              const resultado = await capturarProduccionDeCuadrilla(null, datos)
+              setMensaje(resultado)
+              if (resultado.startsWith('LISTO|')) {
+                setCantidad('')
+                setTarifa('')
+              }
+            })
+          }}
+          className="brand-gradient inline-flex h-8 items-center rounded-full px-4 text-xs font-medium text-white disabled:opacity-45"
+        >
+          {pendiente ? 'Guardando…' : 'Guardar producción'}
+        </button>
+
+        {/* La cuenta a la vista mientras se teclea: es la calculadora que pidió el negocio. */}
+        {total ? (
+          <span className="text-sm font-semibold tabular-nums">= ${total}</span>
+        ) : null}
+      </div>
+
+      {mensaje ? (
+        <p
+          className={`mt-2 text-xs ${
+            mensaje.startsWith('LISTO|') ? 'text-emerald-800' : 'text-amber-800'
+          }`}
+        >
+          {mensaje.replace(/^LISTO\|/, '')}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
 /**
  * Escoger qué cuadrillas se liquidan esta semana.
  *
@@ -243,7 +405,9 @@ export function CrewsBlock({
                   </div>
                 ) : (
                   <p className="text-xs text-[var(--muted)]">
-                    aún sin liquidar — presiona «Calcular nómina»
+                    {crew.billingMode === 'DAILY'
+                      ? 'aún sin liquidar — marca los días y presiona «Calcular nómina»'
+                      : 'aún sin liquidar — captura lo que construyó, aquí abajo'}
                   </p>
                 )}
               </div>
@@ -253,6 +417,21 @@ export function CrewsBlock({
                 No confundir con los días de control de su gente, que van
                 abajo: estos SÍ pagan, y le pagan al contratista.
               */}
+              {/*
+                Sin liquidación todavía: aquí se captura lo que construyó, con
+                la tarifa a la vista. Antes había que irse a otra pantalla y
+                además tener creada la negociación.
+              */}
+              {crew.billingMode === 'PRODUCTION' && !crew.payable ? (
+                <CapturarProduccion
+                  weekId={weekId}
+                  crewId={crew.crewId}
+                  crewName={crew.crewName}
+                  desde={shortDays[0]?.iso ?? ''}
+                  projects={projects}
+                />
+              ) : null}
+
               {crew.billingMode === 'DAILY' ? (
                 <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50/50 p-2.5">
                   <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">

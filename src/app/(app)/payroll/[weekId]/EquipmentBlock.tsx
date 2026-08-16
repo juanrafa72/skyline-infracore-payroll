@@ -28,13 +28,16 @@ export interface ProjectOption {
   name: string
 }
 
-type Filtro = 'TODOS' | 'RENTED' | 'OWNED'
+type Filtro = 'ACTIVOS' | 'TODOS' | 'RENTED' | 'OWNED'
 
 /*
- * Rentados y Propios muestran los de ESTA semana. «Todos» muestra el catálogo
- * completo, y es donde se agregan o se sacan — así lo pidió el negocio.
+ * «Activos» son los que están en obra ESTA semana —rentados y propios juntos—
+ * y es donde se marcan los días, igual que la rejilla de la gente. Rentados y
+ * Propios son el mismo grupo, partido, para cuando se quiere mirar solo uno.
+ * «Todos» es el catálogo completo: ahí se activan y se desactivan.
  */
 const FILTROS: ReadonlyArray<{ value: Filtro; label: string }> = [
+  { value: 'ACTIVOS', label: 'Activos' },
   { value: 'RENTED', label: 'Rentados' },
   { value: 'OWNED', label: 'Propios' },
   { value: 'TODOS', label: 'Todos' },
@@ -162,26 +165,26 @@ export function EquipmentBlock({
    * mostrar una lista vacía sería peor.
    */
   const hayEnLaSemana = rows.some((row) => row.enLaSemana)
-  const hayRentados = rows.some((row) => row.ownership === 'RENTED' && row.enLaSemana)
   /*
-   * Si la semana no tiene ningún equipo todavía, abre en «Todos»: es donde se
-   * agregan, y mostrar una lista vacía sin decir dónde está el botón fue
-   * exactamente lo que dejó al negocio sin salida.
+   * Abre en «Activos»: es donde se trabaja. Si la semana todavía no tiene
+   * ninguno, abre en «Todos», que es donde se activan — mostrar una lista
+   * vacía sin decir dónde está el botón fue lo que dejó al negocio sin salida.
    */
-  const [filtro, setFiltro] = useState<Filtro>(
-    !hayEnLaSemana ? 'TODOS' : hayRentados ? 'RENTED' : 'OWNED',
-  )
+  const [filtro, setFiltro] = useState<Filtro>(hayEnLaSemana ? 'ACTIVOS' : 'TODOS')
 
   const visibles = useMemo(
     () =>
       filtro === 'TODOS'
         ? rows
-        : rows.filter((row) => row.ownership === filtro && row.enLaSemana),
+        : filtro === 'ACTIVOS'
+          ? rows.filter((row) => row.enLaSemana)
+          : rows.filter((row) => row.ownership === filtro && row.enLaSemana),
     [rows, filtro],
   )
 
   const cuenta = useMemo(
     () => ({
+      activos: rows.filter((r) => r.enLaSemana).length,
       rentados: rows.filter((r) => r.ownership === 'RENTED' && r.enLaSemana).length,
       propios: rows.filter((r) => r.ownership === 'OWNED' && r.enLaSemana).length,
       todos: rows.length,
@@ -224,6 +227,7 @@ export function EquipmentBlock({
                 }`}
               >
                 {opcion.label}
+                {opcion.value === 'ACTIVOS' ? ` (${cuenta.activos})` : null}
                 {opcion.value === 'RENTED' ? ` (${cuenta.rentados})` : null}
                 {opcion.value === 'OWNED' ? ` (${cuenta.propios})` : null}
                 {opcion.value === 'TODOS' ? ` (${cuenta.todos})` : null}
@@ -258,11 +262,16 @@ export function EquipmentBlock({
       {filtro !== 'TODOS' ? (
         <div className="mx-3.5 mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[var(--hover)] px-3 py-2">
           <span className="text-sm">
-            <strong>{filtro === 'RENTED' ? cuenta.rentados : cuenta.propios}</strong> equipo
-            {(filtro === 'RENTED' ? cuenta.rentados : cuenta.propios) === 1 ? '' : 's'}{' '}
-            {filtro === 'RENTED' ? 'rentado' : 'propio'}
-            {(filtro === 'RENTED' ? cuenta.rentados : cuenta.propios) === 1 ? '' : 's'} en esta
-            semana
+            <strong>
+              {filtro === 'ACTIVOS'
+                ? cuenta.activos
+                : filtro === 'RENTED'
+                  ? cuenta.rentados
+                  : cuenta.propios}
+            </strong>{' '}
+            equipo(s){' '}
+            {filtro === 'ACTIVOS' ? 'en obra' : filtro === 'RENTED' ? 'rentado(s)' : 'propio(s)'} en
+            esta semana
           </span>
           <button
             type="button"
@@ -326,9 +335,11 @@ export function EquipmentBlock({
 
         {visibles.length === 0 ? (
           <p className="p-3.5 text-sm text-[var(--muted)]">
-            Ningún equipo {filtro === 'RENTED' ? 'rentado' : 'propio'} está en esta semana. Ve a{' '}
-            <strong>Todos</strong> y oprime <strong>+ Agregar</strong> en los que estuvieron en
-            obra.
+            {filtro === 'ACTIVOS'
+              ? 'Todavía no hay equipos en esta semana. '
+              : `Ningún equipo ${filtro === 'RENTED' ? 'rentado' : 'propio'} está en esta semana. `}
+            Ve a <strong>Todos</strong> y oprime <strong>+ Agregar</strong> en los que estuvieron
+            en obra.
           </p>
         ) : (
           <div className="overflow-x-auto p-3.5">
